@@ -12,8 +12,8 @@
     <button id="add-tank" class="btn">+ Add tank</button>
   </header>
 
-  <!-- Tank cards get drawn in here by app.js -->
-  <main id="tanks" class="grid"></main>
+  <!-- Tank cards get drawn in here by app.js, grouped by location -->
+  <main id="tanks"></main>
 
   <!-- Batches that have been packaged (no longer in a tank) -->
   <section id="packaged" class="history" hidden>
@@ -66,21 +66,38 @@
     </form>
   </dialog>
 
-  <!-- Pop-up form for the tank itself (name and type) -->
+  <!-- Pop-up form for the tank itself. Tanks rarely change: set them up once. -->
   <dialog id="tank-editor">
     <form id="tank-form">
       <h2 id="tank-title">Tank</h2>
 
-      <label>Tank name
-        <input name="name" required placeholder="FV-5">
-      </label>
+      <div class="two-col">
+        <label>Tank name
+          <input name="name" required placeholder="FV-5">
+        </label>
+        <label>Capacity (bbl)
+          <input name="capacityBbl" type="number" min="0" step="0.5" placeholder="15">
+        </label>
+      </div>
 
       <label>Type
-        <select name="type">
-          <option value="fermenter">Fermenter</option>
-          <option value="brite">Brite tank</option>
+        <select name="type"></select>
+      </label>
+
+      <label>Location
+        <input name="location" list="location-options" placeholder="Which facility">
+        <datalist id="location-options"></datalist>
+      </label>
+
+      <!-- Only shown when the tank is empty. A tank with beer in it is "occupied" automatically. -->
+      <label id="status-field">Status
+        <select name="status">
+          <option value="empty">Empty (ready to fill)</option>
+          <option value="cleaning">Cleaning</option>
+          <option value="maintenance">Maintenance</option>
         </select>
       </label>
+      <p id="occupied-note" class="muted"></p>
 
       <div class="actions">
         <button type="button" id="delete-tank" class="btn danger">Delete</button>

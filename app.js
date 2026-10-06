@@ -17,6 +17,22 @@ const STAGES = [
   { id: "packaged",     label: "Packaged" }, // packaged = out of the tank
 ];
 
+const TANK_TYPES = [
+  { id: "fermenter", label: "Fermenter" },
+  { id: "brite",     label: "Brite tank" },
+  { id: "serving",   label: "Serving tank" },
+  { id: "lagering",  label: "Lagering tank" },
+];
+
+// A tank's status. "occupied" is never saved: a tank is occupied whenever
+// a batch is in it. The other three are set by a person.
+const TANK_STATUSES = [
+  { id: "empty",       label: "Empty" },
+  { id: "occupied",    label: "Occupied" },
+  { id: "cleaning",    label: "Cleaning" },
+  { id: "maintenance", label: "Maintenance" },
+];
+
 // ---------- 2. Small helpers ----------
 function toDateString(d) {
   // "2026-10-05" format, using the local date (not UTC)
@@ -50,9 +66,11 @@ function formatDate(dateString) {
   return parseDate(dateString).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
-function stageLabel(id) {
-  return (STAGES.find((s) => s.id === id) || {}).label || id;
+// Look up the display label for a stage, tank type, or status id
+function labelFrom(list, id) {
+  return (list.find((item) => item.id === id) || {}).label || id;
 }
+const stageLabel = (id) => labelFrom(STAGES, id);
 
 // Every tank and batch gets a hidden internal ID that never changes.
 // That way you can rename a tank or fix a typo in a batch number
@@ -73,12 +91,13 @@ function esc(text) {
 function sampleData() {
   return {
     tanks: [
-      { id: "fv1", name: "FV-1", type: "fermenter" },
-      { id: "fv2", name: "FV-2", type: "fermenter" },
-      { id: "fv3", name: "FV-3", type: "fermenter" },
-      { id: "fv4", name: "FV-4", type: "fermenter" },
-      { id: "bt1", name: "BT-1", type: "brite" },
-      { id: "bt2", name: "BT-2", type: "brite" },
+      { id: "fv1", name: "FV-1", type: "fermenter", capacityBbl: 15, location: "Downtown", status: "empty" },
+      { id: "fv2", name: "FV-2", type: "fermenter", capacityBbl: 15, location: "Downtown", status: "empty" },
+      { id: "fv3", name: "FV-3", type: "fermenter", capacityBbl: 15, location: "Downtown", status: "empty" },
+      { id: "bt1", name: "BT-1", type: "brite",     capacityBbl: 15, location: "Downtown", status: "empty" },
+      { id: "fv4", name: "FV-4", type: "fermenter", capacityBbl: 7,  location: "Riverside",   status: "empty" },
+      { id: "bt2", name: "BT-2", type: "brite",     capacityBbl: 7,  location: "Riverside",   status: "empty" },
+      { id: "st1", name: "ST-1", type: "serving",   capacityBbl: 7,  location: "Riverside",   status: "cleaning" },
     ],
     batches: [
       { id: "b1042", batchId: "1042", beerName: "House Hazy",           brewDate: daysAgo(4),  sizeBbl: 15, stage: "fermenting",   stageStartDate: daysAgo(4),  tankId: "fv1" },
@@ -102,7 +121,7 @@ const OLD_STORAGE_KEY = "brewery-os.tanks"; // where the first version (no batch
 function loadData() {
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) return JSON.parse(saved);
+    if (saved) return fillInNewTankFields(JSON.parse(saved));
 
     // If you entered tanks in the first version, carry them over instead of losing them
     const old = localStorage.getItem(OLD_STORAGE_KEY);
@@ -126,6 +145,16 @@ function convertOldData(oldTanks) {
         stage: t.stage, stageStartDate: t.stageStart, tankId: tank.id,
       });
     }
+  }
+  return fillInNewTankFields(data);
+}
+
+// Tanks saved before capacity/location/status existed get blank values
+function fillInNewTankFields(data) {
+  for (const tank of data.tanks) {
+    tank.capacityBbl ??= null;
+    tank.location ??= "";
+    tank.status ??= "empty";
   }
   return data;
 }
@@ -151,9 +180,18 @@ function batchInTank(tankId) {
   return data.batches.find((b) => b.tankId === tankId && isInTank(b));
 }
 
+function findTank(tankId) {
+  return data.tanks.find((t) => t.id === tankId);
+}
+
 function tankName(tankId) {
-  const tank = data.tanks.find((t) => t.id === tankId);
+  const tank = findTank(tankId);
   return tank ? tank.name : "?";
+}
+
+// "occupied" if a batch is inside; otherwise whatever a person set (empty, cleaning, maintenance)
+function tankStatus(tank) {
+  return batchInTank(tank.id) ? "occupied" : tank.status;
 }
 
 function batchLabel(batch) {
@@ -161,12 +199,24 @@ function batchLabel(batch) {
 }
 
 // ---------- 6. Drawing the page ----------
-const grid = document.getElementById("tanks");
+const tanksArea = document.getElementById("tanks");
 const packagedSection = document.getElementById("packaged");
 const packagedList = document.getElementById("packaged-list");
 
+function allLocations() {
+  return [...new Set(data.tanks.map((t) => t.location))];
+}
+
 function render() {
-  grid.innerHTML = data.tanks.map(tankCard).join("");
+  // One group of cards per location. Headings only show if there's more than one location.
+  const locations = allLocations();
+  tanksArea.innerHTML = locations.map((loc) => `
+    <section class="location">
+      ${locations.length > 1 ? `<h2>${esc(loc || "No location")}</h2>` : ""}
+      <div class="grid">
+        ${data.tanks.filter((t) => t.location === loc).map(tankCard).join("")}
+      </div>
+    </section>`).join("");
 
   // Packaged batches, newest first
   const packaged = data.batches
@@ -184,18 +234,21 @@ function render() {
 
 function tankCard(tank) {
   const batch = batchInTank(tank.id);
+  // Capacity only on empty tanks; a full tank shows the batch size instead
+  const capacity = tank.capacityBbl && !batch ? ` · ${tank.capacityBbl} bbl` : "";
   const header = `
     <div class="tank-row">
       <span class="tank">${esc(tank.name)}</span>
-      <span class="type">${tank.type === "brite" ? "Brite tank" : "Fermenter"}</span>
+      <span class="type">${labelFrom(TANK_TYPES, tank.type)}${capacity}</span>
     </div>`;
 
   if (!batch) {
+    const hint = tank.status === "empty" ? "Tap to start a batch" : "Tap to update status";
     return `
-      <button class="card" data-tank="${tank.id}" style="--stage-color: var(--empty)">
+      <button class="card" data-tank="${tank.id}" style="--stage-color: var(--${tank.status})">
         ${header}
-        <div class="beer none">Empty</div>
-        <div class="meta">Tap to start a batch</div>
+        <div class="beer none">${labelFrom(TANK_STATUSES, tank.status)}</div>
+        <div class="meta">${hint}</div>
       </button>`;
   }
 
@@ -230,11 +283,16 @@ function openBatchEditor(batch, tankId) {
     stage: "fermenting", stageStartDate: today(), tankId,
   };
 
-  // Tank dropdown: show what's in each tank so you don't move beer into a full one
+  // Tank dropdown: show what's in each tank (or that it's being cleaned)
+  // so you don't move beer into the wrong one
+  const showLocation = allLocations().length > 1;
   batchForm.tankId.innerHTML = data.tanks.map((t) => {
     const occupant = batchInTank(t.id);
-    const note = occupant && occupant !== batch ? ` (has ${esc(occupant.beerName)})` : "";
-    return `<option value="${t.id}">${esc(t.name)}${note}</option>`;
+    let note = "";
+    if (occupant && occupant !== batch) note = ` (has ${esc(occupant.beerName)})`;
+    else if (!occupant && t.status !== "empty") note = ` (${labelFrom(TANK_STATUSES, t.status).toLowerCase()})`;
+    const where = showLocation && t.location ? ` · ${esc(t.location)}` : "";
+    return `<option value="${t.id}">${esc(t.name)}${where}${note}</option>`;
   }).join("");
 
   document.getElementById("batch-title").textContent =
@@ -276,17 +334,42 @@ batchForm.addEventListener("submit", (e) => {
     return;
   }
 
-  // Check 2: one batch per tank
-  if (values.stage !== "packaged") {
+  const target = findTank(values.tankId);
+  const willBeInTank = values.stage !== "packaged";
+  const wasInTank = editingBatch && isInTank(editingBatch);
+  const movingIn = willBeInTank && !(wasInTank && editingBatch.tankId === values.tankId);
+
+  if (willBeInTank) {
+    // Check 2: one batch per tank
     const occupant = others.find((b) => b.tankId === values.tankId && isInTank(b));
     if (occupant) {
-      alert(`${tankName(values.tankId)} already has ${occupant.beerName} in it. Move or package that batch first.`);
+      alert(`${target.name} already has ${occupant.beerName} in it. Move or package that batch first.`);
       return;
+    }
+
+    // Check 3: is the tank being cleaned or worked on? (Just a warning — you might have finished)
+    if (movingIn && target.status !== "empty") {
+      const status = labelFrom(TANK_STATUSES, target.status).toLowerCase();
+      if (!confirm(`${target.name} is marked as ${status}. Put ${values.beerName} in it anyway?`)) return;
+    }
+
+    // Check 4: will the beer fit? (Also just a warning)
+    if (values.sizeBbl && target.capacityBbl && values.sizeBbl > target.capacityBbl) {
+      if (!confirm(`${values.sizeBbl} bbl is more than ${target.name} holds (${target.capacityBbl} bbl). Save anyway?`)) return;
     }
   }
 
+  // If beer is leaving a tank (transferred or packaged), that tank needs cleaning next
+  const leavingTankId = wasInTank && (!willBeInTank || editingBatch.tankId !== values.tankId)
+    ? editingBatch.tankId
+    : null;
+
   if (editingBatch) Object.assign(editingBatch, values);
   else data.batches.push({ id: newId(), ...values });
+
+  if (leavingTankId && findTank(leavingTankId)) findTank(leavingTankId).status = "cleaning";
+  // The tank's saved status only matters once it's empty again, so reset it when beer goes in
+  if (movingIn) target.status = "empty";
   saveData();
   render();
   batchDialog.close();
@@ -302,7 +385,7 @@ document.getElementById("delete-batch").addEventListener("click", () => {
 
 document.getElementById("open-tank-settings").addEventListener("click", () => {
   batchDialog.close();
-  openTankEditor(data.tanks.find((t) => t.id === editingTankId));
+  openTankEditor(findTank(editingTankId));
 });
 
 // ---------- 8. Editing a tank ----------
@@ -310,28 +393,53 @@ const tankDialog = document.getElementById("tank-editor");
 const tankForm = document.getElementById("tank-form");
 let editingTank = null; // the tank open in the form, or null when adding a new one
 
+// Fill the Type dropdown from the TANK_TYPES list above
+tankForm.type.innerHTML = TANK_TYPES.map((t) => `<option value="${t.id}">${t.label}</option>`).join("");
+
 function openTankEditor(tank) {
   editingTank = tank;
+  const t = tank || { name: "", type: "fermenter", capacityBbl: null, location: "", status: "empty" };
+  const batch = tank && batchInTank(tank.id);
+
   document.getElementById("tank-title").textContent = tank ? `Edit ${tank.name}` : "Add tank";
   document.getElementById("delete-tank").hidden = !tank;
-  tankForm.name.value = tank ? tank.name : "";
-  tankForm.type.value = tank ? tank.type : "fermenter";
+
+  // Suggest locations you've already used, so "Riverside" doesn't also end up as "riverside"
+  document.getElementById("location-options").innerHTML =
+    allLocations().filter(Boolean).map((loc) => `<option value="${esc(loc)}">`).join("");
+
+  // Status can only be set by hand when the tank is empty
+  document.getElementById("status-field").hidden = !!batch;
+  document.getElementById("occupied-note").hidden = !batch;
+  if (batch) {
+    document.getElementById("occupied-note").textContent =
+      `Occupied by ${batch.beerName}${batch.batchId ? " #" + batch.batchId : ""}.`;
+  }
+
+  tankForm.name.value = t.name;
+  tankForm.type.value = t.type;
+  tankForm.capacityBbl.value = t.capacityBbl ?? "";
+  // A new tank goes in the same location as the last tank, as a starting guess
+  tankForm.location.value = tank ? t.location : (data.tanks.at(-1)?.location ?? "");
+  tankForm.status.value = t.status;
   tankDialog.showModal();
 }
 
 tankForm.addEventListener("submit", (e) => {
   e.preventDefault();
-  const name = tankForm.name.value.trim();
-  if (data.tanks.some((t) => t !== editingTank && t.name.toLowerCase() === name.toLowerCase())) {
-    alert(`There's already a tank called ${name}.`);
+  const values = {
+    name: tankForm.name.value.trim(),
+    type: tankForm.type.value,
+    capacityBbl: tankForm.capacityBbl.value ? Number(tankForm.capacityBbl.value) : null,
+    location: tankForm.location.value.trim(),
+    status: tankForm.status.value,
+  };
+  if (data.tanks.some((t) => t !== editingTank && t.name.toLowerCase() === values.name.toLowerCase())) {
+    alert(`There's already a tank called ${values.name}.`);
     return;
   }
-  if (editingTank) {
-    editingTank.name = name;
-    editingTank.type = tankForm.type.value;
-  } else {
-    data.tanks.push({ id: newId(), name, type: tankForm.type.value });
-  }
+  if (editingTank) Object.assign(editingTank, values);
+  else data.tanks.push({ id: newId(), ...values });
   saveData();
   render();
   tankDialog.close();
@@ -352,11 +460,14 @@ document.getElementById("delete-tank").addEventListener("click", () => {
 
 // ---------- 9. Wiring up taps and clicks ----------
 // Tapping a tank card opens its batch (or a blank "new batch" form if it's empty)
-grid.addEventListener("click", (e) => {
+// ...unless it's being cleaned or worked on, then it opens the tank so you can mark it ready
+tanksArea.addEventListener("click", (e) => {
   const card = e.target.closest(".card");
   if (!card) return;
-  const tankId = card.dataset.tank;
-  openBatchEditor(batchInTank(tankId) || null, tankId);
+  const tank = findTank(card.dataset.tank);
+  const batch = batchInTank(tank.id);
+  if (!batch && tank.status !== "empty") openTankEditor(tank);
+  else openBatchEditor(batch || null, tank.id);
 });
 
 // Tapping a packaged batch opens it (to fix mistakes)
