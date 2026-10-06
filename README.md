@@ -203,6 +203,6 @@ The payoff for keeping accurate volumes at every step.
 | Commit | Change |
 |---|---|
 | `997bf62` | First tank dashboard: tanks with a beer, stage, and day counter |
-| `fa3f0cc` | Batches split out from tanks: transfers, packaging, guardrails |
-| `c1bc737` | Tank details: type, capacity, location, status |
-| `9e9534e` | Beers split out from batches: style, targets, calculated ABV |
+| `1ff6bf1` | Batches split out from tanks: transfers, packaging, guardrails |
+| `41cc5fa` | Tank details: type, capacity, location, status |
+| `0d32d75` | Beers split out from batches: style, targets, calculated ABV |

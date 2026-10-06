@@ -110,7 +110,7 @@ function esc(text) {
 function sampleData() {
   return {
     beers: [
-      { id: "house-hazy",           name: "House Hazy",           style: "Hazy IPA",           targetOg: 1.066, targetFg: 1.016 },
+      { id: "house-hazy",     name: "House Hazy",     style: "Hazy IPA",           targetOg: 1.066, targetFg: 1.016 },
       { id: "west-coast-ipa", name: "West Coast IPA", style: "American IPA",       targetOg: 1.062, targetFg: 1.010 },
       { id: "czech-pilsner",  name: "Czech Pilsner",  style: "Czech Pale Lager",   targetOg: 1.048, targetFg: 1.012 },
       { id: "oatmeal-stout",  name: "Oatmeal Stout",  style: "Oatmeal Stout",      targetOg: 1.058, targetFg: 1.016 },
@@ -120,16 +120,16 @@ function sampleData() {
       { id: "robust-porter",  name: "Robust Porter",  style: "American Porter",    targetOg: 1.060, targetFg: 1.016 },
     ],
     tanks: [
-      { id: "fv1", name: "FV-1", type: "fermenter", capacityBbl: 15, location: "Downtown", status: "empty" },
-      { id: "fv2", name: "FV-2", type: "fermenter", capacityBbl: 15, location: "Downtown", status: "empty" },
-      { id: "fv3", name: "FV-3", type: "fermenter", capacityBbl: 15, location: "Downtown", status: "empty" },
-      { id: "bt1", name: "BT-1", type: "brite",     capacityBbl: 15, location: "Downtown", status: "empty" },
-      { id: "fv4", name: "FV-4", type: "fermenter", capacityBbl: 7,  location: "Riverside",   status: "empty" },
-      { id: "bt2", name: "BT-2", type: "brite",     capacityBbl: 7,  location: "Riverside",   status: "empty" },
-      { id: "st1", name: "ST-1", type: "serving",   capacityBbl: 7,  location: "Riverside",   status: "cleaning" },
+      { id: "fv1", name: "FV-1", type: "fermenter", capacityBbl: 15, location: "Downtown",  status: "empty" },
+      { id: "fv2", name: "FV-2", type: "fermenter", capacityBbl: 15, location: "Downtown",  status: "empty" },
+      { id: "fv3", name: "FV-3", type: "fermenter", capacityBbl: 15, location: "Downtown",  status: "empty" },
+      { id: "bt1", name: "BT-1", type: "brite",     capacityBbl: 15, location: "Downtown",  status: "empty" },
+      { id: "fv4", name: "FV-4", type: "fermenter", capacityBbl: 7,  location: "Riverside", status: "empty" },
+      { id: "bt2", name: "BT-2", type: "brite",     capacityBbl: 7,  location: "Riverside", status: "empty" },
+      { id: "st1", name: "ST-1", type: "serving",   capacityBbl: 7,  location: "Riverside", status: "cleaning" },
     ],
     batches: [
-      { id: "b1042", batchId: "1042", beerId: "house-hazy",           brewDate: daysAgo(4),  sizeBbl: 15, stage: "fermenting",   stageStartDate: daysAgo(4),  tankId: "fv1" },
+      { id: "b1042", batchId: "1042", beerId: "house-hazy",     brewDate: daysAgo(4),  sizeBbl: 15, stage: "fermenting",   stageStartDate: daysAgo(4),  tankId: "fv1" },
       { id: "b1041", batchId: "1041", beerId: "west-coast-ipa", brewDate: daysAgo(9),  sizeBbl: 15, stage: "dry-hopping",  stageStartDate: daysAgo(2),  tankId: "fv2" },
       { id: "b1038", batchId: "1038", beerId: "czech-pilsner",  brewDate: daysAgo(32), sizeBbl: 15, stage: "conditioning", stageStartDate: daysAgo(18), tankId: "fv3" },
       { id: "b1040", batchId: "1040", beerId: "oatmeal-stout",  brewDate: daysAgo(9),  sizeBbl: 7,  stage: "fermenting",   stageStartDate: daysAgo(9),  tankId: "fv4" },
