@@ -8,6 +8,18 @@ A simple web app for small craft breweries that replaces the whiteboard, clipboa
 
 ---
 
+## Mission
+
+**Give small breweries a production record they can trust, on the floor, in any conditions.** A tool that freezes, loses an entry, or shows the wrong number gets abandoned for the whiteboard, so everything is built to three standards:
+
+- **Reliable.** What the screen says is saved is saved, exactly once. Volumes and dates are right, because taxes and traceability depend on them.
+- **Robust.** Handles real brewery conditions: bad signal, wet hands, a busy crew, honest mistakes. Each action is saved whole or not at all, and the app blocks records that can't be true (two beers in one tank, a duplicate batch number).
+- **Resilient.** Keeps working when something fails, and recovers on its own. It works offline and syncs when the signal returns, keeps backups, and has a paper brew sheet to fall back on.
+
+When a feature and these three conflict, the three win. Simple beats clever, as long as the result is right.
+
+---
+
 ## The core job
 
 A brewer glances at a phone on the floor and instantly knows:
@@ -27,7 +39,7 @@ These shape every decision, even for features that come later:
 - **Phone-first on the floor, paper where hands are wet.** The dashboard is built for a quick glance at a phone. Brew-day data entry also needs a **printable brew sheet**, because wet hands on the brew deck make phones awkward. Each printed sheet carries a **QR code that opens that exact batch** in the app, so numbers written on paper can be entered later from the sheet.
 - **Everything the brewery sets up is data,** not code: locations, tanks, beers, and (later) recipes. Admins create and change them in the app.
 - **Multi-tenant from the start of the backend.** This will serve many breweries. Every record will belong to a brewery, and one brewery can never see another's data.
-- **Works offline.** Brew floors and cellars have bad Wi-Fi. The app keeps working without a connection, holds onto what you enter, and syncs when the signal comes back, without losing or duplicating anything. A tool that freezes or loses an entry gets abandoned for the whiteboard.
+- **Works offline.** Brew floors and cellars have bad Wi-Fi. The app keeps working without a connection, holds onto what you enter, and syncs when the signal comes back, without losing or duplicating anything.
 - **Accurate volumes and history,** because TTB reporting depends on them.
 
 ---
@@ -198,7 +210,8 @@ Turns the prototype into something a brewery can rely on.
 - [ ] **QR codes work on any phone.** Before this phase, a batch only exists in the browser it was entered on.
 - [ ] **Move existing data in** from a backup file.
 - [ ] **Each action saved as one all-or-nothing step** (for example "transfer batch 1042 to BT-2" updates the batch's history and both tanks together, or not at all). This keeps records consistent and is the foundation for working offline.
-- [ ] **Works offline:** the app opens and shows the last data without a connection; changes made offline are queued on the device and sent when the signal returns; the screen always shows what's saved and what's still waiting. Anything the database rejects on sync (a duplicate batch number, a tank someone else just filled) is shown to the person instead of being silently dropped.
+- [ ] **Works offline:** the app opens and shows the last data without a connection; changes made offline are queued on the device and sent in order when the signal returns; the screen always shows what's saved and what's still waiting.
+- [ ] **Simple conflict rule:** in a small crew two people rarely change the same thing at once, so there's no merge tool. Changes apply in the order they reach the database. If one can't apply (a duplicate batch number, a tank someone else just filled), the database's checks reject it and the person who made it sees why. Nothing is silently dropped.
 
 ### Phase 4: Tank care
 - [ ] **CIP log:** a record each time a tank is cleaned (date, who, what chemicals). "Last CIP date" comes from this log.
