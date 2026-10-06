@@ -7,10 +7,70 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
+  <!-- Shown while we check whether you're signed in -->
+  <p id="loading-screen" class="screen-message">Loading…</p>
+
+  <!-- Sign in: type your email, then tap the link or type the code we email you -->
+  <section id="signin-screen" class="screen" hidden>
+    <h1>Brewery OS</h1>
+    <!-- Problems show here, on the page (pop-up messages can be blocked or missed) -->
+    <p id="signin-message" class="form-message" role="alert" hidden></p>
+    <form id="signin-form">
+      <label>Email
+        <input name="email" type="email" required autocomplete="email" placeholder="you@yourbrewery.com">
+      </label>
+      <button type="submit" class="btn primary">Email me a sign-in code</button>
+    </form>
+    <form id="code-form" hidden>
+      <p id="code-sent" class="muted"></p>
+      <label>Code from the email
+        <input name="code" required inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6,10}" placeholder="123456">
+      </label>
+      <div class="actions">
+        <button type="button" id="code-back" class="btn">Use a different email</button>
+        <span class="spacer"></span>
+        <button type="submit" class="btn primary">Sign in</button>
+      </div>
+    </form>
+  </section>
+
+  <!-- First sign-in: you don't belong to a brewery yet -->
+  <section id="setup-screen" class="screen" hidden>
+    <h1>Welcome</h1>
+    <p class="muted">You're signed in, but you're not part of a brewery yet. Create one to get started.
+      (To join an existing brewery instead, ask its admin to add you.)</p>
+    <form id="setup-form">
+      <label>Brewery name
+        <input name="name" required placeholder="Your brewery">
+      </label>
+      <div class="actions">
+        <button type="button" class="btn sign-out">Sign out</button>
+        <span class="spacer"></span>
+        <button type="submit" class="btn primary">Create brewery</button>
+      </div>
+    </form>
+  </section>
+
+  <!-- The app itself, once you're signed in and in a brewery -->
+  <div id="app-screen" hidden>
   <header class="top">
-    <h1>Tanks</h1>
+    <div>
+      <h1>Tanks</h1>
+      <p id="brewery-name" class="muted"></p>
+    </div>
     <button id="add-tank" class="btn">+ Add tank</button>
   </header>
+
+  <!-- A brand-new brewery has nothing in it yet: offer ways to get started -->
+  <section id="empty-state" class="list-section" hidden>
+    <h2>Nothing here yet</h2>
+    <p class="muted">Add your tanks one at a time with "+ Add tank", or start from:</p>
+    <div class="actions wrap">
+      <button id="load-sample" class="btn">Sample data</button>
+      <button id="load-browser-data" class="btn" hidden>Data saved in this browser</button>
+      <button class="btn restore-backup">A backup file…</button>
+    </div>
+  </section>
 
   <!-- Tank cards get drawn in here by app.js, grouped by location -->
   <main id="tanks"></main>
@@ -39,19 +99,23 @@
     <ul id="location-list"></ul>
   </section>
 
-  <!-- Backup: everything saved on this device, as one file -->
+  <!-- Backup: everything in this brewery, as one file -->
   <section id="backup" class="list-section">
     <h2>Backup</h2>
-    <p class="muted">
-      Your data is only saved in this browser on this device. Download a backup now and then,
-      so clearing the browser or losing the phone doesn't lose your records.
-    </p>
+    <p class="muted">Download everything in this brewery as one file. A backup can be loaded into an empty brewery.</p>
     <div class="actions">
       <button id="export-data" class="btn">Download</button>
-      <button id="import-data" class="btn">Restore…</button>
+      <button class="btn restore-backup">Load…</button>
       <input id="import-file" type="file" accept=".json,application/json" hidden>
     </div>
   </section>
+
+  <section class="list-section">
+    <h2>Account</h2>
+    <p id="signed-in-as" class="muted"></p>
+    <button class="btn sign-out">Sign out</button>
+  </section>
+  </div>
 
   <!-- Pop-up form for a batch. Opens when you tap a tank card. -->
   <dialog id="batch-editor">
@@ -190,6 +254,11 @@
     </form>
   </dialog>
 
+  <!-- Supabase's browser library (talks to the database). The integrity hash makes the browser
+       refuse the file if the CDN ever serves anything other than this exact version. -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.js"
+          integrity="sha384-Rj26LVGvoeRVR6+mwQmFfcR3QOBEwT+ZmuCWpuiqeTzJpCs0ER4ITAWGb4Hiy3Ok"
+          crossorigin="anonymous"></script>
   <script src="app.js"></script>
 </body>
 </html>

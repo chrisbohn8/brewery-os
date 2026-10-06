@@ -5,9 +5,12 @@
 //   LOCATIONS — the brewery's facilities. Tanks point at these.
 //   BEERS     — the product. "House Hazy" the recipe: style and target numbers.
 //   TANKS     — equipment. They stay put. (FV-1, BT-2...)
-//   BATCHES   — one actual brew of a beer. A batch points at its beer and at the
-//               tank it's in, moves between tanks, and leaves the tanks for good
-//               once it's packaged.
+//   BATCHES   — one actual brew of a beer. A batch points at its beer, and has a
+//               history of EVENTS: "from this date, at this stage, in this tank."
+//               Where a batch is now is its newest event.
+//
+// Everything is saved in a shared database (Supabase), so every phone and computer
+// sees the same data. Each brewery's data is kept separate by the database itself.
 
 // ---------- 1. Fixed lists ----------
 // Order matters: this is the order they appear in the Stage dropdown.
@@ -75,23 +78,21 @@ function labelFrom(list, id) {
 }
 const stageLabel = (id) => labelFrom(STAGES, id);
 
-// Every tank and batch gets a hidden internal ID that never changes.
-// That way you can rename a tank or fix a typo in a batch number
-// without breaking the link between a batch and its tank.
+// A new, unique ID for a record. The database uses these "UUIDs" for every row.
 function newId() {
-  return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+  return crypto.randomUUID();
 }
 
-// Beers get a readable ID made from the name: "House Hazy" -> "house-hazy", "Kölsch" -> "kolsch".
+// Beers also get a readable code made from the name: "House Hazy" -> "house-hazy", "Kölsch" -> "kolsch".
 // It's set once when the beer is created and never changes, even if you rename the beer.
-function beerIdFor(name, beers) {
+function beerCodeFor(name, beers) {
   const base = name.toLowerCase()
     .normalize("NFD").replace(/[̀-ͯ]/g, "") // ö -> o
     .replace(/[^a-z0-9]+/g, "-")                      // spaces and symbols -> dashes
     .replace(/^-|-$/g, "") || "beer";
-  let id = base;
-  for (let n = 2; beers.some((b) => b.id === id); n++) id = `${base}-${n}`; // "house-hazy-2" if "house-hazy" is taken
-  return id;
+  let code = base;
+  for (let n = 2; beers.some((b) => b.code === code); n++) code = `${base}-${n}`; // "house-hazy-2" if taken
+  return code;
 }
 
 // Standard homebrew/craft ABV formula: (OG - FG) × 131.25
@@ -107,6 +108,7 @@ function esc(text) {
 }
 
 // ---------- 3. Sample data ----------
+// Same shape as a backup file, so it's loaded the same way a backup is.
 // Dates are written as "N days ago" so the samples always look fresh.
 function sampleData() {
   return {
@@ -134,105 +136,112 @@ function sampleData() {
       { id: "st1", name: "ST-1", type: "serving",   capacityBbl: 7,  locationId: "riverside", status: "cleaning" },
     ],
     batches: [
-      { id: "b1042", batchId: "1042", beerId: "house-hazy",     brewDate: daysAgo(4),  sizeBbl: 15, stage: "fermenting",   stageStartDate: daysAgo(4),  tankId: "fv1" },
-      { id: "b1041", batchId: "1041", beerId: "west-coast-ipa", brewDate: daysAgo(9),  sizeBbl: 15, stage: "dry-hopping",  stageStartDate: daysAgo(2),  tankId: "fv2" },
-      { id: "b1038", batchId: "1038", beerId: "czech-pilsner",  brewDate: daysAgo(32), sizeBbl: 15, stage: "conditioning", stageStartDate: daysAgo(18), tankId: "fv3" },
-      { id: "b1040", batchId: "1040", beerId: "oatmeal-stout",  brewDate: daysAgo(9),  sizeBbl: 7,  stage: "fermenting",   stageStartDate: daysAgo(9),  tankId: "fv4" },
-      { id: "b1039", batchId: "1039", beerId: "kolsch",         brewDate: daysAgo(25), sizeBbl: 15, stage: "carbonating",  stageStartDate: daysAgo(1),  tankId: "bt1" },
-      { id: "b1037", batchId: "1037", beerId: "amber-ale",      brewDate: daysAgo(21), sizeBbl: 7,  stage: "ready",        stageStartDate: daysAgo(3),  tankId: "bt2" },
-      { id: "b1036", batchId: "1036", beerId: "pale-ale",       brewDate: daysAgo(28), sizeBbl: 15, stage: "packaged",     stageStartDate: daysAgo(5),  tankId: "bt1" },
-      { id: "b1035", batchId: "1035", beerId: "robust-porter",  brewDate: daysAgo(35), sizeBbl: 7,  stage: "packaged",     stageStartDate: daysAgo(12), tankId: "bt2" },
+      { id: "b1042", batchNumber: "1042", beerId: "house-hazy",     brewDate: daysAgo(4),  sizeBbl: 15, stage: "fermenting",   stageStartDate: daysAgo(4),  tankId: "fv1" },
+      { id: "b1041", batchNumber: "1041", beerId: "west-coast-ipa", brewDate: daysAgo(9),  sizeBbl: 15, stage: "dry-hopping",  stageStartDate: daysAgo(2),  tankId: "fv2" },
+      { id: "b1038", batchNumber: "1038", beerId: "czech-pilsner",  brewDate: daysAgo(32), sizeBbl: 15, stage: "conditioning", stageStartDate: daysAgo(18), tankId: "fv3" },
+      { id: "b1040", batchNumber: "1040", beerId: "oatmeal-stout",  brewDate: daysAgo(9),  sizeBbl: 7,  stage: "fermenting",   stageStartDate: daysAgo(9),  tankId: "fv4" },
+      { id: "b1039", batchNumber: "1039", beerId: "kolsch",         brewDate: daysAgo(25), sizeBbl: 15, stage: "carbonating",  stageStartDate: daysAgo(1),  tankId: "bt1" },
+      { id: "b1037", batchNumber: "1037", beerId: "amber-ale",      brewDate: daysAgo(21), sizeBbl: 7,  stage: "ready",        stageStartDate: daysAgo(3),  tankId: "bt2" },
+      { id: "b1036", batchNumber: "1036", beerId: "pale-ale",       brewDate: daysAgo(28), sizeBbl: 15, stage: "packaged",     stageStartDate: daysAgo(5),  tankId: null },
+      { id: "b1035", batchNumber: "1035", beerId: "robust-porter",  brewDate: daysAgo(35), sizeBbl: 7,  stage: "packaged",     stageStartDate: daysAgo(12), tankId: null },
     ],
   };
 }
 
-// ---------- 4. Saving and loading ----------
-// localStorage is a small storage space the browser gives each website.
-// It survives closing the tab, but it lives only in THIS browser on THIS device.
-const STORAGE_KEY = "brewery-os.data";
-const OLD_STORAGE_KEY = "brewery-os.tanks"; // where the first version (no batches) saved things
+// ---------- 4. Connecting to the database ----------
+// The URL and "publishable" key are meant to be public: they let the page talk to the
+// database, but the database's row-level security only shows each signed-in person
+// their own brewery's data. (The secret keys are never put in this file.)
+//
+// When the app runs on the developer's own computer (localhost), it uses a private test copy
+// of the database running in Docker (`supabase start`), so testing never touches real data.
+const ON_THIS_COMPUTER = ["localhost", "127.0.0.1"].includes(location.hostname);
+const SUPABASE_URL = ON_THIS_COMPUTER ? "http://127.0.0.1:54321" : "https://itxshxihltidwgwtzdcj.supabase.co";
+const SUPABASE_KEY = ON_THIS_COMPUTER
+  ? "sb_publishable_ACJWlzQHlZjBrEguHvfOxg_3BJgxAaH" // the standard key every local Supabase copy uses
+  : "sb_publishable_hcERCBatEZUWfy9iret5sw_x2cTAXb5";
+const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
+  // "implicit" lets an emailed sign-in link work even if it opens in a different browser
+  auth: { flowType: "implicit" },
+});
 
-function loadData() {
-  let loaded = null;
+let brewery = null; // the brewery you're working in: { id, name, role }
+let data = { locations: [], beers: [], tanks: [], batches: [], events: [] };
+
+// Run a database request; if it fails, throw the error so the caller's "catch" handles it
+async function must(request) {
+  const { data: result, error } = await request;
+  if (error) throw error;
+  return result;
+}
+
+// Turn a database error into something a person can act on
+function explain(error) {
+  if (error.code === "23505") return "That name or number is already used.";
+  if (error.code === "23503") return "That's still linked to other records (for example, batch history), so it can't be deleted.";
+  if (error.code === "42501") return "You don't have permission to do that.";
+  if (error.message?.includes("Failed to fetch")) return "Couldn't reach the database. Check your internet connection.";
+  return error.message || String(error);
+}
+
+// Load everything for the current brewery into `data`, in the shape the rest of the page uses
+async function loadAll() {
+  const b = brewery.id;
+  const [locations, beers, tanks, batches, events] = await Promise.all([
+    must(db.from("locations").select("*").eq("brewery_id", b).order("created_at")),
+    must(db.from("beers").select("*").eq("brewery_id", b)),
+    must(db.from("tanks").select("*").eq("brewery_id", b).order("created_at")),
+    must(db.from("batch_status").select("*").eq("brewery_id", b)),
+    must(db.from("batch_events").select("*").eq("brewery_id", b).order("effective_date").order("recorded_at")),
+  ]);
+  data = {
+    locations: locations.map((l) => ({ id: l.id, name: l.name })),
+    beers: beers.map((x) => ({
+      id: x.id, code: x.code, name: x.name, style: x.style,
+      targetOg: x.target_og === null ? null : Number(x.target_og),
+      targetFg: x.target_fg === null ? null : Number(x.target_fg),
+    })),
+    tanks: tanks.map((t) => ({
+      id: t.id, name: t.name, type: t.type, status: t.status, locationId: t.location_id,
+      capacityBbl: t.capacity_bbl === null ? null : Number(t.capacity_bbl),
+    })),
+    batches: batches.map((x) => ({
+      id: x.id, batchNumber: x.batch_number, beerId: x.beer_id, brewDate: x.brew_date,
+      sizeBbl: x.size_bbl === null ? null : Number(x.size_bbl),
+      // These three come from the newest event in the batch's history
+      stage: x.stage, tankId: x.tank_id, stageStartDate: x.stage_started_on,
+    })),
+    events: events.map((e) => ({
+      id: e.id, batchId: e.batch_id, effectiveDate: e.effective_date, stage: e.stage, tankId: e.tank_id,
+    })),
+  };
+}
+
+// After any change: reload from the database and redraw, so the page always shows what's really saved
+async function refresh() {
+  await loadAll();
+  render();
+}
+
+// Run a change, show a friendly message if it fails, and always refresh afterward.
+// While it runs, the page ignores extra taps so nothing gets saved twice.
+let busy = false;
+async function save(work) {
+  if (busy) return false;
+  busy = true;
+  document.body.classList.add("busy");
   try {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    const old = localStorage.getItem(OLD_STORAGE_KEY);
-    if (saved) loaded = JSON.parse(saved);
-    // If you entered tanks in the first version, carry them over instead of losing them
-    else if (old) loaded = convertOldData(JSON.parse(old));
+    await work();
+    return true;
   } catch (e) {
-    console.warn("Couldn't read saved data, using samples instead.", e);
-  }
-  return loaded ? upgradeData(loaded) : sampleData();
-}
-
-// First version stored the beer right on the tank. Split it into a tank + a batch.
-// Old data had no batch number or size, so those start blank for you to fill in.
-function convertOldData(oldTanks) {
-  const data = { tanks: [], batches: [] };
-  for (const t of oldTanks) {
-    const tank = { id: newId(), name: t.tank, type: t.type };
-    data.tanks.push(tank);
-    if (t.beer && t.stage !== "empty") {
-      data.batches.push({
-        id: newId(), batchId: "", beerName: t.beer, brewDate: t.stageStart, sizeBbl: null,
-        stage: t.stage, stageStartDate: t.stageStart, tankId: tank.id,
-      });
-    }
-  }
-  return data;
-}
-
-// Bring data saved by an older version up to date
-function upgradeData(data) {
-  // Tanks saved before capacity/status existed get blank values
-  for (const tank of data.tanks) {
-    tank.capacityBbl ??= null;
-    tank.status ??= "empty";
-  }
-
-  // Tanks saved before locations were their own records had the location name typed in.
-  // Make one location per name, and point the tanks at it.
-  data.locations ??= [];
-  for (const tank of data.tanks) {
-    if (tank.locationId !== undefined) continue;
-    const name = (tank.location || "").trim();
-    let location = data.locations.find((l) => l.name.toLowerCase() === name.toLowerCase());
-    if (name && !location) {
-      location = { id: newId(), name };
-      data.locations.push(location);
-    }
-    tank.locationId = location ? location.id : null;
-    delete tank.location;
-  }
-
-  // Batches saved before beers existed had the beer name typed in.
-  // Make one beer per name, and point the batches at it.
-  data.beers ??= [];
-  for (const batch of data.batches) {
-    if (batch.beerId) continue;
-    const name = batch.beerName || "Unnamed beer";
-    let beer = data.beers.find((b) => b.name.toLowerCase() === name.toLowerCase());
-    if (!beer) {
-      beer = { id: beerIdFor(name, data.beers), name, style: "", targetOg: null, targetFg: null };
-      data.beers.push(beer);
-    }
-    batch.beerId = beer.id;
-    delete batch.beerName;
-  }
-  return data;
-}
-
-function saveData() {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-  } catch (e) {
-    alert("Couldn't save. Changes will be lost when you close this page.");
+    alert(`Couldn't save: ${explain(e)}`);
+    return false;
+  } finally {
+    try { await refresh(); } catch (e) { console.warn(e); }
+    busy = false;
+    document.body.classList.remove("busy");
   }
 }
-
-let data = loadData();
-saveData(); // lock in sample/converted data so the day counters keep counting from here
 
 // ---------- 5. Looking things up ----------
 function isInTank(batch) {
@@ -251,11 +260,6 @@ function findTank(tankId) {
 function tankName(tankId) {
   const tank = findTank(tankId);
   return tank ? tank.name : "?";
-}
-
-// "occupied" if a batch is inside; otherwise whatever a person set (empty, cleaning, maintenance)
-function tankStatus(tank) {
-  return batchInTank(tank.id) ? "occupied" : tank.status;
 }
 
 function findLocation(locationId) {
@@ -282,7 +286,7 @@ function beersByName() {
 }
 
 function batchLabel(batch) {
-  return batch.batchId ? `#${esc(batch.batchId)}` : "No batch #";
+  return batch.batchNumber ? `#${esc(batch.batchNumber)}` : "No batch #";
 }
 
 // "OG 1.066 · FG 1.016 · 6.6%" (skipping any that aren't filled in)
@@ -295,12 +299,15 @@ function targetsText(beer) {
   return parts.join(" · ");
 }
 
+function isEmptyBrewery() {
+  return !data.locations.length && !data.tanks.length && !data.beers.length && !data.batches.length;
+}
+
 // ---------- 6. Drawing the page ----------
 const tanksArea = document.getElementById("tanks");
 const packagedSection = document.getElementById("packaged");
 const packagedList = document.getElementById("packaged-list");
 const beerList = document.getElementById("beer-list");
-
 const locationList = document.getElementById("location-list");
 
 // Tanks split up by location, in the order the locations were added.
@@ -316,6 +323,12 @@ function tankGroups() {
 }
 
 function render() {
+  document.getElementById("brewery-name").textContent = brewery.name;
+
+  // A brand-new brewery: show ways to get started
+  document.getElementById("empty-state").hidden = !isEmptyBrewery();
+  document.getElementById("load-browser-data").hidden = !browserData();
+
   // One group of cards per location. Headings only show if there's more than one group.
   const groups = tankGroups();
   tanksArea.innerHTML = groups.map((g) => `
@@ -340,7 +353,7 @@ function render() {
   // Beers, A to Z
   beerList.innerHTML = beersByName().map((beer) => `
     <li>
-      <button class="row stacked" data-beer="${esc(beer.id)}">
+      <button class="row stacked" data-beer="${beer.id}">
         <span><strong>${esc(beer.name)}</strong> <span class="muted">${esc(beer.style)}</span></span>
         <span class="muted">${targetsText(beer)}</span>
       </button>
@@ -351,7 +364,7 @@ function render() {
     const count = data.tanks.filter((t) => t.locationId === loc.id).length;
     return `
     <li>
-      <button class="row" data-location="${esc(loc.id)}">
+      <button class="row" data-location="${loc.id}">
         <strong>${esc(loc.name)}</strong>
         <span class="muted">${count} ${count === 1 ? "tank" : "tanks"}</span>
       </button>
@@ -410,7 +423,7 @@ batchForm.stage.innerHTML = STAGES.map((s) => `<option value="${s.id}">${s.label
 function fillBeerDropdown(selectedId) {
   batchForm.beerId.innerHTML =
     `<option value="">Choose a beer…</option>` +
-    beersByName().map((b) => `<option value="${esc(b.id)}">${esc(b.name)}</option>`).join("") +
+    beersByName().map((b) => `<option value="${b.id}">${esc(b.name)}</option>`).join("") +
     `<option value="${NEW_BEER}">+ New beer…</option>`;
   batchForm.beerId.value = selectedId;
   beerChoiceBeforeNew = selectedId;
@@ -420,7 +433,7 @@ function openBatchEditor(batch, tankId) {
   editingBatch = batch;
   editingTankId = tankId;
   const b = batch || {
-    batchId: "", beerId: "", brewDate: today(), sizeBbl: "",
+    batchNumber: "", beerId: "", brewDate: today(), sizeBbl: "",
     stage: "fermenting", stageStartDate: today(), tankId,
   };
 
@@ -437,15 +450,15 @@ function openBatchEditor(batch, tankId) {
   }).join("");
 
   document.getElementById("batch-title").textContent =
-    batch ? `${beerName(batch)} ${batch.batchId ? "#" + batch.batchId : ""}` : `New batch in ${tankName(tankId)}`;
+    batch ? `${beerName(batch)} ${batch.batchNumber ? "#" + batch.batchNumber : ""}` : `New batch in ${tankName(tankId)}`;
   document.getElementById("delete-batch").hidden = !batch;
   document.getElementById("open-tank-settings").hidden = !tankId;
 
-  batchForm.batchId.value = b.batchId;
+  batchForm.batchId.value = b.batchNumber;
   fillBeerDropdown(b.beerId);
   batchForm.brewDate.value = b.brewDate;
   batchForm.sizeBbl.value = b.sizeBbl ?? "";
-  batchForm.tankId.value = b.tankId;
+  if (b.tankId) batchForm.tankId.value = b.tankId;
   batchForm.stage.value = b.stage;
   batchForm.stageStartDate.value = b.stageStartDate;
   batchDialog.showModal();
@@ -462,10 +475,10 @@ batchForm.stage.addEventListener("change", () => {
   batchForm.stageStartDate.value = today();
 });
 
-batchForm.addEventListener("submit", (e) => {
+batchForm.addEventListener("submit", async (e) => {
   e.preventDefault(); // we'll close the form ourselves, after checking for problems
   const values = {
-    batchId: batchForm.batchId.value.trim(),
+    batchNumber: batchForm.batchId.value.trim(),
     beerId: batchForm.beerId.value,
     brewDate: batchForm.brewDate.value,
     sizeBbl: batchForm.sizeBbl.value ? Number(batchForm.sizeBbl.value) : null,
@@ -483,8 +496,8 @@ batchForm.addEventListener("submit", (e) => {
   }
 
   // Check 2: batch numbers must be unique
-  if (others.some((b) => b.batchId.toLowerCase() === values.batchId.toLowerCase())) {
-    alert(`There's already a batch #${values.batchId}.`);
+  if (others.some((b) => b.batchNumber.toLowerCase() === values.batchNumber.toLowerCase())) {
+    alert(`There's already a batch #${values.batchNumber}.`);
     return;
   }
 
@@ -494,6 +507,11 @@ batchForm.addEventListener("submit", (e) => {
   const movingIn = willBeInTank && !(wasInTank && editingBatch.tankId === values.tankId);
 
   if (willBeInTank) {
+    if (!target) {
+      alert("Choose a tank for this batch.");
+      return;
+    }
+
     // Check 3: one batch per tank
     const occupant = others.find((b) => b.tankId === values.tankId && isInTank(b));
     if (occupant) {
@@ -513,28 +531,27 @@ batchForm.addEventListener("submit", (e) => {
     }
   }
 
-  // If beer is leaving a tank (transferred or packaged), that tank needs cleaning next
-  const leavingTankId = wasInTank && (!willBeInTank || editingBatch.tankId !== values.tankId)
-    ? editingBatch.tankId
-    : null;
-
-  if (editingBatch) Object.assign(editingBatch, values);
-  else data.batches.push({ id: newId(), ...values });
-
-  if (leavingTankId && findTank(leavingTankId)) findTank(leavingTankId).status = "cleaning";
-  // The tank's saved status only matters once it's empty again, so reset it when beer goes in
-  if (movingIn) target.status = "empty";
-  saveData();
-  render();
-  batchDialog.close();
+  // One call; the database saves the batch, its history, and both tanks' statuses together,
+  // all or nothing (see supabase/migrations/..._save_batch.sql)
+  const ok = await save(() => must(db.rpc("save_batch", {
+    p_id: editingBatch?.id ?? newId(),
+    p_brewery_id: brewery.id,
+    p_batch_number: values.batchNumber,
+    p_beer_id: values.beerId,
+    p_brew_date: values.brewDate,
+    p_size_bbl: values.sizeBbl,
+    p_stage: values.stage,
+    p_stage_started_on: values.stageStartDate,
+    p_tank_id: willBeInTank ? values.tankId : null,
+    p_action_date: today(), // the day you did it, even if it reaches the database later
+  })));
+  if (ok) batchDialog.close();
 });
 
-document.getElementById("delete-batch").addEventListener("click", () => {
-  if (!confirm(`Delete ${beerName(editingBatch)} ${batchLabel(editingBatch)}? This can't be undone.`)) return;
-  data.batches = data.batches.filter((b) => b !== editingBatch);
-  saveData();
-  render();
-  batchDialog.close();
+document.getElementById("delete-batch").addEventListener("click", async () => {
+  if (!confirm(`Delete ${beerName(editingBatch)} ${batchLabel(editingBatch)} and its history? This can't be undone.`)) return;
+  const ok = await save(() => must(db.from("batches").delete().eq("id", editingBatch.id)));
+  if (ok) batchDialog.close();
 });
 
 document.getElementById("open-tank-settings").addEventListener("click", () => {
@@ -557,7 +574,7 @@ let locationChoiceBeforeNew = ""; // so we can put the dropdown back if you canc
 function fillLocationDropdown(selectedId) {
   tankForm.locationId.innerHTML =
     `<option value="">No location</option>` +
-    data.locations.map((l) => `<option value="${esc(l.id)}">${esc(l.name)}</option>`).join("") +
+    data.locations.map((l) => `<option value="${l.id}">${esc(l.name)}</option>`).join("") +
     `<option value="${NEW_LOCATION}">+ New location…</option>`;
   tankForm.locationId.value = selectedId ?? "";
   locationChoiceBeforeNew = tankForm.locationId.value;
@@ -576,7 +593,7 @@ function openTankEditor(tank) {
   document.getElementById("occupied-note").hidden = !batch;
   if (batch) {
     document.getElementById("occupied-note").textContent =
-      `Occupied by ${beerName(batch)}${batch.batchId ? " #" + batch.batchId : ""}.`;
+      `Occupied by ${beerName(batch)}${batch.batchNumber ? " #" + batch.batchNumber : ""}.`;
   }
 
   tankForm.name.value = t.name;
@@ -594,37 +611,40 @@ tankForm.locationId.addEventListener("change", () => {
   else locationChoiceBeforeNew = tankForm.locationId.value;
 });
 
-tankForm.addEventListener("submit", (e) => {
+tankForm.addEventListener("submit", async (e) => {
   e.preventDefault();
-  const values = {
-    name: tankForm.name.value.trim(),
-    type: tankForm.type.value,
-    capacityBbl: tankForm.capacityBbl.value ? Number(tankForm.capacityBbl.value) : null,
-    locationId: [ "", NEW_LOCATION ].includes(tankForm.locationId.value) ? null : tankForm.locationId.value,
-    status: tankForm.status.value,
-  };
-  if (data.tanks.some((t) => t !== editingTank && t.name.toLowerCase() === values.name.toLowerCase())) {
-    alert(`There's already a tank called ${values.name}.`);
+  const name = tankForm.name.value.trim();
+  if (data.tanks.some((t) => t !== editingTank && t.name.toLowerCase() === name.toLowerCase())) {
+    alert(`There's already a tank called ${name}.`);
     return;
   }
-  if (editingTank) Object.assign(editingTank, values);
-  else data.tanks.push({ id: newId(), ...values });
-  saveData();
-  render();
-  tankDialog.close();
+  const fields = {
+    name,
+    type: tankForm.type.value,
+    capacity_bbl: tankForm.capacityBbl.value ? Number(tankForm.capacityBbl.value) : null,
+    location_id: ["", NEW_LOCATION].includes(tankForm.locationId.value) ? null : tankForm.locationId.value,
+    status: tankForm.status.value,
+  };
+  const ok = await save(() => editingTank
+    ? must(db.from("tanks").update(fields).eq("id", editingTank.id))
+    : must(db.from("tanks").insert({ brewery_id: brewery.id, ...fields })));
+  if (ok) tankDialog.close();
 });
 
-document.getElementById("delete-tank").addEventListener("click", () => {
+document.getElementById("delete-tank").addEventListener("click", async () => {
   const batch = batchInTank(editingTank.id);
   if (batch) {
     alert(`${editingTank.name} has ${beerName(batch)} in it. Move or package that batch first.`);
     return;
   }
+  // The database also refuses if any batch has EVER been in this tank (records need that history)
+  if (data.events.some((e) => e.tankId === editingTank.id)) {
+    alert(`${editingTank.name} has batch history, so it can't be deleted. The records need to know where beer has been.`);
+    return;
+  }
   if (!confirm(`Delete ${editingTank.name}?`)) return;
-  data.tanks = data.tanks.filter((t) => t !== editingTank);
-  saveData();
-  render();
-  tankDialog.close();
+  const ok = await save(() => must(db.from("tanks").delete().eq("id", editingTank.id)));
+  if (ok) tankDialog.close();
 });
 
 // ---------- 9. Editing a beer ----------
@@ -660,33 +680,33 @@ function showTargetAbv() {
 beerForm.targetOg.addEventListener("input", showTargetAbv);
 beerForm.targetFg.addEventListener("input", showTargetAbv);
 
-beerForm.addEventListener("submit", (e) => {
+beerForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   const values = {
     name: beerForm.name.value.trim(),
     style: beerForm.style.value.trim(),
-    targetOg: beerForm.targetOg.value ? Number(beerForm.targetOg.value) : null,
-    targetFg: beerForm.targetFg.value ? Number(beerForm.targetFg.value) : null,
+    target_og: beerForm.targetOg.value ? Number(beerForm.targetOg.value) : null,
+    target_fg: beerForm.targetFg.value ? Number(beerForm.targetFg.value) : null,
   };
   if (data.beers.some((b) => b !== editingBeer && b.name.toLowerCase() === values.name.toLowerCase())) {
     alert(`There's already a beer called ${values.name}.`);
     return;
   }
-  if (values.targetOg && values.targetFg && values.targetFg >= values.targetOg) {
+  if (values.target_og && values.target_fg && values.target_fg >= values.target_og) {
     alert("Target FG should be lower than target OG.");
     return;
   }
 
-  let beer = editingBeer;
-  if (beer) Object.assign(beer, values);
-  else {
-    beer = { id: beerIdFor(values.name, data.beers), ...values };
-    data.beers.push(beer);
-  }
-  saveData();
-  render();
+  const addingFromBatchForm = batchDialog.open && !editingBeer;
+  const newBeerId = newId();
+  const ok = await save(() => editingBeer
+    ? must(db.from("beers").update(values).eq("id", editingBeer.id))
+    : must(db.from("beers").insert({
+        id: newBeerId, brewery_id: brewery.id, code: beerCodeFor(values.name, data.beers), ...values,
+      })));
+  if (!ok) return;
   // If you added this beer from inside the batch form, select it there
-  if (batchDialog.open) fillBeerDropdown(editingBeer ? batchForm.beerId.value : beer.id);
+  if (addingFromBatchForm) fillBeerDropdown(newBeerId);
   beerDialog.close();
 });
 
@@ -695,19 +715,17 @@ beerDialog.addEventListener("close", () => {
   if (batchForm.beerId.value === NEW_BEER) batchForm.beerId.value = beerChoiceBeforeNew;
 });
 
-document.getElementById("delete-beer").addEventListener("click", () => {
+document.getElementById("delete-beer").addEventListener("click", async () => {
   // Batches point at beers, so a beer that's been brewed can't be deleted
   const used = data.batches.filter((b) => b.beerId === editingBeer.id);
   if (used.length) {
-    const list = used.map((b) => (b.batchId ? "#" + b.batchId : "a batch with no number")).join(", ");
+    const list = used.map((b) => (b.batchNumber ? "#" + b.batchNumber : "a batch with no number")).join(", ");
     alert(`${editingBeer.name} can't be deleted because batches of it exist (${list}).`);
     return;
   }
   if (!confirm(`Delete ${editingBeer.name}?`)) return;
-  data.beers = data.beers.filter((b) => b !== editingBeer);
-  saveData();
-  render();
-  beerDialog.close();
+  const ok = await save(() => must(db.from("beers").delete().eq("id", editingBeer.id)));
+  if (ok) beerDialog.close();
 });
 
 // ---------- 10. Editing a location ----------
@@ -723,23 +741,21 @@ function openLocationEditor(location) {
   locationDialog.showModal();
 }
 
-locationForm.addEventListener("submit", (e) => {
+locationForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   const name = locationForm.name.value.trim();
   if (data.locations.some((l) => l !== editingLocation && l.name.toLowerCase() === name.toLowerCase())) {
     alert(`There's already a location called ${name}.`);
     return;
   }
-  let location = editingLocation;
-  if (location) location.name = name;
-  else {
-    location = { id: newId(), name };
-    data.locations.push(location);
-  }
-  saveData();
-  render();
+  const addingFromTankForm = tankDialog.open && !editingLocation;
+  const newLocationId = newId();
+  const ok = await save(() => editingLocation
+    ? must(db.from("locations").update({ name }).eq("id", editingLocation.id))
+    : must(db.from("locations").insert({ id: newLocationId, brewery_id: brewery.id, name })));
+  if (!ok) return;
   // If you added this location from inside the tank form, select it there
-  if (tankDialog.open && !editingLocation) fillLocationDropdown(location.id);
+  if (addingFromTankForm) fillLocationDropdown(newLocationId);
   locationDialog.close();
 });
 
@@ -748,7 +764,7 @@ locationDialog.addEventListener("close", () => {
   if (tankForm.locationId.value === NEW_LOCATION) tankForm.locationId.value = locationChoiceBeforeNew;
 });
 
-document.getElementById("delete-location").addEventListener("click", () => {
+document.getElementById("delete-location").addEventListener("click", async () => {
   // Tanks point at locations, so a location with tanks in it can't be deleted
   const tanks = data.tanks.filter((t) => t.locationId === editingLocation.id);
   if (tanks.length) {
@@ -756,19 +772,21 @@ document.getElementById("delete-location").addEventListener("click", () => {
     return;
   }
   if (!confirm(`Delete ${editingLocation.name}?`)) return;
-  data.locations = data.locations.filter((l) => l !== editingLocation);
-  saveData();
-  render();
-  locationDialog.close();
+  const ok = await save(() => must(db.from("locations").delete().eq("id", editingLocation.id)));
+  if (ok) locationDialog.close();
 });
 
-// ---------- 11. Backup (download and restore) ----------
-// A backup is one file holding everything: locations, beers, tanks, and batches.
-// The "format" number lets future versions of the app recognize and upgrade old backups.
-const BACKUP_FORMAT = 1;
+// ---------- 11. Backups, sample data, and data from the old version ----------
+// A backup is one file holding everything in the brewery: locations, beers, tanks,
+// batches, and batch history. The "format" number lets the app recognize older backups.
+//   format 1 — made by the browser-only version (no history, just each batch's current stage)
+//   format 2 — made by the database version (includes the full history)
+const BACKUP_FORMAT = 2;
 
 function downloadBackup() {
-  const backup = { app: "brewery-os", format: BACKUP_FORMAT, exportedAt: new Date().toISOString(), data };
+  const backup = {
+    app: "brewery-os", format: BACKUP_FORMAT, exportedAt: new Date().toISOString(), brewery: brewery.name, data,
+  };
   const file = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
   const link = document.createElement("a");
   link.href = URL.createObjectURL(file);
@@ -777,7 +795,163 @@ function downloadBackup() {
   URL.revokeObjectURL(link.href);
 }
 
-async function restoreBackup(file) {
+// Data saved by the browser-only version of the app, if this browser has any
+const STORAGE_KEY = "brewery-os.data";
+const OLD_STORAGE_KEY = "brewery-os.tanks"; // the very first version (no batches)
+function browserData() {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    const old = localStorage.getItem(OLD_STORAGE_KEY);
+    if (saved) return upgradeData(JSON.parse(saved));
+    if (old) return upgradeData(convertOldData(JSON.parse(old)));
+  } catch (e) {
+    console.warn("Couldn't read data saved in this browser.", e);
+  }
+  return null;
+}
+
+// First version stored the beer right on the tank. Split it into a tank + a batch.
+function convertOldData(oldTanks) {
+  const result = { tanks: [], batches: [] };
+  for (const t of oldTanks) {
+    const tank = { id: newId(), name: t.tank, type: t.type };
+    result.tanks.push(tank);
+    if (t.beer && t.stage !== "empty") {
+      result.batches.push({
+        id: newId(), batchId: "", beerName: t.beer, brewDate: t.stageStart, sizeBbl: null,
+        stage: t.stage, stageStartDate: t.stageStart, tankId: tank.id,
+      });
+    }
+  }
+  return result;
+}
+
+// Bring data from an older version up to the current shape
+function upgradeData(d) {
+  d.locations ??= [];
+  d.beers ??= [];
+
+  for (const tank of d.tanks) {
+    tank.capacityBbl ??= null;
+    tank.status ??= "empty";
+    // Typed location names become location records
+    if (tank.locationId === undefined) {
+      const name = (tank.location || "").trim();
+      let location = d.locations.find((l) => l.name.toLowerCase() === name.toLowerCase());
+      if (name && !location) {
+        location = { id: newId(), name };
+        d.locations.push(location);
+      }
+      tank.locationId = location ? location.id : null;
+      delete tank.location;
+    }
+  }
+
+  for (const batch of d.batches) {
+    // Typed beer names become beer records
+    if (!batch.beerId) {
+      const name = batch.beerName || "Unnamed beer";
+      let beer = d.beers.find((b) => b.name.toLowerCase() === name.toLowerCase());
+      if (!beer) {
+        beer = { id: newId(), name, style: "", targetOg: null, targetFg: null };
+        d.beers.push(beer);
+      }
+      batch.beerId = beer.id;
+      delete batch.beerName;
+    }
+    // Older versions called the batch number "batchId"
+    batch.batchNumber ??= batch.batchId ?? "";
+    delete batch.batchId;
+  }
+  return d;
+}
+
+// Put a whole set of data (backup, sample, or old browser data) into this brewery.
+// Only into an EMPTY brewery, so nothing gets mixed up or duplicated.
+async function loadIntoBrewery(source, description) {
+  if (!isEmptyBrewery()) {
+    alert("Data can only be loaded into an empty brewery, so nothing gets mixed up or duplicated.");
+    return;
+  }
+  const d = upgradeData(structuredClone(source));
+  const summary = [
+    count(d.tanks.length, "tank", "tanks"),
+    count(d.batches.length, "batch", "batches"),
+    count(d.beers.length, "beer", "beers"),
+  ].join(", ");
+  if (!confirm(`Load ${description} (${summary}) into ${brewery.name}?`)) return;
+
+  // Every record gets a fresh database ID. These maps turn old IDs into new ones
+  // so links between records (batch → beer, tank → location...) stay connected.
+  const ids = new Map();
+  const idFor = (oldId) => {
+    if (oldId == null) return null;
+    if (!ids.has(oldId)) ids.set(oldId, newId());
+    return ids.get(oldId);
+  };
+  const b = brewery.id;
+  const codes = [];
+
+  const ok = await save(async () => {
+    try {
+      if (d.locations.length) {
+        await must(db.from("locations").insert(d.locations.map((l) => ({ id: idFor(l.id), brewery_id: b, name: l.name }))));
+      }
+      if (d.beers.length) {
+        await must(db.from("beers").insert(d.beers.map((x) => {
+          const code = beerCodeFor(x.name, codes);
+          codes.push({ code });
+          return {
+            id: idFor(x.id), brewery_id: b, code, name: x.name, style: x.style || "",
+            target_og: x.targetOg ?? null, target_fg: x.targetFg ?? null,
+          };
+        })));
+      }
+      if (d.tanks.length) {
+        await must(db.from("tanks").insert(d.tanks.map((t) => ({
+          id: idFor(t.id), brewery_id: b, name: t.name, type: t.type, status: t.status,
+          capacity_bbl: t.capacityBbl, location_id: idFor(t.locationId),
+        }))));
+      }
+      if (d.batches.length) {
+        await must(db.from("batches").insert(d.batches.map((x) => ({
+          id: idFor(x.id), brewery_id: b, batch_number: x.batchNumber || "?", beer_id: idFor(x.beerId),
+          brew_date: x.brewDate, size_bbl: x.sizeBbl,
+        }))));
+        // History: newer backups include it. Older data only knows each batch's current
+        // stage, so that becomes the batch's one history event.
+        const events = d.events?.length
+          ? d.events.map((e) => ({ batch: e.batchId, date: e.effectiveDate, stage: e.stage, tank: e.tankId }))
+          : d.batches.map((x) => ({
+              batch: x.id, date: x.stageStartDate, stage: x.stage, tank: x.stage === "packaged" ? null : x.tankId,
+            }));
+        await must(db.from("batch_events").insert(events.map((e) => ({
+          brewery_id: b, batch_id: idFor(e.batch), effective_date: e.date, stage: e.stage, tank_id: idFor(e.tank),
+        }))));
+      }
+    } catch (error) {
+      // Don't leave half-loaded data behind: empty the brewery again, then report the error
+      await clearBrewery();
+      throw error;
+    }
+  });
+  if (ok) alert(`Loaded ${summary}.`);
+}
+
+// Remove everything in this brewery (used to undo a load that failed partway)
+async function clearBrewery() {
+  const b = brewery.id;
+  await db.from("batches").delete().eq("brewery_id", b); // history goes with its batches
+  await db.from("tanks").delete().eq("brewery_id", b);
+  await db.from("beers").delete().eq("brewery_id", b);
+  await db.from("locations").delete().eq("brewery_id", b);
+}
+
+function count(n, one, many) {
+  return `${n} ${n === 1 ? one : many}`; // "1 tank", "2 tanks"
+}
+
+async function loadBackupFile(file) {
   let backup;
   try {
     backup = JSON.parse(await file.text());
@@ -785,7 +959,7 @@ async function restoreBackup(file) {
     alert("That file isn't a Brewery OS backup (it couldn't be read).");
     return;
   }
-  // Check it's really one of our backups before replacing anything
+  // Check it's really one of our backups before loading anything
   const d = backup?.data;
   if (backup?.app !== "brewery-os" || !Array.isArray(d?.tanks) || !Array.isArray(d?.batches)) {
     alert("That file isn't a Brewery OS backup.");
@@ -795,22 +969,136 @@ async function restoreBackup(file) {
     alert("That backup was made by a newer version of Brewery OS. Reload the page to get the latest version, then try again.");
     return;
   }
-  const when = new Date(backup.exportedAt).toLocaleString();
-  const count = (n, one, many) => `${n} ${n === 1 ? one : many}`; // "1 tank", "2 tanks"
-  const summary = [
-    count(d.tanks.length, "tank", "tanks"),
-    count(d.batches.length, "batch", "batches"),
-    count((d.beers || []).length, "beer", "beers"),
-  ].join(", ");
-  if (!confirm(`Restore the backup from ${when} (${summary})?\n\nThis REPLACES everything currently on this device.`)) return;
-
-  data = upgradeData(d); // a backup from an older version gets upgraded, just like saved data
-  saveData();
-  render();
-  alert("Backup restored.");
+  await loadIntoBrewery(d, `the backup from ${new Date(backup.exportedAt).toLocaleString()}`);
 }
 
-// ---------- 12. Wiring up taps and clicks ----------
+// ---------- 12. Signing in and choosing a brewery ----------
+const screens = ["loading-screen", "signin-screen", "setup-screen", "app-screen"];
+function showScreen(id) {
+  for (const s of screens) document.getElementById(s).hidden = s !== id;
+}
+
+const signinForm = document.getElementById("signin-form");
+const codeForm = document.getElementById("code-form");
+
+// Show a problem on the sign-in screen itself (or clear it with no text)
+function signinMessage(text) {
+  const el = document.getElementById("signin-message");
+  el.textContent = text || "";
+  el.hidden = !text;
+}
+
+function explainSigninError(error) {
+  if (/rate limit/i.test(error.message)) {
+    return "Too many sign-in emails were sent recently. Please wait an hour and try again. " +
+      "(If you already have a code from an earlier email, it may still work.)";
+  }
+  if (/expired|invalid/i.test(error.message) && error.code !== "email_address_invalid") {
+    return "That code didn't work. It may have expired or already been used. Request a new one.";
+  }
+  return explain(error);
+}
+
+// Step 1: email address -> Supabase emails a code (and a link) to it
+signinForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const email = signinForm.email.value.trim();
+  const button = signinForm.querySelector("button");
+  button.disabled = true;
+  signinMessage("");
+  const { error } = await db.auth.signInWithOtp({
+    email,
+    options: { emailRedirectTo: location.origin + location.pathname },
+  });
+  button.disabled = false;
+  if (error) {
+    signinMessage(`Couldn't send the email. ${explainSigninError(error)}`);
+    return;
+  }
+  document.getElementById("code-sent").textContent =
+    `We emailed a sign-in code to ${email}. Type it below, or tap the link in the email.`;
+  signinForm.hidden = true;
+  codeForm.hidden = false;
+  codeForm.code.focus();
+});
+
+// Step 2: type the code from the email (works on any device)
+codeForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const { error } = await db.auth.verifyOtp({
+    email: signinForm.email.value.trim(),
+    token: codeForm.code.value.trim(),
+    type: "email",
+  });
+  if (error) signinMessage(explainSigninError(error));
+  // On success, the "signed in" listener below takes over
+});
+
+document.getElementById("code-back").addEventListener("click", () => {
+  signinMessage("");
+  codeForm.hidden = true;
+  signinForm.hidden = false;
+});
+
+document.querySelectorAll(".sign-out").forEach((btn) =>
+  btn.addEventListener("click", () => db.auth.signOut())
+);
+
+// New user with no brewery yet: create one (they become its admin)
+document.getElementById("setup-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const { error } = await db.rpc("create_brewery", { brewery_name: e.target.name.value.trim() });
+  if (error) {
+    alert(`Couldn't create the brewery: ${explain(error)}`);
+    return;
+  }
+  await start();
+});
+
+// Work out what to show: sign-in, "create your brewery", or the app
+let starting = false;
+let startAgain = false; // if something changes while start() is running, run it once more after
+async function start() {
+  if (starting) {
+    startAgain = true;
+    return;
+  }
+  starting = true;
+  try {
+    const { data: { session } } = await db.auth.getSession();
+    if (!session) {
+      showScreen("signin-screen");
+      return;
+    }
+    document.getElementById("signed-in-as").textContent = `Signed in as ${session.user.email}`;
+
+    // Which breweries are you in? (For now the app uses the first one.)
+    const memberships = await must(db.from("memberships").select("role, breweries(id, name)").eq("user_id", session.user.id));
+    if (!memberships.length) {
+      showScreen("setup-screen");
+      return;
+    }
+    const m = memberships[0];
+    brewery = { id: m.breweries.id, name: m.breweries.name, role: m.role };
+    await refresh();
+    showScreen("app-screen");
+  } catch (e) {
+    alert(`Something went wrong loading your data: ${explain(e)}`);
+  } finally {
+    starting = false;
+    if (startAgain) {
+      startAgain = false;
+      start();
+    }
+  }
+}
+
+// Signing in or out (in this tab, or from the emailed link) re-runs start()
+db.auth.onAuthStateChange((event) => {
+  if (event === "SIGNED_IN" || event === "SIGNED_OUT") setTimeout(start, 0);
+});
+
+// ---------- 13. Wiring up taps and clicks ----------
 // Tapping a tank card opens its batch (or a blank "new batch" form if it's empty)
 // ...unless it's being cleaned or worked on, then it opens the tank so you can mark it ready
 tanksArea.addEventListener("click", (e) => {
@@ -836,10 +1124,6 @@ beerList.addEventListener("click", (e) => {
   openBeerEditor(findBeer(row.dataset.beer));
 });
 
-document.getElementById("add-tank").addEventListener("click", () => openTankEditor(null));
-document.getElementById("add-beer").addEventListener("click", () => openBeerEditor(null));
-document.getElementById("add-location").addEventListener("click", () => openLocationEditor(null));
-
 // Tapping a location opens it
 locationList.addEventListener("click", (e) => {
   const row = e.target.closest(".row");
@@ -847,12 +1131,25 @@ locationList.addEventListener("click", (e) => {
   openLocationEditor(findLocation(row.dataset.location));
 });
 
-// Backup buttons. "Restore" opens the hidden file picker; picking a file starts the restore.
+document.getElementById("add-tank").addEventListener("click", () => openTankEditor(null));
+document.getElementById("add-beer").addEventListener("click", () => openBeerEditor(null));
+document.getElementById("add-location").addEventListener("click", () => openLocationEditor(null));
+
+// Getting-started buttons for an empty brewery
+document.getElementById("load-sample").addEventListener("click", () => loadIntoBrewery(sampleData(), "the sample data"));
+document.getElementById("load-browser-data").addEventListener("click", () => {
+  const d = browserData();
+  if (d) loadIntoBrewery(d, "the data saved in this browser");
+});
+
+// Backup buttons. "Load" opens the hidden file picker; picking a file starts loading it.
 const importFile = document.getElementById("import-file");
 document.getElementById("export-data").addEventListener("click", downloadBackup);
-document.getElementById("import-data").addEventListener("click", () => importFile.click());
+document.querySelectorAll(".restore-backup").forEach((btn) =>
+  btn.addEventListener("click", () => importFile.click())
+);
 importFile.addEventListener("change", () => {
-  if (importFile.files[0]) restoreBackup(importFile.files[0]);
+  if (importFile.files[0]) loadBackupFile(importFile.files[0]);
   importFile.value = ""; // so picking the same file again still works
 });
 
@@ -861,5 +1158,5 @@ document.querySelectorAll(".cancel").forEach((btn) =>
   btn.addEventListener("click", () => btn.closest("dialog").close())
 );
 
-// ---------- 13. Go ----------
-render();
+// ---------- 14. Go ----------
+start();

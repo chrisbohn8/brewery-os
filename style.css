@@ -32,6 +32,7 @@
 
 * { box-sizing: border-box; }
 [hidden] { display: none !important; } /* "hidden" always wins over our styles */
+body.busy, body.busy * { cursor: progress !important; } /* while saving to the database */
 
 body {
   margin: 0;
@@ -40,6 +41,32 @@ body {
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   font-size: 16px;
 }
+
+/* ---- Sign-in and setup screens ---- */
+.screen {
+  max-width: 420px;
+  margin: 48px auto;
+  padding: 0 16px;
+}
+.screen form { display: grid; gap: 12px; margin-top: 16px; }
+.screen label { display: grid; gap: 4px; color: var(--muted); font-size: 0.9rem; }
+.screen input {
+  font: inherit;
+  font-size: 16px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--text);
+}
+.form-message {
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--maintenance);
+  color: var(--text);
+}
+.screen-message { text-align: center; color: var(--muted); margin-top: 48px; }
+.actions.wrap { flex-wrap: wrap; }
 
 /* ---- Header ---- */
 .top {
@@ -51,6 +78,7 @@ body {
   margin: 0 auto;
 }
 .top h1 { margin: 0; font-size: 1.6rem; }
+.top p { margin: 2px 0 0; }
 
 /* ---- Tank area, grouped by location ---- */
 #tanks {

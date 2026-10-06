@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch",
+      "WebSearch",
+      "mcp__Claude_Browser__read_console_messages",
+      "mcp__terminal__read_terminal",
+      "mcp__claude_ai_Claude_Docs__read"
+    ]
+  }
+}

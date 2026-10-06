@@ -4,7 +4,7 @@ A simple web app for small craft breweries that replaces the whiteboard, clipboa
 
 **Live prototype:** https://chrisbohn8.github.io/brewery-os/
 
-> **Status: early prototype.** It works, and it's useful for trying out ideas on the brew floor, but it is **not ready for real production records**. Data lives only in the browser you entered it in (see [Known limitations](#known-limitations)). Use it with sample data or as a scratchpad, not as your system of record.
+> **Status: early prototype.** Data is now saved in a shared database, so every phone and computer signed in to a brewery sees the same tanks. It is still **not ready for real production records** (see [Known limitations](#known-limitations)). Use it to try things out, with sample data or real tanks, alongside your current records.
 
 ---
 
@@ -19,6 +19,12 @@ A simple web app for small craft breweries that replaces the whiteboard, clipboa
 When a feature and these three conflict, the three win. Simple beats clever, as long as the result is right.
 
 ---
+
+## Getting started
+
+1. Open the live app and sign in with your email. You'll get an email with a 6-digit code: type it in (works on any device), or tap the link in the email.
+2. The first time, create your brewery. You become its admin.
+3. Start from **Sample data**, a **backup file**, data saved by the earlier browser-only version (**Data saved in this browser**, shown when there is some), or add your own tanks.
 
 ## The core job
 
@@ -80,33 +86,61 @@ These shape every decision, even for features that come later:
 - Add beers from the Beers list or right from the batch form ("+ New beer…").
 - A beer that has batches can't be deleted.
 
+### Batch history
+- Every stage change and transfer is recorded with its date. Nothing is overwritten, so the records show where each batch has been, not just where it is.
+- A transfer keeps the "days in stage" counter; a stage change restarts it.
+- Changing a batch's "stage started" date corrects the history instead of adding to it.
+
+### Accounts and breweries
+- Sign in by email code or link; no passwords.
+- Each brewery's data is kept completely separate by the database itself (row-level security), and roles control who can change things: **admin**, **brewer**, and **viewer** (read-only).
+
 ### Backup
-- **Download** saves everything (locations, beers, tanks, batches) as one `.json` file.
-- **Restore…** loads a backup file, after showing what's in it and asking you to confirm. It replaces everything on the device.
-- Files that aren't backups are rejected without touching your data. Backups from older versions are upgraded automatically, the same way saved data is.
+- **Download** saves everything in the brewery (locations, beers, tanks, batches, and history) as one `.json` file.
+- **Load…** puts a backup into an **empty** brewery (so nothing is mixed up or duplicated), after showing what's in it and asking you to confirm. If loading fails partway, the brewery is emptied again rather than left half-loaded.
+- Files that aren't backups are rejected. Backups from older versions are upgraded automatically.
 
 ---
 
 ## How it's built
 
-Plain HTML, CSS, and JavaScript, with no frameworks, no build step, and no server. That keeps it easy to read and follow.
+Plain HTML, CSS, and JavaScript with no frameworks and no build step, so it's easy to read and follow. Data lives in **[Supabase](https://supabase.com)** (hosted Postgres with sign-in), which the page talks to directly. The database's own rules keep breweries apart and records consistent, so they hold no matter what the page does.
 
 | File | What's in it |
 |---|---|
 | `index.html` | Page structure: the tank area; the packaged, beer, and location lists; the backup buttons; and the pop-up forms for batches, tanks, beers, and locations. |
 | `style.css` | The look. Colors are defined once at the top, one per stage and status, with a dark mode. |
-| `app.js` | Everything the page does, in numbered sections: fixed lists → helpers → sample data → saving/loading → lookups → drawing → batch, tank, beer, and location forms → backup → wiring up taps. |
+| `app.js` | Everything the page does, in numbered sections: fixed lists → helpers → sample data → connecting to the database → lookups → drawing → batch, tank, beer, and location forms → backups → sign-in → wiring up taps. |
+| `supabase/migrations/` | The database design, one file per change, applied in order. |
+| `supabase/tests/` | Database tests: breweries can't reach each other's data, roles are enforced, saving a batch is all-or-nothing. |
+| `supabase/config.toml`, `supabase/templates/` | Settings for the local test copy of the database, and the sign-in email wording. |
 | `.claude/launch.json` | Starts a small local web server for previewing while developing. |
 
 ### Running it locally
 
-Open `index.html` in a browser, or serve the folder:
+On your own computer (`localhost`), the app uses a **private test copy** of the database instead of the real one, so testing never touches real data. It needs [Docker](https://www.docker.com/) and the [Supabase CLI](https://supabase.com/docs/guides/cli).
+
+```bash
+supabase start
+```
 
 ```bash
 python3 -m http.server 8123
 ```
 
-Then open http://localhost:8123.
+Then open http://localhost:8123 and sign in with any made-up `@example.test` address. The sign-in code arrives in the local test inbox at http://127.0.0.1:54324.
+
+Database changes and tests:
+
+```bash
+supabase test db
+```
+
+```bash
+supabase db push --linked
+```
+
+The first runs the tests on the local copy (add `--linked` to run them on the real project); the second applies new files in `supabase/migrations/` to the real project.
 
 ### Deploying
 
@@ -116,7 +150,7 @@ The site is served by **GitHub Pages** from the `master` branch. Pushing to `mas
 
 ## The data model
 
-Four records form the foundation. The rule of thumb: **define a record early if other records point at it.** Batches point at beers and tanks, and tanks point at locations, so all four exist now. Nothing points at inventory items, kegs, or users yet, so those wait for their modules.
+Every record belongs to a **brewery**, and people belong to breweries through **memberships** (with a role). Inside a brewery, four records form the foundation. The rule of thumb: **define a record early if other records point at it.** Batches point at beers and tanks, and tanks point at locations, so all four exist now. Nothing points at inventory items or kegs yet, so those wait for their modules. The full design is in `supabase/migrations/`.
 
 ```
 LOCATION  (a facility)
@@ -124,7 +158,8 @@ LOCATION  (a facility)
   name          "Downtown"
 
 BEER  (the product: "House Hazy")
-  id            "house-hazy": readable, made from the name, never changes
+  id            hidden internal ID, never changes
+  code          "house-hazy": readable, made from the name, never changes
   name          "House Hazy"
   style         "Hazy IPA"
   targetOg      1.066
@@ -142,13 +177,19 @@ TANK  (equipment, mostly static)
 
 BATCH  (one actual brew: the living record)
   id              hidden internal ID, never changes
-  batchId         "1042": the brewer's batch number
+  batchNumber     "1042": the brewer's batch number
   beerId          → BEER
-  tankId          → TANK (where it is now, or where it was last if packaged)
   brewDate        2026-10-01
   sizeBbl         15
+
+BATCH EVENT  (the batch's history: rows are only ever added)
+  batchId         → BATCH
+  effectiveDate   the day it happened (on the person's device, so offline entries keep their date)
   stage           fermenting | dry-hopping | conditioning | carbonating | ready | packaged
-  stageStartDate  drives the "days in stage" counter
+  tankId          → TANK (none once packaged)
+
+  A batch's current stage, tank, and "stage started" date are worked out from its
+  newest events (the batch_status view), never stored twice.
 ```
 
 ### Design decisions worth knowing
@@ -156,7 +197,10 @@ BATCH  (one actual brew: the living record)
 - **Each link is stored in one place only.** A batch records which tank it's in. The tank does *not* also record which batch it holds, because the two copies could drift apart. The tank's current batch is looked up whenever it's needed, and so are "occupied" status and target ABV.
 - **Dates, not counts.** The app stores the date a stage started, so "days in stage" goes up by itself every day.
 - **Hidden IDs.** Renaming a tank or fixing a typo in a batch number never breaks links between records.
-- **Saved data upgrades itself.** When the data shape changes, older saved data is converted on load, so nothing is lost between versions.
+- **History is added, never overwritten.** Stage changes and transfers add batch events, which is what traceability and TTB reporting need.
+- **One action, one all-or-nothing step.** Saving a batch (its details, history, and both tanks' statuses) is a single database function: all of it happens or none of it. Repeating the same save changes nothing, which makes retries safe.
+- **The database enforces the rules.** One batch per tank, unique batch numbers, and "a tank with history can't be deleted" are checked by the database itself, so even an out-of-date phone can't break them.
+- **Old data upgrades itself.** Backups and data from earlier versions are converted when loaded, so nothing is lost between versions.
 - **Hard stops vs. warnings.** Mistakes that would corrupt records, like a duplicate batch number or two batches in one tank, are blocked. Situations that might be fine, like a tank you just finished cleaning or a slightly overfilled tank, only ask you to confirm.
 
 ---
@@ -165,11 +209,12 @@ BATCH  (one actual brew: the living record)
 
 These are the reasons it isn't production-ready yet:
 
-1. **Data lives in one browser on one device.** It's saved in the browser's local storage, so your phone and laptop each have a separate copy, and clearing browser data erases it. The Backup buttons are the safety net until there's a shared database.
-2. **No accounts or permissions.** Anyone with the link sees the app, but only their own browser's data.
-3. **No history.** When a batch changes stage or tank, the old value is overwritten. The app knows where a batch is, not where it's been. Traceability and TTB reporting both need that history (see Phase 2).
-4. **No measurements yet:** gravity, temperature, pH, and actual ABV.
-5. **Packaging is only a stage.** It doesn't record yield, package counts, or losses.
+1. **Needs a connection.** It doesn't work offline yet (planned in Phase 3).
+2. **No way to invite coworkers yet.** Each person who signs in creates their own brewery; adding members to an existing brewery is next.
+3. **Sign-in emails are limited** to a few per hour (Supabase's free email service) until a dedicated email service is connected.
+4. **Pop-up messages** ("Are you sure?") use the browser's built-in boxes, which some apps block. They'll move onto the page.
+5. **No measurements yet:** gravity, temperature, pH, and actual ABV.
+6. **Packaging is only a stage.** It doesn't record yield, package counts, or losses.
 
 ---
 
@@ -204,12 +249,15 @@ The as-brewed record for each batch, compared against its beer's targets.
 ### Phase 3: Shared data, sign-in, multiple breweries, and offline (in progress)
 Turns the prototype into something a brewery can rely on.
 - [x] **Database design** on Supabase (hosted Postgres): breweries, members and roles, locations, tanks, beers, batches, and append-only batch history, with row-level security and tests proving breweries can't reach each other's data (`supabase/`).
-- [ ] **App switched to the shared database:** one copy of the data that every phone and computer reads and writes.
-- [ ] **Multi-tenant from day one:** every record belongs to a brewery, and access rules keep each brewery's data separate.
-- [ ] **Sign-in and roles** (for example admin, brewer, read-only). This is when "users" become a record. Admins manage locations, tanks, beers, and recipes.
-- [ ] **QR codes work on any phone.** Before this phase, a batch only exists in the browser it was entered on.
-- [ ] **Move existing data in** from a backup file.
-- [ ] **Each action saved as one all-or-nothing step** (for example "transfer batch 1042 to BT-2" updates the batch's history and both tanks together, or not at all). This keeps records consistent and is the foundation for working offline.
+- [x] **App switched to the shared database:** one copy of the data that every phone and computer reads and writes.
+- [x] **Multi-tenant from day one:** every record belongs to a brewery, and access rules keep each brewery's data separate.
+- [x] **Sign-in** by emailed code or link, and **roles** (admin, brewer, viewer) enforced by the database.
+- [ ] **Invite coworkers** to a brewery, and let admins change roles.
+- [ ] **A dedicated email service** for sign-in codes, so the free tier's few-per-hour limit doesn't lock people out.
+- [ ] **QR codes work on any phone** (now possible: every batch lives in the shared database).
+- [x] **Move existing data in** from a backup file or from the browser-only version.
+- [x] **Saving a batch is one all-or-nothing step** (batch, history, and tanks together).
+- [ ] **Loading a backup as one all-or-nothing step** too. Today it empties the brewery again if loading fails partway. (Other changes, like editing a tank, beer, or location, are already a single step.)
 - [ ] **Works offline:** the app opens and shows the last data without a connection; changes made offline are queued on the device and sent in order when the signal returns; the screen always shows what's saved and what's still waiting.
 - [ ] **Simple conflict rule:** in a small crew two people rarely change the same thing at once, so there's no merge tool. Changes apply in the order they reach the database. If one can't apply (a duplicate batch number, a tank someone else just filled), the database's checks reject it and the person who made it sees why. Nothing is silently dropped.
 
