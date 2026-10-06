@@ -1,12 +1,13 @@
 // Brewery OS — tank dashboard
 // Everything the page does lives in this one file.
 //
-// Three kinds of things:
-//   BEERS   — the product. "House Hazy" the recipe: style and target numbers.
-//   TANKS   — equipment. They stay put. (FV-1, BT-2...)
-//   BATCHES — one actual brew of a beer. A batch points at its beer and at the
-//             tank it's in, moves between tanks, and leaves the tanks for good
-//             once it's packaged.
+// Four kinds of things:
+//   LOCATIONS — the brewery's facilities. Tanks point at these.
+//   BEERS     — the product. "House Hazy" the recipe: style and target numbers.
+//   TANKS     — equipment. They stay put. (FV-1, BT-2...)
+//   BATCHES   — one actual brew of a beer. A batch points at its beer and at the
+//               tank it's in, moves between tanks, and leaves the tanks for good
+//               once it's packaged.
 
 // ---------- 1. Fixed lists ----------
 // Order matters: this is the order they appear in the Stage dropdown.
@@ -109,6 +110,10 @@ function esc(text) {
 // Dates are written as "N days ago" so the samples always look fresh.
 function sampleData() {
   return {
+    locations: [
+      { id: "downtown",  name: "Downtown" },
+      { id: "riverside", name: "Riverside" },
+    ],
     beers: [
       { id: "house-hazy",     name: "House Hazy",     style: "Hazy IPA",           targetOg: 1.066, targetFg: 1.016 },
       { id: "west-coast-ipa", name: "West Coast IPA", style: "American IPA",       targetOg: 1.062, targetFg: 1.010 },
@@ -120,13 +125,13 @@ function sampleData() {
       { id: "robust-porter",  name: "Robust Porter",  style: "American Porter",    targetOg: 1.060, targetFg: 1.016 },
     ],
     tanks: [
-      { id: "fv1", name: "FV-1", type: "fermenter", capacityBbl: 15, location: "Downtown",  status: "empty" },
-      { id: "fv2", name: "FV-2", type: "fermenter", capacityBbl: 15, location: "Downtown",  status: "empty" },
-      { id: "fv3", name: "FV-3", type: "fermenter", capacityBbl: 15, location: "Downtown",  status: "empty" },
-      { id: "bt1", name: "BT-1", type: "brite",     capacityBbl: 15, location: "Downtown",  status: "empty" },
-      { id: "fv4", name: "FV-4", type: "fermenter", capacityBbl: 7,  location: "Riverside", status: "empty" },
-      { id: "bt2", name: "BT-2", type: "brite",     capacityBbl: 7,  location: "Riverside", status: "empty" },
-      { id: "st1", name: "ST-1", type: "serving",   capacityBbl: 7,  location: "Riverside", status: "cleaning" },
+      { id: "fv1", name: "FV-1", type: "fermenter", capacityBbl: 15, locationId: "downtown",  status: "empty" },
+      { id: "fv2", name: "FV-2", type: "fermenter", capacityBbl: 15, locationId: "downtown",  status: "empty" },
+      { id: "fv3", name: "FV-3", type: "fermenter", capacityBbl: 15, locationId: "downtown",  status: "empty" },
+      { id: "bt1", name: "BT-1", type: "brite",     capacityBbl: 15, locationId: "downtown",  status: "empty" },
+      { id: "fv4", name: "FV-4", type: "fermenter", capacityBbl: 7,  locationId: "riverside", status: "empty" },
+      { id: "bt2", name: "BT-2", type: "brite",     capacityBbl: 7,  locationId: "riverside", status: "empty" },
+      { id: "st1", name: "ST-1", type: "serving",   capacityBbl: 7,  locationId: "riverside", status: "cleaning" },
     ],
     batches: [
       { id: "b1042", batchId: "1042", beerId: "house-hazy",     brewDate: daysAgo(4),  sizeBbl: 15, stage: "fermenting",   stageStartDate: daysAgo(4),  tankId: "fv1" },
@@ -180,11 +185,25 @@ function convertOldData(oldTanks) {
 
 // Bring data saved by an older version up to date
 function upgradeData(data) {
-  // Tanks saved before capacity/location/status existed get blank values
+  // Tanks saved before capacity/status existed get blank values
   for (const tank of data.tanks) {
     tank.capacityBbl ??= null;
-    tank.location ??= "";
     tank.status ??= "empty";
+  }
+
+  // Tanks saved before locations were their own records had the location name typed in.
+  // Make one location per name, and point the tanks at it.
+  data.locations ??= [];
+  for (const tank of data.tanks) {
+    if (tank.locationId !== undefined) continue;
+    const name = (tank.location || "").trim();
+    let location = data.locations.find((l) => l.name.toLowerCase() === name.toLowerCase());
+    if (name && !location) {
+      location = { id: newId(), name };
+      data.locations.push(location);
+    }
+    tank.locationId = location ? location.id : null;
+    delete tank.location;
   }
 
   // Batches saved before beers existed had the beer name typed in.
@@ -239,6 +258,15 @@ function tankStatus(tank) {
   return batchInTank(tank.id) ? "occupied" : tank.status;
 }
 
+function findLocation(locationId) {
+  return data.locations.find((l) => l.id === locationId);
+}
+
+// The location's name, or "" if the tank has none
+function locationName(tank) {
+  return findLocation(tank.locationId)?.name ?? "";
+}
+
 function findBeer(beerId) {
   return data.beers.find((b) => b.id === beerId);
 }
@@ -273,19 +301,27 @@ const packagedSection = document.getElementById("packaged");
 const packagedList = document.getElementById("packaged-list");
 const beerList = document.getElementById("beer-list");
 
-function allLocations() {
-  return [...new Set(data.tanks.map((t) => t.location))];
+const locationList = document.getElementById("location-list");
+
+// Tanks split up by location, in the order the locations were added.
+// Tanks with no location (or one that's been deleted) go in a group at the end.
+function tankGroups() {
+  const groups = data.locations.map((loc) => ({
+    name: loc.name,
+    tanks: data.tanks.filter((t) => t.locationId === loc.id),
+  }));
+  const unplaced = data.tanks.filter((t) => !findLocation(t.locationId));
+  if (unplaced.length) groups.push({ name: "No location", tanks: unplaced });
+  return groups.filter((g) => g.tanks.length);
 }
 
 function render() {
-  // One group of cards per location. Headings only show if there's more than one location.
-  const locations = allLocations();
-  tanksArea.innerHTML = locations.map((loc) => `
+  // One group of cards per location. Headings only show if there's more than one group.
+  const groups = tankGroups();
+  tanksArea.innerHTML = groups.map((g) => `
     <section class="location">
-      ${locations.length > 1 ? `<h2>${esc(loc || "No location")}</h2>` : ""}
-      <div class="grid">
-        ${data.tanks.filter((t) => t.location === loc).map(tankCard).join("")}
-      </div>
+      ${groups.length > 1 ? `<h2>${esc(g.name)}</h2>` : ""}
+      <div class="grid">${g.tanks.map(tankCard).join("")}</div>
     </section>`).join("");
 
   // Packaged batches, newest first
@@ -309,6 +345,18 @@ function render() {
         <span class="muted">${targetsText(beer)}</span>
       </button>
     </li>`).join("");
+
+  // Locations, in the order they were added
+  locationList.innerHTML = data.locations.map((loc) => {
+    const count = data.tanks.filter((t) => t.locationId === loc.id).length;
+    return `
+    <li>
+      <button class="row" data-location="${esc(loc.id)}">
+        <strong>${esc(loc.name)}</strong>
+        <span class="muted">${count} ${count === 1 ? "tank" : "tanks"}</span>
+      </button>
+    </li>`;
+  }).join("");
 }
 
 function tankCard(tank) {
@@ -378,13 +426,13 @@ function openBatchEditor(batch, tankId) {
 
   // Tank dropdown: show what's in each tank (or that it's being cleaned)
   // so you don't move beer into the wrong one
-  const showLocation = allLocations().length > 1;
+  const showLocation = data.locations.length > 1;
   batchForm.tankId.innerHTML = data.tanks.map((t) => {
     const occupant = batchInTank(t.id);
     let note = "";
     if (occupant && occupant !== batch) note = ` (has ${esc(beerName(occupant))})`;
     else if (!occupant && t.status !== "empty") note = ` (${labelFrom(TANK_STATUSES, t.status).toLowerCase()})`;
-    const where = showLocation && t.location ? ` · ${esc(t.location)}` : "";
+    const where = showLocation && locationName(t) ? ` · ${esc(locationName(t))}` : "";
     return `<option value="${t.id}">${esc(t.name)}${where}${note}</option>`;
   }).join("");
 
@@ -502,17 +550,26 @@ let editingTank = null; // the tank open in the form, or null when adding a new 
 // Fill the Type dropdown from the TANK_TYPES list above
 tankForm.type.innerHTML = TANK_TYPES.map((t) => `<option value="${t.id}">${t.label}</option>`).join("");
 
+// Special choice at the bottom of the Location dropdown
+const NEW_LOCATION = "__new";
+let locationChoiceBeforeNew = ""; // so we can put the dropdown back if you cancel adding a location
+
+function fillLocationDropdown(selectedId) {
+  tankForm.locationId.innerHTML =
+    `<option value="">No location</option>` +
+    data.locations.map((l) => `<option value="${esc(l.id)}">${esc(l.name)}</option>`).join("") +
+    `<option value="${NEW_LOCATION}">+ New location…</option>`;
+  tankForm.locationId.value = selectedId ?? "";
+  locationChoiceBeforeNew = tankForm.locationId.value;
+}
+
 function openTankEditor(tank) {
   editingTank = tank;
-  const t = tank || { name: "", type: "fermenter", capacityBbl: null, location: "", status: "empty" };
+  const t = tank || { name: "", type: "fermenter", capacityBbl: null, locationId: null, status: "empty" };
   const batch = tank && batchInTank(tank.id);
 
   document.getElementById("tank-title").textContent = tank ? `Edit ${tank.name}` : "Add tank";
   document.getElementById("delete-tank").hidden = !tank;
-
-  // Suggest locations you've already used, so "Riverside" doesn't also end up as "riverside"
-  document.getElementById("location-options").innerHTML =
-    allLocations().filter(Boolean).map((loc) => `<option value="${esc(loc)}">`).join("");
 
   // Status can only be set by hand when the tank is empty
   document.getElementById("status-field").hidden = !!batch;
@@ -526,10 +583,16 @@ function openTankEditor(tank) {
   tankForm.type.value = t.type;
   tankForm.capacityBbl.value = t.capacityBbl ?? "";
   // A new tank goes in the same location as the last tank, as a starting guess
-  tankForm.location.value = tank ? t.location : (data.tanks.at(-1)?.location ?? "");
+  fillLocationDropdown(tank ? t.locationId : data.tanks.at(-1)?.locationId);
   tankForm.status.value = t.status;
   tankDialog.showModal();
 }
+
+// Picking "+ New location…" opens the location form on top of the tank form
+tankForm.locationId.addEventListener("change", () => {
+  if (tankForm.locationId.value === NEW_LOCATION) openLocationEditor(null);
+  else locationChoiceBeforeNew = tankForm.locationId.value;
+});
 
 tankForm.addEventListener("submit", (e) => {
   e.preventDefault();
@@ -537,7 +600,7 @@ tankForm.addEventListener("submit", (e) => {
     name: tankForm.name.value.trim(),
     type: tankForm.type.value,
     capacityBbl: tankForm.capacityBbl.value ? Number(tankForm.capacityBbl.value) : null,
-    location: tankForm.location.value.trim(),
+    locationId: [ "", NEW_LOCATION ].includes(tankForm.locationId.value) ? null : tankForm.locationId.value,
     status: tankForm.status.value,
   };
   if (data.tanks.some((t) => t !== editingTank && t.name.toLowerCase() === values.name.toLowerCase())) {
@@ -647,7 +710,107 @@ document.getElementById("delete-beer").addEventListener("click", () => {
   beerDialog.close();
 });
 
-// ---------- 10. Wiring up taps and clicks ----------
+// ---------- 10. Editing a location ----------
+const locationDialog = document.getElementById("location-editor");
+const locationForm = document.getElementById("location-form");
+let editingLocation = null; // the location open in the form, or null when adding a new one
+
+function openLocationEditor(location) {
+  editingLocation = location;
+  document.getElementById("location-title").textContent = location ? `Edit ${location.name}` : "Add location";
+  document.getElementById("delete-location").hidden = !location;
+  locationForm.name.value = location ? location.name : "";
+  locationDialog.showModal();
+}
+
+locationForm.addEventListener("submit", (e) => {
+  e.preventDefault();
+  const name = locationForm.name.value.trim();
+  if (data.locations.some((l) => l !== editingLocation && l.name.toLowerCase() === name.toLowerCase())) {
+    alert(`There's already a location called ${name}.`);
+    return;
+  }
+  let location = editingLocation;
+  if (location) location.name = name;
+  else {
+    location = { id: newId(), name };
+    data.locations.push(location);
+  }
+  saveData();
+  render();
+  // If you added this location from inside the tank form, select it there
+  if (tankDialog.open && !editingLocation) fillLocationDropdown(location.id);
+  locationDialog.close();
+});
+
+// If you cancel adding a location from the tank form, put the Location dropdown back how it was
+locationDialog.addEventListener("close", () => {
+  if (tankForm.locationId.value === NEW_LOCATION) tankForm.locationId.value = locationChoiceBeforeNew;
+});
+
+document.getElementById("delete-location").addEventListener("click", () => {
+  // Tanks point at locations, so a location with tanks in it can't be deleted
+  const tanks = data.tanks.filter((t) => t.locationId === editingLocation.id);
+  if (tanks.length) {
+    alert(`${editingLocation.name} still has tanks (${tanks.map((t) => t.name).join(", ")}). Move or delete them first.`);
+    return;
+  }
+  if (!confirm(`Delete ${editingLocation.name}?`)) return;
+  data.locations = data.locations.filter((l) => l !== editingLocation);
+  saveData();
+  render();
+  locationDialog.close();
+});
+
+// ---------- 11. Backup (download and restore) ----------
+// A backup is one file holding everything: locations, beers, tanks, and batches.
+// The "format" number lets future versions of the app recognize and upgrade old backups.
+const BACKUP_FORMAT = 1;
+
+function downloadBackup() {
+  const backup = { app: "brewery-os", format: BACKUP_FORMAT, exportedAt: new Date().toISOString(), data };
+  const file = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(file);
+  link.download = `brewery-os-backup-${today()}.json`;
+  link.click();
+  URL.revokeObjectURL(link.href);
+}
+
+async function restoreBackup(file) {
+  let backup;
+  try {
+    backup = JSON.parse(await file.text());
+  } catch {
+    alert("That file isn't a Brewery OS backup (it couldn't be read).");
+    return;
+  }
+  // Check it's really one of our backups before replacing anything
+  const d = backup?.data;
+  if (backup?.app !== "brewery-os" || !Array.isArray(d?.tanks) || !Array.isArray(d?.batches)) {
+    alert("That file isn't a Brewery OS backup.");
+    return;
+  }
+  if (backup.format > BACKUP_FORMAT) {
+    alert("That backup was made by a newer version of Brewery OS. Reload the page to get the latest version, then try again.");
+    return;
+  }
+  const when = new Date(backup.exportedAt).toLocaleString();
+  const count = (n, one, many) => `${n} ${n === 1 ? one : many}`; // "1 tank", "2 tanks"
+  const summary = [
+    count(d.tanks.length, "tank", "tanks"),
+    count(d.batches.length, "batch", "batches"),
+    count((d.beers || []).length, "beer", "beers"),
+  ].join(", ");
+  if (!confirm(`Restore the backup from ${when} (${summary})?\n\nThis REPLACES everything currently on this device.`)) return;
+
+  data = upgradeData(d); // a backup from an older version gets upgraded, just like saved data
+  saveData();
+  render();
+  alert("Backup restored.");
+}
+
+// ---------- 12. Wiring up taps and clicks ----------
 // Tapping a tank card opens its batch (or a blank "new batch" form if it's empty)
 // ...unless it's being cleaned or worked on, then it opens the tank so you can mark it ready
 tanksArea.addEventListener("click", (e) => {
@@ -675,11 +838,28 @@ beerList.addEventListener("click", (e) => {
 
 document.getElementById("add-tank").addEventListener("click", () => openTankEditor(null));
 document.getElementById("add-beer").addEventListener("click", () => openBeerEditor(null));
+document.getElementById("add-location").addEventListener("click", () => openLocationEditor(null));
+
+// Tapping a location opens it
+locationList.addEventListener("click", (e) => {
+  const row = e.target.closest(".row");
+  if (!row) return;
+  openLocationEditor(findLocation(row.dataset.location));
+});
+
+// Backup buttons. "Restore" opens the hidden file picker; picking a file starts the restore.
+const importFile = document.getElementById("import-file");
+document.getElementById("export-data").addEventListener("click", downloadBackup);
+document.getElementById("import-data").addEventListener("click", () => importFile.click());
+importFile.addEventListener("change", () => {
+  if (importFile.files[0]) restoreBackup(importFile.files[0]);
+  importFile.value = ""; // so picking the same file again still works
+});
 
 // Every Cancel button closes whichever pop-up it's in
 document.querySelectorAll(".cancel").forEach((btn) =>
   btn.addEventListener("click", () => btn.closest("dialog").close())
 );
 
-// ---------- 11. Go ----------
+// ---------- 13. Go ----------
 render();

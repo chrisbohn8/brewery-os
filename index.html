@@ -30,6 +30,29 @@
     <ul id="beer-list"></ul>
   </section>
 
+  <!-- Locations (facilities). Tanks point at these. -->
+  <section id="locations" class="list-section">
+    <div class="section-head">
+      <h2>Locations</h2>
+      <button id="add-location" class="btn">+ Add location</button>
+    </div>
+    <ul id="location-list"></ul>
+  </section>
+
+  <!-- Backup: everything saved on this device, as one file -->
+  <section id="backup" class="list-section">
+    <h2>Backup</h2>
+    <p class="muted">
+      Your data is only saved in this browser on this device. Download a backup now and then,
+      so clearing the browser or losing the phone doesn't lose your records.
+    </p>
+    <div class="actions">
+      <button id="export-data" class="btn">Download</button>
+      <button id="import-data" class="btn">Restore…</button>
+      <input id="import-file" type="file" accept=".json,application/json" hidden>
+    </div>
+  </section>
+
   <!-- Pop-up form for a batch. Opens when you tap a tank card. -->
   <dialog id="batch-editor">
     <form id="batch-form">
@@ -94,8 +117,7 @@
       </label>
 
       <label>Location
-        <input name="location" list="location-options" placeholder="Which facility">
-        <datalist id="location-options"></datalist>
+        <select name="locationId"></select>
       </label>
 
       <!-- Only shown when the tank is empty. A tank with beer in it is "occupied" automatically. -->
@@ -143,6 +165,24 @@
 
       <div class="actions">
         <button type="button" id="delete-beer" class="btn danger">Delete</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn cancel">Cancel</button>
+        <button type="submit" class="btn primary">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Pop-up form for a location -->
+  <dialog id="location-editor">
+    <form id="location-form">
+      <h2 id="location-title">Location</h2>
+
+      <label>Name
+        <input name="name" required placeholder="Downtown">
+      </label>
+
+      <div class="actions">
+        <button type="button" id="delete-location" class="btn danger">Delete</button>
         <span class="spacer"></span>
         <button type="button" class="btn cancel">Cancel</button>
         <button type="submit" class="btn primary">Save</button>
