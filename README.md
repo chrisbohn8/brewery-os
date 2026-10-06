@@ -108,8 +108,11 @@ These shape every decision, even for features that come later:
 - If the network is very slow, the app opens from the device copy after a few seconds instead of hanging.
 - Signing out deletes the device copy, which matters on a shared phone or tablet. If changes haven't been sent yet, it warns first.
 
-### Accounts and breweries
-- Sign in by email code or link; no passwords.
+### Accounts, breweries, and team
+- Sign in by email code or link; no passwords. Sign-in emails come from `noreply@brew.chrisbohn.org`.
+- **Invite coworkers:** in the Team section, an admin enters a coworker's email and picks a role. The coworker opens the app and signs in with that email; they join the brewery automatically. (The app doesn't email the invite yet; tell them to sign in.)
+- Admins change roles and remove people from the Team section. A brewery always keeps at least one admin: the database refuses to remove or demote the last one.
+- Someone who belongs to more than one brewery picks which one to work in under Account; the choice is remembered.
 - Each brewery's data is kept completely separate by the database itself (row-level security), and roles control who can change things: **admin**, **brewer**, and **viewer** (read-only).
 
 ### Backup
@@ -129,10 +132,10 @@ Plain HTML, CSS, and JavaScript with no frameworks and no build step, so it's ea
 | `style.css` | The look. Colors are defined once at the top, one per stage and status, with a dark mode. |
 | `app.js` | Everything the page does, in numbered sections: fixed lists → helpers → sample data → connecting to the database → lookups → drawing → batch, tank, beer, and location forms → backups → sign-in → wiring up taps. |
 | `supabase/migrations/` | The database design, one file per change, applied in order. |
-| `supabase/tests/` | Database tests: breweries can't reach each other's data, roles are enforced, saving a batch is all-or-nothing. |
+| `supabase/tests/` | Database tests: breweries can't reach each other's data, roles are enforced, saving a batch is all-or-nothing, acid tracking, and invites (including "a brewery always keeps an admin"). |
 | `supabase/config.toml`, `supabase/templates/` | Settings for the local test copy of the database, and the sign-in email wording. |
 | `sw.js` | The service worker: keeps a copy of the app's files on the device so it opens with no signal. |
-| `tests/browser/` | Browser tests: real Chrome clicking through the app like a brewer (batches, acid tracking, offline viewing, and offline recording with a coworker conflict), against the local test copy of the database. |
+| `tests/browser/` | Browser tests: real Chrome clicking through the app like a brewer (batches, acid tracking, offline viewing, offline recording with a coworker conflict, and team invites and roles), against the local test copy of the database. |
 | `.claude/launch.json` | Starts a small local web server for previewing while developing. |
 
 ### Running it locally
@@ -246,11 +249,10 @@ BATCH EVENT  (the batch's history: rows are only ever added)
 These are the reasons it isn't production-ready yet:
 
 1. **Setup changes need a connection.** Floor work (batches, tanks, acid) works offline; adding or deleting beers, locations, and tanks doesn't yet.
-2. **No way to invite coworkers yet.** Each person who signs in creates their own brewery; adding members to an existing brewery is next.
-3. **Sign-in emails are limited** to a few per hour (Supabase's free email service) until a dedicated email service is connected.
-4. **Pop-up messages** ("Are you sure?") use the browser's built-in boxes, which some apps block. They'll move onto the page.
-5. **No measurements yet:** gravity, temperature, pH, and actual ABV.
-6. **Packaging is only a stage.** It doesn't record yield, package counts, or losses.
+2. **Invites aren't emailed.** The admin tells the coworker to sign in; the app doesn't send an invite email yet.
+3. **Pop-up messages** ("Are you sure?") use the browser's built-in boxes, which some apps block. They'll move onto the page.
+4. **No measurements yet:** gravity, temperature, pH, and actual ABV.
+5. **Packaging is only a stage.** It doesn't record yield, package counts, or losses.
 
 ---
 
@@ -288,8 +290,9 @@ Turns the prototype into something a brewery can rely on.
 - [x] **App switched to the shared database:** one copy of the data that every phone and computer reads and writes.
 - [x] **Multi-tenant from day one:** every record belongs to a brewery, and access rules keep each brewery's data separate.
 - [x] **Sign-in** by emailed code or link, and **roles** (admin, brewer, viewer) enforced by the database.
-- [ ] **Invite coworkers** to a brewery, and let admins change roles.
-- [ ] **A dedicated email service** for sign-in codes, so the free tier's few-per-hour limit doesn't lock people out.
+- [x] **Invite coworkers** to a brewery, and let admins change roles (the last admin can't be removed).
+- [x] **A dedicated email service** for sign-in codes (Resend, from `noreply@brew.chrisbohn.org`).
+- [ ] **Email the invite** to the coworker automatically (needs a small server function).
 - [ ] **QR codes work on any phone** (now possible: every batch lives in the shared database).
 - [x] **Move existing data in** from a backup file or from the browser-only version.
 - [x] **Saving a batch is one all-or-nothing step** (batch, history, and tanks together).

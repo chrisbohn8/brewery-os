@@ -249,6 +249,19 @@ ul.plain .item {
   color: var(--text);
 }
 
+.inline-add select, .inline-label select, ul.plain .item select {
+  font: inherit;
+  font-size: 16px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--text);
+}
+.inline-label { display: flex; align-items: center; gap: 8px; margin: 8px 0 12px; color: var(--muted); }
+ul.plain .item .who { min-width: 0; overflow-wrap: anywhere; }
+ul.plain .item .controls { display: flex; gap: 6px; align-items: center; flex-shrink: 0; }
+
 /* ---- Edit pop-up ---- */
 dialog {
   border: none;

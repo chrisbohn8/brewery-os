@@ -39,13 +39,15 @@
   <section id="setup-screen" class="screen" hidden>
     <h1>Welcome</h1>
     <p class="muted">You're signed in, but you're not part of a brewery yet. Create one to get started.
-      (To join an existing brewery instead, ask its admin to add you.)</p>
+      To join an existing brewery instead, ask its admin to invite this email, then tap
+      <strong>Check for invites</strong>.</p>
     <form id="setup-form">
       <label>Brewery name
         <input name="name" required placeholder="Your brewery">
       </label>
       <div class="actions">
         <button type="button" class="btn sign-out">Sign out</button>
+        <button type="button" id="check-invites" class="btn">Check for invites</button>
         <span class="spacer"></span>
         <button type="submit" class="btn primary">Create brewery</button>
       </div>
@@ -124,6 +126,27 @@
     <p id="acid-admin-note" class="muted" hidden>Only an admin can change this list.</p>
   </section>
 
+  <!-- Team: who's in this brewery. Admins invite people and change roles. -->
+  <section id="team" class="list-section">
+    <h2>Team</h2>
+    <ul id="member-list" class="plain"></ul>
+    <div id="invite-area" hidden>
+      <p id="invite-heading" class="muted" hidden>Invited, not signed in yet:</p>
+      <ul id="invite-list" class="plain"></ul>
+      <form id="invite-form" class="inline-add">
+        <input name="email" type="email" required placeholder="coworker@email.com" aria-label="Email to invite">
+        <select name="role" aria-label="Role">
+          <option value="brewer">Brewer</option>
+          <option value="viewer">Viewer</option>
+          <option value="admin">Admin</option>
+        </select>
+        <button type="submit" class="btn">Invite</button>
+      </form>
+      <p id="invite-message" class="muted" role="status" hidden></p>
+    </div>
+    <p class="muted">Admin: everything, including the team. Brewer: day-to-day work. Viewer: look only.</p>
+  </section>
+
   <!-- Backup: everything in this brewery, as one file -->
   <section id="backup" class="list-section">
     <h2>Backup</h2>
@@ -138,6 +161,10 @@
   <section class="list-section">
     <h2>Account</h2>
     <p id="signed-in-as" class="muted"></p>
+    <!-- Only shown to people who belong to more than one brewery -->
+    <label id="brewery-switch-field" class="inline-label" hidden>Brewery
+      <select id="brewery-switch"></select>
+    </label>
     <button class="btn sign-out">Sign out</button>
   </section>
   </div>

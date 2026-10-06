@@ -203,7 +203,7 @@ function explain(error) {
 let serverData = null;
 async function loadAll() {
   const b = brewery.id;
-  const [locations, beers, tanks, batches, events, cleanings, settings] = await Promise.all([
+  const [locations, beers, tanks, batches, events, cleanings, settings, members, invites] = await Promise.all([
     must(db.from("locations").select("*").eq("brewery_id", b).order("created_at")),
     must(db.from("beers").select("*").eq("brewery_id", b)),
     must(db.from("tanks").select("*").eq("brewery_id", b).order("created_at")),
@@ -211,6 +211,8 @@ async function loadAll() {
     must(db.from("batch_events").select("*").eq("brewery_id", b).order("effective_date").order("recorded_at")),
     must(db.from("tank_cleanings").select("*").eq("brewery_id", b).order("cleaned_on").order("recorded_at")),
     must(db.from("breweries").select("acid_after_styles").eq("id", b).single()),
+    must(db.rpc("brewery_members", { p_brewery_id: b })),
+    must(db.from("invites").select("*").eq("brewery_id", b).order("created_at")), // admins only; others get none
   ]);
   serverData = {
     locations: locations.map((l) => ({ id: l.id, name: l.name })),
@@ -235,6 +237,8 @@ async function loadAll() {
     })),
     cleanings: cleanings.map((c) => ({ id: c.id, tankId: c.tank_id, cleanedOn: c.cleaned_on, note: c.note })),
     acidAfterStyles: settings.acid_after_styles,
+    members: members.map((m) => ({ userId: m.user_id, email: m.email, role: m.role })),
+    invites: invites.map((i) => ({ id: i.id, email: i.email, role: i.role })),
   };
   data = withWaitingChanges(serverData);
 }
@@ -631,6 +635,7 @@ function tankGroups() {
 
 function render() {
   document.getElementById("brewery-name").textContent = brewery.name;
+  renderTeam();
 
   // A brand-new brewery: show ways to get started
   document.getElementById("empty-state").hidden = !isEmptyBrewery();
@@ -1501,14 +1506,19 @@ async function start() {
     signedInEmail = session.user.email;
     document.getElementById("signed-in-as").textContent = `Signed in as ${session.user.email}`;
 
-    // Which breweries are you in? (For now the app uses the first one.)
+    // Join any brewery that invited this email
+    await must(db.rpc("accept_invites"));
+
+    // Which breweries are you in? Use the one you picked last time, or the first.
     const memberships = await must(db.from("memberships").select("role, breweries(id, name)").eq("user_id", session.user.id));
     if (!memberships.length) {
       showScreen("setup-screen");
       return;
     }
-    const m = memberships[0];
+    const chosen = readChoice();
+    const m = memberships.find((x) => x.breweries.id === chosen) || memberships[0];
     brewery = { id: m.breweries.id, name: m.breweries.name, role: m.role };
+    showBrewerySwitch(memberships);
     await refresh();
     showScreen("app-screen");
   } catch (e) {
@@ -1523,9 +1533,129 @@ async function start() {
   }
 }
 
+// ----- More than one brewery -----
+const CHOICE_KEY = "brewery-os.current-brewery";
+function readChoice() {
+  try { return localStorage.getItem(CHOICE_KEY); } catch { return null; }
+}
+
+function showBrewerySwitch(memberships) {
+  const field = document.getElementById("brewery-switch-field");
+  field.hidden = memberships.length < 2;
+  document.getElementById("brewery-switch").innerHTML = memberships
+    .map((x) => `<option value="${x.breweries.id}" ${x.breweries.id === brewery.id ? "selected" : ""}>${esc(x.breweries.name)}</option>`)
+    .join("");
+}
+
+document.getElementById("brewery-switch").addEventListener("change", async (e) => {
+  if (outbox.length) {
+    alert("Some changes haven't been sent yet. Switch breweries once they've gone through.");
+    e.target.value = brewery.id;
+    return;
+  }
+  try { localStorage.setItem(CHOICE_KEY, e.target.value); } catch {}
+  await start();
+});
+
+document.getElementById("check-invites").addEventListener("click", () => start());
+
 // Signing in or out (in this tab, or from the emailed link) re-runs start()
 db.auth.onAuthStateChange((event) => {
   if (event === "SIGNED_IN" || event === "SIGNED_OUT") setTimeout(start, 0);
+});
+
+// ----- Team: members, roles, and invites -----
+const ROLES = [
+  { id: "admin",  label: "Admin" },
+  { id: "brewer", label: "Brewer" },
+  { id: "viewer", label: "Viewer" },
+];
+
+function renderTeam() {
+  const isAdmin = brewery.role === "admin";
+  const members = data.members || [];
+  const invites = data.invites || [];
+  document.getElementById("member-list").innerHTML = members.map((m) => {
+    const me = m.email === signedInEmail ? " (you)" : "";
+    const controls = isAdmin
+      ? `<select data-role-for="${m.userId}" aria-label="Role for ${esc(m.email)}">
+           ${ROLES.map((r) => `<option value="${r.id}" ${r.id === m.role ? "selected" : ""}>${r.label}</option>`).join("")}
+         </select>
+         <button class="btn small" data-remove-member="${m.userId}">Remove</button>`
+      : `<span class="muted">${labelFrom(ROLES, m.role)}</span>`;
+    return `<li class="item"><span class="who">${esc(m.email)}${me}</span><span class="controls">${controls}</span></li>`;
+  }).join("");
+
+  document.getElementById("invite-area").hidden = !isAdmin;
+  document.getElementById("invite-heading").hidden = !invites.length;
+  document.getElementById("invite-list").innerHTML = invites.map((i) => `
+    <li class="item">
+      <span class="who">${esc(i.email)} <span class="muted">· ${labelFrom(ROLES, i.role)}</span></span>
+      <button class="btn small" data-cancel-invite="${i.id}">Cancel</button>
+    </li>`).join("");
+}
+
+function inviteMessage(text) {
+  const el = document.getElementById("invite-message");
+  el.textContent = text || "";
+  el.hidden = !text;
+}
+
+const inviteForm = document.getElementById("invite-form");
+inviteForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const email = inviteForm.email.value.trim().toLowerCase();
+  const role = inviteForm.role.value;
+  if (data.members.some((m) => m.email.toLowerCase() === email)) {
+    inviteMessage(`${email} is already on the team.`);
+    return;
+  }
+  if (data.invites.some((i) => i.email === email)) {
+    inviteMessage(`${email} has already been invited.`);
+    return;
+  }
+  const ok = await save(() => must(db.from("invites").insert({ brewery_id: brewery.id, email, role })));
+  if (!ok) return;
+  inviteForm.reset();
+  inviteMessage(`Invited ${email} as ${labelFrom(ROLES, role).toLowerCase()}. ` +
+    `Ask them to open ${location.host} and sign in with that email; they'll join ${brewery.name} automatically.`);
+});
+
+// Change someone's role, remove someone, or cancel an invite (admins only; the database checks too).
+// The database also refuses to remove or demote the last admin.
+document.getElementById("team").addEventListener("change", async (e) => {
+  const select = e.target.closest("[data-role-for]");
+  if (!select) return;
+  const userId = select.dataset.roleFor;
+  const member = data.members.find((m) => m.userId === userId);
+  if (member.email === signedInEmail && select.value !== "admin" &&
+      !confirm(`Change your own role to ${labelFrom(ROLES, select.value).toLowerCase()}? You'll no longer be able to manage the team.`)) {
+    select.value = member.role;
+    return;
+  }
+  const ok = await save(() => must(db.from("memberships").update({ role: select.value })
+    .eq("brewery_id", brewery.id).eq("user_id", userId)));
+  if (ok && member.email === signedInEmail) await start(); // your own role changed: reload what you can do
+});
+
+document.getElementById("team").addEventListener("click", async (e) => {
+  const remove = e.target.closest("[data-remove-member]");
+  const cancel = e.target.closest("[data-cancel-invite]");
+  if (remove) {
+    const member = data.members.find((m) => m.userId === remove.dataset.removeMember);
+    const yourself = member.email === signedInEmail;
+    const question = yourself
+      ? `Leave ${brewery.name}? You'll lose access to it.`
+      : `Remove ${member.email} from ${brewery.name}?`;
+    if (!confirm(question)) return;
+    const ok = await save(() => must(db.from("memberships").delete()
+      .eq("brewery_id", brewery.id).eq("user_id", member.userId)));
+    if (ok && yourself) await start();
+  }
+  if (cancel) {
+    const ok = await save(() => must(db.from("invites").delete().eq("id", cancel.dataset.cancelInvite)));
+    if (ok) inviteMessage("");
+  }
 });
 
 // ---------- 13. Wiring up taps and clicks ----------

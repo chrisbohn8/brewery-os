@@ -4,7 +4,7 @@
   "description": "Browser tests: real Chrome clicking through the app against the local Supabase test copy",
   "type": "module",
   "scripts": {
-    "test": "node batches.mjs && node acid.mjs && node offline.mjs && node offline-recording.mjs"
+    "test": "node batches.mjs && node acid.mjs && node offline.mjs && node offline-recording.mjs && node team.mjs"
   },
   "dependencies": {
     "playwright-core": "^1.63.0"
