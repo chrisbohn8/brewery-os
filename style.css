@@ -1,0 +1,143 @@
+/* ---- Colors: one place to change the look ---- */
+:root {
+  --bg: #f4f1ec;
+  --card: #ffffff;
+  --text: #1f1d1a;
+  --muted: #6b665e;
+  --border: #e2ddd4;
+
+  /* One color per stage, so you can tell stages apart at a glance */
+  --fermenting: #d97706;
+  --dry-hopping: #4d7c0f;
+  --conditioning: #0369a1;
+  --carbonating: #7c3aed;
+  --ready: #15803d;
+  --empty: #9ca3af;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #171614;
+    --card: #23211e;
+    --text: #f2efe9;
+    --muted: #a39d93;
+    --border: #36332e;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 16px;
+}
+
+/* ---- Header ---- */
+.top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px;
+  max-width: 1100px;
+  margin: 0 auto;
+}
+.top h1 { margin: 0; font-size: 1.6rem; }
+
+/* ---- Card grid: 1 column on phones, more on wider screens ---- */
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px;
+  padding: 0 16px 32px;
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+.card {
+  /* It's a <button> so it's tappable, but we want it to look like a card */
+  all: unset;
+  box-sizing: border-box;
+  cursor: pointer;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-left: 8px solid var(--stage-color, var(--empty));
+  border-radius: 12px;
+  padding: 14px 16px;
+  display: grid;
+  gap: 6px;
+}
+.card:focus-visible { outline: 3px solid var(--conditioning); }
+
+.card .tank-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+.card .tank { font-weight: 700; font-size: 1.15rem; }
+.card .type { color: var(--muted); font-size: 0.85rem; }
+.card .beer { font-size: 1.3rem; font-weight: 600; }
+.card .beer.none { color: var(--muted); font-weight: 400; }
+
+.card .stage-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 4px;
+}
+.badge {
+  background: var(--stage-color, var(--empty));
+  color: #fff;
+  font-weight: 600;
+  font-size: 0.85rem;
+  padding: 4px 10px;
+  border-radius: 999px;
+}
+.days { font-size: 1.6rem; font-weight: 700; }
+.days small { font-size: 0.85rem; font-weight: 400; color: var(--muted); }
+
+/* ---- Buttons ---- */
+.btn {
+  font: inherit;
+  padding: 10px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--text);
+  cursor: pointer;
+}
+.btn.primary { background: var(--text); color: var(--bg); border-color: var(--text); }
+.btn.danger { color: #b91c1c; }
+
+/* ---- Edit pop-up ---- */
+dialog {
+  border: none;
+  border-radius: 14px;
+  padding: 20px;
+  width: min(420px, calc(100vw - 32px));
+  background: var(--card);
+  color: var(--text);
+}
+dialog::backdrop { background: rgb(0 0 0 / 0.5); }
+dialog h2 { margin-top: 0; }
+
+dialog label {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 12px;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+dialog input, dialog select {
+  font: inherit;
+  font-size: 16px; /* 16px stops iPhones from zooming in when you tap a field */
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+}
+.actions { display: flex; gap: 8px; margin-top: 8px; }
+.actions .spacer { flex: 1; }

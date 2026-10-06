@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Brewery OS — Tanks</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="top">
+    <h1>Tanks</h1>
+    <button id="add-tank" class="btn">+ Add tank</button>
+  </header>
+
+  <!-- Tank cards get drawn in here by app.js -->
+  <main id="tanks" class="grid"></main>
+
+  <!-- Pop-up form for editing one tank. Hidden until a card is tapped. -->
+  <dialog id="editor">
+    <form id="edit-form" method="dialog">
+      <h2 id="editor-title">Edit tank</h2>
+
+      <label>Tank name
+        <input name="tank" required>
+      </label>
+
+      <label>Type
+        <select name="type">
+          <option value="fermenter">Fermenter</option>
+          <option value="brite">Brite tank</option>
+        </select>
+      </label>
+
+      <label>Beer
+        <input name="beer" placeholder="Leave blank if empty">
+      </label>
+
+      <label>Stage
+        <select name="stage"></select>
+      </label>
+
+      <label>Stage started on
+        <input name="stageStart" type="date" required>
+      </label>
+
+      <div class="actions">
+        <button type="button" id="delete-tank" class="btn danger">Delete</button>
+        <span class="spacer"></span>
+        <button type="button" id="cancel" class="btn">Cancel</button>
+        <button type="submit" class="btn primary">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="app.js"></script>
+</body>
+</html>
