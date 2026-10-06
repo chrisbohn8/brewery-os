@@ -8,6 +8,8 @@
 //   BATCHES   — one actual brew of a beer. A batch points at its beer, and has a
 //               history of EVENTS: "from this date, at this stage, in this tank."
 //               Where a batch is now is its newest event.
+//   ACID CYCLES — a log of each tank's acid cleanings. Whether a tank is due for one is
+//               worked out from that log and the batch history, never stored.
 //
 // Everything is saved in a shared database (Supabase), so every phone and computer
 // sees the same data. Each brewery's data is kept separate by the database itself.
@@ -127,11 +129,11 @@ function sampleData() {
       { id: "robust-porter",  name: "Robust Porter",  style: "American Porter",    targetOg: 1.060, targetFg: 1.016 },
     ],
     tanks: [
-      { id: "fv1", name: "FV-1", type: "fermenter", capacityBbl: 15, locationId: "downtown",  status: "empty" },
-      { id: "fv2", name: "FV-2", type: "fermenter", capacityBbl: 15, locationId: "downtown",  status: "empty" },
-      { id: "fv3", name: "FV-3", type: "fermenter", capacityBbl: 15, locationId: "downtown",  status: "empty" },
+      { id: "fv1", name: "FV-1", type: "fermenter", capacityBbl: 15, locationId: "downtown",  status: "empty", acidEveryTurns: 4 },
+      { id: "fv2", name: "FV-2", type: "fermenter", capacityBbl: 15, locationId: "downtown",  status: "empty", acidEveryTurns: 4 },
+      { id: "fv3", name: "FV-3", type: "fermenter", capacityBbl: 15, locationId: "downtown",  status: "empty", acidEveryTurns: 4 },
       { id: "bt1", name: "BT-1", type: "brite",     capacityBbl: 15, locationId: "downtown",  status: "empty" },
-      { id: "fv4", name: "FV-4", type: "fermenter", capacityBbl: 7,  locationId: "riverside", status: "empty" },
+      { id: "fv4", name: "FV-4", type: "fermenter", capacityBbl: 7,  locationId: "riverside", status: "empty", acidEveryTurns: 4 },
       { id: "bt2", name: "BT-2", type: "brite",     capacityBbl: 7,  locationId: "riverside", status: "empty" },
       { id: "st1", name: "ST-1", type: "serving",   capacityBbl: 7,  locationId: "riverside", status: "cleaning" },
     ],
@@ -144,6 +146,11 @@ function sampleData() {
       { id: "b1037", batchNumber: "1037", beerId: "amber-ale",      brewDate: daysAgo(21), sizeBbl: 7,  stage: "ready",        stageStartDate: daysAgo(3),  tankId: "bt2" },
       { id: "b1036", batchNumber: "1036", beerId: "pale-ale",       brewDate: daysAgo(28), sizeBbl: 15, stage: "packaged",     stageStartDate: daysAgo(5),  tankId: null },
       { id: "b1035", batchNumber: "1035", beerId: "robust-porter",  brewDate: daysAgo(35), sizeBbl: 7,  stage: "packaged",     stageStartDate: daysAgo(12), tankId: null },
+    ],
+    cleanings: [
+      { tankId: "fv1", cleanedOn: daysAgo(40), note: "" },
+      { tankId: "fv2", cleanedOn: daysAgo(30), note: "" },
+      { tankId: "st1", cleanedOn: daysAgo(60), note: "Quarterly acid" },
     ],
   };
 }
@@ -166,7 +173,7 @@ const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
 });
 
 let brewery = null; // the brewery you're working in: { id, name, role }
-let data = { locations: [], beers: [], tanks: [], batches: [], events: [] };
+let data = { locations: [], beers: [], tanks: [], batches: [], events: [], cleanings: [], acidAfterStyles: [] };
 
 // Run a database request; if it fails, throw the error so the caller's "catch" handles it
 async function must(request) {
@@ -187,12 +194,14 @@ function explain(error) {
 // Load everything for the current brewery into `data`, in the shape the rest of the page uses
 async function loadAll() {
   const b = brewery.id;
-  const [locations, beers, tanks, batches, events] = await Promise.all([
+  const [locations, beers, tanks, batches, events, cleanings, settings] = await Promise.all([
     must(db.from("locations").select("*").eq("brewery_id", b).order("created_at")),
     must(db.from("beers").select("*").eq("brewery_id", b)),
     must(db.from("tanks").select("*").eq("brewery_id", b).order("created_at")),
     must(db.from("batch_status").select("*").eq("brewery_id", b)),
     must(db.from("batch_events").select("*").eq("brewery_id", b).order("effective_date").order("recorded_at")),
+    must(db.from("tank_cleanings").select("*").eq("brewery_id", b).order("cleaned_on").order("recorded_at")),
+    must(db.from("breweries").select("acid_after_styles").eq("id", b).single()),
   ]);
   data = {
     locations: locations.map((l) => ({ id: l.id, name: l.name })),
@@ -204,6 +213,7 @@ async function loadAll() {
     tanks: tanks.map((t) => ({
       id: t.id, name: t.name, type: t.type, status: t.status, locationId: t.location_id,
       capacityBbl: t.capacity_bbl === null ? null : Number(t.capacity_bbl),
+      acidEveryTurns: t.acid_every_turns,
     })),
     batches: batches.map((x) => ({
       id: x.id, batchNumber: x.batch_number, beerId: x.beer_id, brewDate: x.brew_date,
@@ -214,6 +224,8 @@ async function loadAll() {
     events: events.map((e) => ({
       id: e.id, batchId: e.batch_id, effectiveDate: e.effective_date, stage: e.stage, tankId: e.tank_id,
     })),
+    cleanings: cleanings.map((c) => ({ id: c.id, tankId: c.tank_id, cleanedOn: c.cleaned_on, note: c.note })),
+    acidAfterStyles: settings.acid_after_styles,
   };
 }
 
@@ -299,6 +311,47 @@ function targetsText(beer) {
   return parts.join(" · ");
 }
 
+// ----- Acid cycles -----
+// The tank's acid cycles, oldest first
+function acidCycles(tankId) {
+  return data.cleanings.filter((c) => c.tankId === tankId);
+}
+
+// Batches that have left a tank, and the day each one left: [{ batch, leftOn }].
+// A batch leaves when its next history event puts it in another tank, or packages it.
+// A batch that passed through the same tank twice counts once (its latest departure).
+function departuresFrom(tankId) {
+  const departures = [];
+  for (const batch of data.batches) {
+    const history = data.events.filter((e) => e.batchId === batch.id); // oldest first
+    let leftOn = null;
+    history.forEach((e, i) => {
+      const next = history[i + 1];
+      if (e.tankId === tankId && next && next.tankId !== tankId) leftOn = next.effectiveDate;
+    });
+    if (leftOn) departures.push({ batch, leftOn });
+  }
+  return departures;
+}
+
+// Is a tank due for an acid cycle, and why?
+// Turns = batches that left the tank AFTER its last acid cycle. (Beer that left on the same day
+// as an acid cycle counts as before it: the acid was run once the tank was empty.)
+// Due when a batch of one of the brewery's acid-after styles has left, or the tank has reached
+// its "acid every X turns" limit.
+function acidState(tank) {
+  const last = acidCycles(tank.id).at(-1);
+  const since = departuresFrom(tank.id).filter((d) => !last || d.leftOn > last.cleanedOn);
+  const styles = data.acidAfterStyles.map((s) => s.toLowerCase());
+  const styleOf = (batch) => (findBeer(batch.beerId)?.style || "").trim();
+  const trigger = since.find((d) => styles.includes(styleOf(d.batch).toLowerCase()));
+
+  let reason = "";
+  if (trigger) reason = `after ${styleOf(trigger.batch)}`;
+  else if (tank.acidEveryTurns && since.length >= tank.acidEveryTurns) reason = `${since.length} of ${tank.acidEveryTurns} turns`;
+  return { last, turns: since.length, due: reason !== "", reason };
+}
+
 function isEmptyBrewery() {
   return !data.locations.length && !data.tanks.length && !data.beers.length && !data.batches.length;
 }
@@ -309,6 +362,8 @@ const packagedSection = document.getElementById("packaged");
 const packagedList = document.getElementById("packaged-list");
 const beerList = document.getElementById("beer-list");
 const locationList = document.getElementById("location-list");
+const acidStyleList = document.getElementById("acid-style-list");
+const acidStyleForm = document.getElementById("acid-style-form");
 
 // Tanks split up by location, in the order the locations were added.
 // Tanks with no location (or one that's been deleted) go in a group at the end.
@@ -370,6 +425,24 @@ function render() {
       </button>
     </li>`;
   }).join("");
+
+  // Styles that always need an acid cycle afterward (one list for the whole brewery).
+  // Only admins can change it.
+  const isAdmin = brewery.role === "admin";
+  acidStyleList.innerHTML = data.acidAfterStyles.length
+    ? data.acidAfterStyles.map((style, i) => `
+      <li class="item">
+        <span>${esc(style)}</span>
+        ${isAdmin ? `<button class="btn small" data-remove-style="${i}">Remove</button>` : ""}
+      </li>`).join("")
+    : `<li class="item muted">No styles yet.</li>`;
+  acidStyleForm.hidden = !isAdmin;
+  document.getElementById("acid-admin-note").hidden = isAdmin;
+  // Suggest the styles of your beers
+  const styles = [...new Set(data.beers.map((x) => x.style).filter(Boolean))]
+    .filter((s) => !data.acidAfterStyles.some((a) => a.toLowerCase() === s.toLowerCase()))
+    .sort();
+  document.getElementById("acid-style-options").innerHTML = styles.map((s) => `<option value="${esc(s)}">`).join("");
 }
 
 function tankCard(tank) {
@@ -384,10 +457,14 @@ function tankCard(tank) {
 
   if (!batch) {
     const hint = tank.status === "empty" ? "Tap to start a batch" : "Tap to update status";
+    // An empty tank that needs acid before it's filled again says so, and why
+    const acid = acidState(tank);
+    const acidDue = acid.due ? `<div class="acid-due">Acid due · ${esc(acid.reason)}</div>` : "";
     return `
       <button class="card" data-tank="${tank.id}" style="--stage-color: var(--${tank.status})">
         ${header}
         <div class="beer none">${labelFrom(TANK_STATUSES, tank.status)}</div>
+        ${acidDue}
         <div class="meta">${hint}</div>
       </button>`;
   }
@@ -525,7 +602,13 @@ batchForm.addEventListener("submit", async (e) => {
       if (!confirm(`${target.name} is marked as ${status}. Put ${name} in it anyway?`)) return;
     }
 
-    // Check 5: will the beer fit? (Also just a warning)
+    // Check 5: is the tank due for an acid cycle? (A warning — it may have been done but not logged yet)
+    if (movingIn) {
+      const acid = acidState(target);
+      if (acid.due && !confirm(`${target.name} is due for an acid cycle (${acid.reason}). Put ${name} in it anyway?`)) return;
+    }
+
+    // Check 6: will the beer fit? (Also just a warning)
     if (values.sizeBbl && target.capacityBbl && values.sizeBbl > target.capacityBbl) {
       if (!confirm(`${values.sizeBbl} bbl is more than ${target.name} holds (${target.capacityBbl} bbl). Save anyway?`)) return;
     }
@@ -602,8 +685,68 @@ function openTankEditor(tank) {
   // A new tank goes in the same location as the last tank, as a starting guess
   fillLocationDropdown(tank ? t.locationId : data.tanks.at(-1)?.locationId);
   tankForm.status.value = t.status;
+  tankForm.acidEveryTurns.value = t.acidEveryTurns ?? "";
+  showAcidSection(tank);
   tankDialog.showModal();
 }
+
+// The tank form's acid section: last acid cycle, turns since, and the log.
+// (A tank that hasn't been saved yet has no log.)
+function showAcidSection(tank) {
+  document.getElementById("acid-log-area").hidden = !tank;
+  if (!tank) return;
+  const acid = acidState(tank);
+  const turns = tank.acidEveryTurns ? `${acid.turns} of ${tank.acidEveryTurns}` : acid.turns;
+  const summary = acid.last
+    ? `Last acid ${formatDate(acid.last.cleanedOn)} · ${turns} ${acid.turns === 1 ? "turn" : "turns"} since.`
+    : `No acid cycle logged yet · ${turns} ${acid.turns === 1 ? "turn" : "turns"} so far.`;
+  document.getElementById("acid-summary").textContent = summary;
+  document.getElementById("acid-due-note").hidden = !acid.due;
+  document.getElementById("acid-due-note").textContent = `Acid due · ${acid.reason}`;
+
+  // Newest first, last 5
+  document.getElementById("acid-history").innerHTML = acidCycles(tank.id).slice(-5).reverse().map((c) => `
+    <li class="item">
+      <span>${formatDate(c.cleanedOn)}${c.note ? ` <span class="muted">· ${esc(c.note)}</span>` : ""}</span>
+      <button type="button" class="btn small" data-remove-acid="${c.id}">Remove</button>
+    </li>`).join("");
+}
+
+// Log an acid cycle: a small form on top of the tank form
+const acidDialog = document.getElementById("acid-editor");
+const acidForm = document.getElementById("acid-form");
+
+document.getElementById("log-acid").addEventListener("click", () => {
+  document.getElementById("acid-title").textContent = `Acid cycle on ${editingTank.name}`;
+  acidForm.cleanedOn.value = today();
+  acidForm.note.value = "";
+  acidDialog.showModal();
+});
+
+acidForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const tankId = editingTank.id;
+  const ok = await save(() => must(db.from("tank_cleanings").insert({
+    brewery_id: brewery.id, tank_id: tankId, kind: "acid",
+    cleaned_on: acidForm.cleanedOn.value, note: acidForm.note.value.trim(),
+  })));
+  if (!ok) return;
+  acidDialog.close();
+  editingTank = findTank(tankId); // the data was reloaded, so pick up the fresh copy
+  showAcidSection(editingTank);
+});
+
+// Remove an acid cycle logged by mistake
+document.getElementById("acid-history").addEventListener("click", async (e) => {
+  const button = e.target.closest("[data-remove-acid]");
+  if (!button) return;
+  const cycle = data.cleanings.find((c) => c.id === button.dataset.removeAcid);
+  if (!confirm(`Remove the acid cycle on ${formatDate(cycle.cleanedOn)} from ${editingTank.name}'s log?`)) return;
+  const tankId = editingTank.id;
+  await save(() => must(db.from("tank_cleanings").delete().eq("id", cycle.id)));
+  editingTank = findTank(tankId);
+  showAcidSection(editingTank);
+});
 
 // Picking "+ New location…" opens the location form on top of the tank form
 tankForm.locationId.addEventListener("change", () => {
@@ -624,6 +767,7 @@ tankForm.addEventListener("submit", async (e) => {
     capacity_bbl: tankForm.capacityBbl.value ? Number(tankForm.capacityBbl.value) : null,
     location_id: ["", NEW_LOCATION].includes(tankForm.locationId.value) ? null : tankForm.locationId.value,
     status: tankForm.status.value,
+    acid_every_turns: tankForm.acidEveryTurns.value ? Number(tankForm.acidEveryTurns.value) : null,
   };
   const ok = await save(() => editingTank
     ? must(db.from("tanks").update(fields).eq("id", editingTank.id))
@@ -830,10 +974,13 @@ function convertOldData(oldTanks) {
 function upgradeData(d) {
   d.locations ??= [];
   d.beers ??= [];
+  d.cleanings ??= [];        // acid log: added in October 2026
+  d.acidAfterStyles ??= [];
 
   for (const tank of d.tanks) {
     tank.capacityBbl ??= null;
     tank.status ??= "empty";
+    tank.acidEveryTurns ??= null;
     // Typed location names become location records
     if (tank.locationId === undefined) {
       const name = (tank.location || "").trim();
@@ -910,8 +1057,17 @@ async function loadIntoBrewery(source, description) {
       if (d.tanks.length) {
         await must(db.from("tanks").insert(d.tanks.map((t) => ({
           id: idFor(t.id), brewery_id: b, name: t.name, type: t.type, status: t.status,
-          capacity_bbl: t.capacityBbl, location_id: idFor(t.locationId),
+          capacity_bbl: t.capacityBbl, location_id: idFor(t.locationId), acid_every_turns: t.acidEveryTurns,
         }))));
+      }
+      if (d.cleanings.length) {
+        await must(db.from("tank_cleanings").insert(d.cleanings.map((c) => ({
+          brewery_id: b, tank_id: idFor(c.tankId), kind: "acid", cleaned_on: c.cleanedOn, note: c.note || "",
+        }))));
+      }
+      // The brewery-wide style list is an admin setting; skipped quietly for anyone else
+      if (d.acidAfterStyles.length && brewery.role === "admin") {
+        await must(db.from("breweries").update({ acid_after_styles: d.acidAfterStyles }).eq("id", b));
       }
       if (d.batches.length) {
         await must(db.from("batches").insert(d.batches.map((x) => ({
@@ -1129,6 +1285,33 @@ locationList.addEventListener("click", (e) => {
   const row = e.target.closest(".row");
   if (!row) return;
   openLocationEditor(findLocation(row.dataset.location));
+});
+
+// The brewery's acid-after styles: add one, or remove one (admins only; the database enforces it too)
+async function saveAcidStyles(styles) {
+  return save(async () => {
+    const saved = await must(db.from("breweries").update({ acid_after_styles: styles }).eq("id", brewery.id).select("id"));
+    if (!saved.length) throw new Error("Only an admin can change this list.");
+  });
+}
+
+acidStyleForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const style = acidStyleForm.style.value.trim();
+  if (!style) return;
+  if (data.acidAfterStyles.some((s) => s.toLowerCase() === style.toLowerCase())) {
+    alert(`${style} is already on the list.`);
+    return;
+  }
+  if (await saveAcidStyles([...data.acidAfterStyles, style])) acidStyleForm.reset();
+});
+
+acidStyleList.addEventListener("click", async (e) => {
+  const button = e.target.closest("[data-remove-style]");
+  if (!button) return;
+  const style = data.acidAfterStyles[Number(button.dataset.removeStyle)]; // its position in the list
+  if (!confirm(`Stop flagging tanks for acid after ${style}?`)) return;
+  await saveAcidStyles(data.acidAfterStyles.filter((s) => s !== style));
 });
 
 document.getElementById("add-tank").addEventListener("click", () => openTankEditor(null));

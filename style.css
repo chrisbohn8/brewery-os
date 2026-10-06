@@ -18,6 +18,9 @@
   /* Tank statuses (for tanks with no beer in them) */
   --cleaning: #0891b2;
   --maintenance: #b91c1c;
+
+  /* A tank that needs an acid cycle before it's filled again */
+  --acid-due: #a16207;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -138,6 +141,19 @@ body {
   border-radius: 999px;
 }
 .days { font-size: 1.6rem; font-weight: 700; }
+
+/* "Acid due · after Sour": on tank cards and in the tank form */
+.acid-due {
+  justify-self: start;
+  margin: 0;
+  background: var(--acid-due);
+  color: #fff;
+  font-weight: 600;
+  font-size: 0.85rem;
+  padding: 4px 10px;
+  border-radius: 999px;
+}
+dialog .acid-due { display: inline-block; margin-bottom: 8px; }
 .days small { font-size: 0.85rem; font-weight: 400; color: var(--muted); }
 
 /* ---- Lists below the tanks (packaged batches, beers) ---- */
@@ -184,6 +200,32 @@ body {
 }
 .btn.primary { background: var(--text); color: var(--bg); border-color: var(--text); }
 .btn.danger { color: #b91c1c; }
+.btn.small { padding: 6px 10px; font-size: 0.85rem; }
+
+/* Simple lists with a button on the right (acid styles, acid log) */
+ul.plain { list-style: none; margin: 8px 0 0; padding: 0; }
+ul.plain .item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+/* A text box with its Add button beside it */
+.inline-add { display: flex; gap: 8px; margin-top: 12px; }
+.inline-add input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-size: 16px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--text);
+}
 
 /* ---- Edit pop-up ---- */
 dialog {
@@ -213,6 +255,15 @@ dialog input, dialog select {
   background: var(--bg);
   color: var(--text);
 }
+dialog fieldset.acid {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px 12px;
+  margin: 0 0 12px;
+}
+dialog fieldset.acid legend { font-weight: 600; padding: 0 4px; }
+dialog fieldset.acid p { margin: 0 0 8px; }
+
 .actions { display: flex; gap: 8px; margin-top: 8px; }
 .actions .spacer { flex: 1; }
 .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }

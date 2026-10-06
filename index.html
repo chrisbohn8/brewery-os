@@ -99,6 +99,20 @@
     <ul id="location-list"></ul>
   </section>
 
+  <!-- Acid cleaning: styles that always need an acid cycle afterward (one list for the brewery) -->
+  <section id="acid-settings" class="list-section">
+    <h2>Acid cleaning</h2>
+    <p class="muted">A tank is flagged "Acid due" after a batch of any of these styles leaves it.
+      Each tank can also be set to need acid every few turns, in its tank settings.</p>
+    <ul id="acid-style-list" class="plain"></ul>
+    <form id="acid-style-form" class="inline-add">
+      <input name="style" list="acid-style-options" placeholder="Style, like Sour" aria-label="Style">
+      <datalist id="acid-style-options"></datalist>
+      <button type="submit" class="btn">Add</button>
+    </form>
+    <p id="acid-admin-note" class="muted" hidden>Only an admin can change this list.</p>
+  </section>
+
   <!-- Backup: everything in this brewery, as one file -->
   <section id="backup" class="list-section">
     <h2>Backup</h2>
@@ -194,8 +208,43 @@
       </label>
       <p id="occupied-note" class="muted"></p>
 
+      <!-- Acid cycles: when this tank was last acid-cleaned, and when it's due again -->
+      <fieldset class="acid">
+        <legend>Acid cycle</legend>
+        <label>Acid every … turns
+          <input name="acidEveryTurns" type="number" min="1" max="100" step="1" inputmode="numeric" placeholder="Blank = no turn limit">
+        </label>
+        <div id="acid-log-area">
+          <p id="acid-due-note" class="acid-due" hidden></p>
+          <p id="acid-summary" class="muted"></p>
+          <button type="button" id="log-acid" class="btn">Log acid cycle…</button>
+          <ul id="acid-history" class="plain"></ul>
+        </div>
+      </fieldset>
+
       <div class="actions">
         <button type="button" id="delete-tank" class="btn danger">Delete</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn cancel">Cancel</button>
+        <button type="submit" class="btn primary">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Pop-up form for logging an acid cycle (opens on top of the tank form) -->
+  <dialog id="acid-editor">
+    <form id="acid-form">
+      <h2 id="acid-title">Acid cycle</h2>
+
+      <label>Date
+        <input name="cleanedOn" type="date" required>
+      </label>
+
+      <label>Note (optional)
+        <input name="note" placeholder="Acid #2, 30 min recirc">
+      </label>
+
+      <div class="actions">
         <span class="spacer"></span>
         <button type="button" class="btn cancel">Cancel</button>
         <button type="submit" class="btn primary">Save</button>

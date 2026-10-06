@@ -80,6 +80,13 @@ These shape every decision, even for features that come later:
 - Set them up once with "+ Add tank" and change them through "Tank settings" in the batch form.
 - A tank with beer in it can't be deleted.
 
+### Acid tracking
+- Each tank keeps a log of its **acid cycles** (date and an optional note). Log one with "Log acid cycle…" in the tank's settings; remove one logged by mistake from the same list.
+- **Turns** are worked out, not typed: one turn is one batch that has left the tank (transferred out or packaged) since its last acid cycle.
+- A tank is flagged **"Acid due"** on its card when it has reached its own **"acid every X turns"** setting, or when a batch of one of the brewery's **acid-after styles** has left it (for example Sour or Brett). The reason shows next to the flag.
+- The acid-after styles are **one list for the whole brewery**, in the "Acid cleaning" section. Only admins can change it.
+- Starting a batch in a tank that's due asks first ("due for an acid cycle… put it in anyway?"). It's a warning, not a block, because the acid may have been run and not logged yet.
+
 ### Beers
 - The product itself, separate from any one brew of it: name, style, target OG, and target FG.
 - Target ABV is **calculated** from OG and FG: (OG − FG) × 131.25.
@@ -96,7 +103,7 @@ These shape every decision, even for features that come later:
 - Each brewery's data is kept completely separate by the database itself (row-level security), and roles control who can change things: **admin**, **brewer**, and **viewer** (read-only).
 
 ### Backup
-- **Download** saves everything in the brewery (locations, beers, tanks, batches, and history) as one `.json` file.
+- **Download** saves everything in the brewery (locations, beers, tanks, batches, history, the acid log, and the acid-after styles) as one `.json` file.
 - **Load…** puts a backup into an **empty** brewery (so nothing is mixed up or duplicated), after showing what's in it and asking you to confirm. If loading fails partway, the brewery is emptied again rather than left half-loaded.
 - Files that aren't backups are rejected. Backups from older versions are upgraded automatically.
 
@@ -174,6 +181,17 @@ TANK  (equipment, mostly static)
   locationId    → LOCATION (or none)
   status        empty | cleaning | maintenance
                 ("occupied" is worked out: a tank is occupied when a batch is in it)
+  acidEveryTurns  4: flag for acid after this many batches (or none)
+
+TANK CLEANING  (the acid log: one row per acid cycle)
+  tankId        → TANK
+  kind          acid (room for caustic and others later)
+  cleanedOn     2026-10-06
+  note          "Acid #2, 30 min recirc"
+
+  Turns since the last acid cycle, and whether a tank is due, are worked out from
+  this log and the batch events, never stored. The brewery's acid-after styles
+  ("Sour", "Brett") are one list on the brewery record.
 
 BATCH  (one actual brew: the living record)
   id              hidden internal ID, never changes
@@ -262,7 +280,8 @@ Turns the prototype into something a brewery can rely on.
 - [ ] **Simple conflict rule:** in a small crew two people rarely change the same thing at once, so there's no merge tool. Changes apply in the order they reach the database. If one can't apply (a duplicate batch number, a tank someone else just filled), the database's checks reject it and the person who made it sees why. Nothing is silently dropped.
 
 ### Phase 4: Tank care
-- [ ] **CIP log:** a record each time a tank is cleaned (date, who, what chemicals). "Last CIP date" comes from this log.
+- [x] **Acid tracking:** acid cycle log per tank, "acid every X turns" per tank, a brewery-wide list of styles that need acid afterward, an "Acid due" flag, and a warning before filling a tank that's due.
+- [ ] **Full CIP log:** caustic and sanitizer cleanings too (date, who, what chemicals), using the same cleaning records as the acid log.
 - [ ] **Tank batch history,** looked up from batch events: everything that's been through FV-1.
 - [ ] **Tank notes:** quirks, gasket replacements, maintenance history.
 
