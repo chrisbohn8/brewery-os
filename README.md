@@ -2,7 +2,7 @@
 
 A simple web app for small craft breweries that replaces the whiteboard, clipboard, or spreadsheet used to track what's in every tank.
 
-**Live prototype:** https://chrisbohn8.github.io/brewery-os/
+**Live prototype:** https://brew.chrisbohn.org/
 
 > **Status: early prototype.** Data is now saved in a shared database, so every phone and computer signed in to a brewery sees the same tanks. It is still **not ready for real production records** (see [Known limitations](#known-limitations)). Use it to try things out, with sample data or real tanks, alongside your current records.
 
