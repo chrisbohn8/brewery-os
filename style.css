@@ -94,6 +94,17 @@ body {
   font-size: 0.9rem;
 }
 
+/* Offline changes the database refused: stays until you tap OK */
+.sync-problems {
+  max-width: 1100px;
+  margin: 0 auto 12px;
+  padding: 12px 16px;
+  border: 2px solid var(--maintenance);
+  border-radius: 10px;
+  background: var(--card);
+}
+.sync-problems ul { margin: 6px 0 10px; padding-left: 20px; }
+
 /* ---- Tank area, grouped by location ---- */
 #tanks {
   padding: 0 16px 32px;

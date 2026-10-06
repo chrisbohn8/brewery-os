@@ -65,6 +65,13 @@
   <!-- Shown when there's no signal: how old the data on screen is -->
   <p id="offline-banner" class="offline-banner" role="status" hidden></p>
 
+  <!-- Changes made offline that the database refused when they were sent -->
+  <section id="sync-problems" class="sync-problems" role="alert" hidden>
+    <strong>These changes couldn't be saved:</strong>
+    <ul id="sync-problem-list"></ul>
+    <button id="sync-problems-ok" class="btn small">OK</button>
+  </section>
+
   <!-- A brand-new brewery has nothing in it yet: offer ways to get started -->
   <section id="empty-state" class="list-section" hidden>
     <h2>Nothing here yet</h2>

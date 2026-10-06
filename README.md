@@ -98,12 +98,15 @@ These shape every decision, even for features that come later:
 - A transfer keeps the "days in stage" counter; a stage change restarts it.
 - Changing a batch's "stage started" date corrects the history instead of adding to it.
 
-### Works with no signal (viewing)
-- The app keeps a copy of itself and of the last data it loaded on the device. With no signal it still opens and shows the tank board, under a banner like "Offline · showing data from 10:42 AM".
-- Saving needs signal for now: trying it offline says so clearly and changes nothing. (Queuing changes made offline is next.)
+### Works with no signal
+- The app keeps a copy of itself and of the last data it loaded on the device. With no signal it still opens and shows the tank board, under a banner like "Offline · showing data from 10:42 AM · 2 changes waiting to send".
+- **Floor work can be done offline:** starting a batch, stage changes, transfers, packaging, tank status and settings, and logging an acid cycle. Each change shows on screen right away and is kept on the phone (it survives closing the app) until there's signal.
+- When signal returns, the waiting changes are sent **in the order they were made**. If the database refuses one (say a coworker filled that tank first), a note on the page says exactly which change wasn't saved and why, and the screen shows what's really in the tanks. Nothing is silently dropped.
+- If the connection drops in the middle of a save, the change is kept and sent later, rather than leaving you guessing.
+- Setup changes (adding or deleting beers, locations, and tanks; backups) still need signal and say so.
 - When signal returns, the app reloads by itself. It also refreshes whenever you come back to it (phone unlocked, tab switched back).
 - If the network is very slow, the app opens from the device copy after a few seconds instead of hanging.
-- Signing out deletes the device copy, which matters on a shared phone or tablet.
+- Signing out deletes the device copy, which matters on a shared phone or tablet. If changes haven't been sent yet, it warns first.
 
 ### Accounts and breweries
 - Sign in by email code or link; no passwords.
@@ -129,7 +132,7 @@ Plain HTML, CSS, and JavaScript with no frameworks and no build step, so it's ea
 | `supabase/tests/` | Database tests: breweries can't reach each other's data, roles are enforced, saving a batch is all-or-nothing. |
 | `supabase/config.toml`, `supabase/templates/` | Settings for the local test copy of the database, and the sign-in email wording. |
 | `sw.js` | The service worker: keeps a copy of the app's files on the device so it opens with no signal. |
-| `tests/browser/` | Browser tests: real Chrome clicking through the app like a brewer (batches, acid tracking, offline), against the local test copy of the database. |
+| `tests/browser/` | Browser tests: real Chrome clicking through the app like a brewer (batches, acid tracking, offline viewing, and offline recording with a coworker conflict), against the local test copy of the database. |
 | `.claude/launch.json` | Starts a small local web server for previewing while developing. |
 
 ### Running it locally
@@ -242,7 +245,7 @@ BATCH EVENT  (the batch's history: rows are only ever added)
 
 These are the reasons it isn't production-ready yet:
 
-1. **Saving needs a connection.** With no signal the app opens and shows the last data, but changes can't be made until signal returns (queuing offline changes is next).
+1. **Setup changes need a connection.** Floor work (batches, tanks, acid) works offline; adding or deleting beers, locations, and tanks doesn't yet.
 2. **No way to invite coworkers yet.** Each person who signs in creates their own brewery; adding members to an existing brewery is next.
 3. **Sign-in emails are limited** to a few per hour (Supabase's free email service) until a dedicated email service is connected.
 4. **Pop-up messages** ("Are you sure?") use the browser's built-in boxes, which some apps block. They'll move onto the page.
@@ -292,8 +295,8 @@ Turns the prototype into something a brewery can rely on.
 - [x] **Saving a batch is one all-or-nothing step** (batch, history, and tanks together).
 - [ ] **Loading a backup as one all-or-nothing step** too. Today it empties the brewery again if loading fails partway. (Other changes, like editing a tank, beer, or location, are already a single step.)
 - [x] **Works offline, viewing:** the app opens and shows the last data without a connection, with a banner saying how old it is, and reloads by itself when signal returns.
-- [ ] **Works offline, recording:** changes made offline are queued on the device and sent in order when the signal returns; the screen always shows what's saved and what's still waiting.
-- [ ] **Simple conflict rule:** in a small crew two people rarely change the same thing at once, so there's no merge tool. Changes apply in the order they reach the database. If one can't apply (a duplicate batch number, a tank someone else just filled), the database's checks reject it and the person who made it sees why. Nothing is silently dropped.
+- [x] **Works offline, recording:** floor changes made offline are kept on the device and sent in order when the signal returns; the screen shows what's still waiting.
+- [x] **Simple conflict rule:** in a small crew two people rarely change the same thing at once, so there's no merge tool. Changes apply in the order they reach the database. If one can't apply (a duplicate batch number, a tank someone else just filled), the database's checks reject it and the person who made it sees why. Nothing is silently dropped.
 
 ### Phase 4: Tank care
 - [x] **Acid tracking:** acid cycle log per tank, "acid every X turns" per tank, a brewery-wide list of styles that need acid afterward, an "Acid due" flag, and a warning before filling a tank that's due.

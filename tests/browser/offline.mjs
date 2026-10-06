@@ -72,8 +72,8 @@ try {
   await page.waitForSelector("dialog[open]");
   await page.click("dialog[open] button[type=submit]");
   await wait(500);
-  check(dialogs.some((m) => m.startsWith("You're offline")), `saving says so: "${dialogs.at(-1)}"`);
-  await page.keyboard.press("Escape");
+  const b2b = await banner();
+  check(!!b2b && b2b.includes("1 change waiting to send"), `saving keeps the change to send later: "${b2b}"`);
 
   console.log("3. Opening the app with no signal at all (server and database unreachable)");
   await stopServer();

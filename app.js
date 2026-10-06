@@ -197,7 +197,10 @@ function explain(error) {
   return error.message || String(error);
 }
 
-// Load everything for the current brewery into `data`, in the shape the rest of the page uses
+// Load everything for the current brewery, in the shape the rest of the page uses.
+// `serverData` is exactly what the database has; `data` (what the screen shows) is that,
+// plus any changes made on this phone that are still waiting to be sent.
+let serverData = null;
 async function loadAll() {
   const b = brewery.id;
   const [locations, beers, tanks, batches, events, cleanings, settings] = await Promise.all([
@@ -209,7 +212,7 @@ async function loadAll() {
     must(db.from("tank_cleanings").select("*").eq("brewery_id", b).order("cleaned_on").order("recorded_at")),
     must(db.from("breweries").select("acid_after_styles").eq("id", b).single()),
   ]);
-  data = {
+  serverData = {
     locations: locations.map((l) => ({ id: l.id, name: l.name })),
     beers: beers.map((x) => ({
       id: x.id, code: x.code, name: x.name, style: x.style,
@@ -233,11 +236,13 @@ async function loadAll() {
     cleanings: cleanings.map((c) => ({ id: c.id, tankId: c.tank_id, cleanedOn: c.cleaned_on, note: c.note })),
     acidAfterStyles: settings.acid_after_styles,
   };
+  data = withWaitingChanges(serverData);
 }
 
 // After any change: reload from the database and redraw, so the page always shows what's really saved.
 // Each successful load also updates this device's offline copy.
 async function refresh() {
+  await sendWaitingChanges();
   await loadAll();
   render();
   saveOfflineCopy();
@@ -250,7 +255,8 @@ let busy = false;
 async function save(work) {
   if (busy) return false;
   if (offline || !navigator.onLine) {
-    alert("You're offline, so this can't be saved yet. Nothing was changed. Try again when you have signal.");
+    alert("This change needs signal, so it wasn't saved. (Batch, tank, and acid changes can be made offline; " +
+      "adding or deleting beers, locations, and tanks can't.)");
     return false;
   }
   busy = true;
@@ -285,7 +291,7 @@ let lastLoadedAt = null;
 function saveOfflineCopy() {
   lastLoadedAt = new Date().toISOString();
   try {
-    localStorage.setItem(OFFLINE_KEY, JSON.stringify({ savedAt: lastLoadedAt, email: signedInEmail, brewery, data }));
+    localStorage.setItem(OFFLINE_KEY, JSON.stringify({ savedAt: lastLoadedAt, email: signedInEmail, brewery, data: serverData }));
   } catch (e) {
     console.warn("Couldn't keep an offline copy on this device.", e);
   }
@@ -312,16 +318,26 @@ function whenSaved(iso) {
 
 function showOffline() {
   offline = true;
-  const banner = document.getElementById("offline-banner");
-  banner.textContent = lastLoadedAt
-    ? `Offline · showing data from ${whenSaved(lastLoadedAt)}. Changes can't be saved until you have signal.`
-    : "Offline. Changes can't be saved until you have signal.";
-  banner.hidden = false;
+  updateBanner();
 }
 
 function showOnline() {
   offline = false;
-  document.getElementById("offline-banner").hidden = true;
+  updateBanner();
+}
+
+// The band under the header: offline, and/or changes waiting to be sent
+function updateBanner() {
+  const banner = document.getElementById("offline-banner");
+  const waiting = outbox.length ? count(outbox.length, "change", "changes") + " waiting to send" : "";
+  if (offline) {
+    const age = lastLoadedAt ? ` · showing data from ${whenSaved(lastLoadedAt)}` : "";
+    banner.textContent = `Offline${age}${waiting ? ` · ${waiting}` : ""}. ` +
+      "Batch, tank, and acid changes are kept on this phone and sent when you have signal.";
+  } else {
+    banner.textContent = waiting ? `Sending: ${waiting}…` : "";
+  }
+  banner.hidden = !banner.textContent;
 }
 
 // No connection: show the copy kept on this device, if there is one
@@ -329,7 +345,8 @@ function openOfflineCopy() {
   const copy = readOfflineCopy();
   if (!copy?.brewery) return false;
   brewery = copy.brewery;
-  data = copy.data;
+  serverData = copy.data;
+  data = withWaitingChanges(serverData);
   signedInEmail = copy.email;
   lastLoadedAt = copy.savedAt;
   document.getElementById("signed-in-as").textContent = `Signed in as ${copy.email}`;
@@ -338,6 +355,157 @@ function openOfflineCopy() {
   showScreen("app-screen");
   return true;
 }
+
+// ----- Changes made with no signal ("waiting to send") -----
+// Batch saves, tank changes, and acid cycles can be made offline. Each one goes into a list
+// kept on this phone (so it survives closing the app), shows on screen right away, and is
+// sent, in the order it was made, as soon as there's signal.
+//
+// The simple rule from the README: changes apply in the order they reach the database. If
+// one can't apply (say a coworker filled that tank first), the database refuses it and this
+// phone shows exactly which change wasn't saved and why. Nothing is silently dropped.
+//
+// Every kind of change here is safe to send twice (a retry after a dropped connection
+// can't save something twice).
+const OUTBOX_KEY = "brewery-os.waiting-changes";
+const PROBLEMS_KEY = "brewery-os.unsaved-changes";
+let outbox = readList(OUTBOX_KEY);          // [{ id, kind, args, label, madeAt }]
+let syncProblems = readList(PROBLEMS_KEY);  // ["House Hazy #1042 into BT-2: BT-2 already has ..."]
+
+function readList(key) {
+  try { return JSON.parse(localStorage.getItem(key)) || []; } catch { return []; }
+}
+function storeList(key, list) {
+  try { localStorage.setItem(key, JSON.stringify(list)); } catch (e) { console.warn("Couldn't store", key, e); }
+}
+
+// How each kind of change is sent to the database
+const SEND = {
+  saveBatch: (a) => must(db.rpc("save_batch", a)),
+  updateTank: (a) => must(db.from("tanks").update({
+    name: a.name, type: a.type, capacity_bbl: a.capacityBbl, location_id: a.locationId,
+    status: a.status, acid_every_turns: a.acidEveryTurns,
+  }).eq("id", a.id)),
+  logAcid: async (a) => {
+    try {
+      await must(db.from("tank_cleanings").insert({
+        id: a.id, brewery_id: a.breweryId, tank_id: a.tankId, kind: "acid", cleaned_on: a.cleanedOn, note: a.note,
+      }));
+    } catch (e) {
+      if (e.code !== "23505") throw e; // "already there" = it was sent before the connection dropped
+    }
+  },
+};
+
+// How each kind of change looks on screen before it's sent (mirrors what the database will do)
+const SHOW = {
+  saveBatch(d, a) {
+    let batch = d.batches.find((b) => b.id === a.p_id);
+    const before = batch ? { stage: batch.stage, tankId: batch.tankId } : null;
+    if (!batch) d.batches.push(batch = { id: a.p_id });
+    const inTank = a.p_stage !== "packaged";
+    const newTank = inTank ? a.p_tank_id : null;
+    const stageChanged = before?.stage !== a.p_stage;
+    const tankChanged = inTank && before?.tankId !== newTank;
+    Object.assign(batch, {
+      batchNumber: a.p_batch_number, beerId: a.p_beer_id, brewDate: a.p_brew_date, sizeBbl: a.p_size_bbl,
+      stage: a.p_stage, tankId: newTank, stageStartDate: a.p_stage_started_on,
+    });
+    if (stageChanged || tankChanged) {
+      d.events.push({
+        id: `waiting-${a.p_id}-${d.events.length}`, batchId: a.p_id, stage: a.p_stage, tankId: newTank,
+        effectiveDate: stageChanged ? a.p_stage_started_on : a.p_action_date,
+      });
+    }
+    const tank = (id) => d.tanks.find((t) => t.id === id);
+    if (before?.tankId && before.stage !== "packaged" && (!inTank || before.tankId !== newTank) && tank(before.tankId)) {
+      tank(before.tankId).status = "cleaning";
+    }
+    if ((tankChanged || (inTank && before?.stage === "packaged")) && tank(newTank)) tank(newTank).status = "empty";
+  },
+  updateTank(d, a) {
+    const tank = d.tanks.find((t) => t.id === a.id);
+    if (tank) Object.assign(tank, a);
+  },
+  logAcid(d, a) {
+    d.cleanings.push({ id: a.id, tankId: a.tankId, cleanedOn: a.cleanedOn, note: a.note });
+  },
+};
+
+// What the screen shows: the database's data with the waiting changes on top
+function withWaitingChanges(base) {
+  const d = structuredClone(base);
+  for (const change of outbox) SHOW[change.kind](d, change.args);
+  return d;
+}
+
+// Save a change now if there's signal; otherwise keep it to send later.
+// A connection that drops mid-save also keeps it to send later (it's safe to send twice).
+async function saveOrKeep(kind, args, label) {
+  const change = { id: newId(), kind, args, label, madeAt: new Date().toISOString() };
+  const keep = () => {
+    outbox.push(change);
+    storeList(OUTBOX_KEY, outbox);
+    data = withWaitingChanges(serverData);
+    render();
+    if (offline || !navigator.onLine) showOffline(); else updateBanner();
+  };
+  if (offline || !navigator.onLine || outbox.length) {
+    // Offline, or older changes still waiting: join the back of the line, so changes always
+    // reach the database in the order they were made
+    if (busy) return false;
+    keep();
+    if (!offline && navigator.onLine) refresh().catch((e) => { if (isConnectionProblem(e)) showOffline(); });
+    return true;
+  }
+  return save(async () => {
+    try {
+      await SEND[kind](args);
+    } catch (e) {
+      if (!isConnectionProblem(e)) throw e;
+      offline = true;
+      keep();
+    }
+  });
+}
+
+// Send everything waiting, oldest first. Stops (keeping the rest) if the signal drops again.
+let sending = false;
+async function sendWaitingChanges() {
+  if (sending || !outbox.length) return;
+  sending = true;
+  updateBanner();
+  try {
+    while (outbox.length) {
+      const change = outbox[0];
+      try {
+        await SEND[change.kind](change.args);
+      } catch (e) {
+        if (isConnectionProblem(e)) return; // still no signal: try again later
+        syncProblems.push(`${change.label} (${whenSaved(change.madeAt)}): ${explain(e)}`);
+        storeList(PROBLEMS_KEY, syncProblems);
+      }
+      outbox.shift();
+      storeList(OUTBOX_KEY, outbox);
+    }
+  } finally {
+    sending = false;
+    updateBanner();
+    showSyncProblems();
+  }
+}
+
+// Changes the database refused: listed on the page until you've read them
+function showSyncProblems() {
+  const box = document.getElementById("sync-problems");
+  box.hidden = !syncProblems.length;
+  document.getElementById("sync-problem-list").innerHTML = syncProblems.map((p) => `<li>${esc(p)}</li>`).join("");
+}
+document.getElementById("sync-problems-ok").addEventListener("click", () => {
+  syncProblems = [];
+  storeList(PROBLEMS_KEY, syncProblems);
+  showSyncProblems();
+});
 
 // ---------- 5. Looking things up ----------
 function isInTank(batch) {
@@ -699,8 +867,11 @@ batchForm.addEventListener("submit", async (e) => {
   }
 
   // One call; the database saves the batch, its history, and both tanks' statuses together,
-  // all or nothing (see supabase/migrations/..._save_batch.sql)
-  const ok = await save(() => must(db.rpc("save_batch", {
+  // all or nothing (see supabase/migrations/..._save_batch.sql). With no signal, it's kept
+  // on this phone and sent later.
+  const where = willBeInTank ? `${stageLabel(values.stage).toLowerCase()} in ${target.name}` : "packaged";
+  const label = `${name} #${values.batchNumber}: ${where}`;
+  const ok = await saveOrKeep("saveBatch", {
     p_id: editingBatch?.id ?? newId(),
     p_brewery_id: brewery.id,
     p_batch_number: values.batchNumber,
@@ -711,7 +882,7 @@ batchForm.addEventListener("submit", async (e) => {
     p_stage_started_on: values.stageStartDate,
     p_tank_id: willBeInTank ? values.tankId : null,
     p_action_date: today(), // the day you did it, even if it reaches the database later
-  })));
+  }, label);
   if (ok) batchDialog.close();
 });
 
@@ -810,10 +981,10 @@ document.getElementById("log-acid").addEventListener("click", () => {
 acidForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   const tankId = editingTank.id;
-  const ok = await save(() => must(db.from("tank_cleanings").insert({
-    brewery_id: brewery.id, tank_id: tankId, kind: "acid",
-    cleaned_on: acidForm.cleanedOn.value, note: acidForm.note.value.trim(),
-  })));
+  const ok = await saveOrKeep("logAcid", {
+    id: newId(), breweryId: brewery.id, tankId,
+    cleanedOn: acidForm.cleanedOn.value, note: acidForm.note.value.trim(),
+  }, `Acid cycle on ${editingTank.name}`);
   if (!ok) return;
   acidDialog.close();
   editingTank = findTank(tankId); // the data was reloaded, so pick up the fresh copy
@@ -853,9 +1024,13 @@ tankForm.addEventListener("submit", async (e) => {
     status: tankForm.status.value,
     acid_every_turns: tankForm.acidEveryTurns.value ? Number(tankForm.acidEveryTurns.value) : null,
   };
-  const ok = await save(() => editingTank
-    ? must(db.from("tanks").update(fields).eq("id", editingTank.id))
-    : must(db.from("tanks").insert({ brewery_id: brewery.id, ...fields })));
+  // Changing an existing tank works offline; adding a new tank needs signal
+  const ok = editingTank
+    ? await saveOrKeep("updateTank", {
+        id: editingTank.id, name: fields.name, type: fields.type, capacityBbl: fields.capacity_bbl,
+        locationId: fields.location_id, status: fields.status, acidEveryTurns: fields.acid_every_turns,
+      }, `${editingTank.name} settings`)
+    : await save(() => must(db.from("tanks").insert({ brewery_id: brewery.id, ...fields })));
   if (ok) tankDialog.close();
 });
 
@@ -1284,6 +1459,10 @@ document.getElementById("code-back").addEventListener("click", () => {
 // ("local" = sign out on this device only)
 document.querySelectorAll(".sign-out").forEach((btn) =>
   btn.addEventListener("click", async () => {
+    if (outbox.length && !confirm(`${count(outbox.length, "change hasn't", "changes haven't")} been sent yet. ` +
+      `Signing out now deletes ${outbox.length === 1 ? "it" : "them"}. Sign out anyway?`)) return;
+    outbox = [];
+    storeList(OUTBOX_KEY, outbox);
     deleteOfflineCopy();
     await db.auth.signOut({ scope: "local" });
     showOnline();
@@ -1455,5 +1634,13 @@ document.addEventListener("visibilitychange", () => {
   }
 });
 
+// Changes waiting to send: try again every 30 seconds (a phone doesn't always announce that signal is back)
+setInterval(() => {
+  if (outbox.length && brewery && !busy && !sending && navigator.onLine) {
+    refresh().catch((e) => { if (isConnectionProblem(e)) showOffline(); });
+  }
+}, 30000);
+
 // ---------- 15. Go ----------
+showSyncProblems();
 start();
