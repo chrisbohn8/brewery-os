@@ -27,6 +27,7 @@ These shape every decision, even for features that come later:
 - **Phone-first on the floor, paper where hands are wet.** The dashboard is built for a quick glance at a phone. Brew-day data entry also needs a **printable brew sheet**, because wet hands on the brew deck make phones awkward. Each printed sheet carries a **QR code that opens that exact batch** in the app, so numbers written on paper can be entered later from the sheet.
 - **Everything the brewery sets up is data,** not code: locations, tanks, beers, and (later) recipes. Admins create and change them in the app.
 - **Multi-tenant from the start of the backend.** This will serve many breweries. Every record will belong to a brewery, and one brewery can never see another's data.
+- **Works offline.** Brew floors and cellars have bad Wi-Fi. The app keeps working without a connection, holds onto what you enter, and syncs when the signal comes back, without losing or duplicating anything. A tool that freezes or loses an entry gets abandoned for the whiteboard.
 - **Accurate volumes and history,** because TTB reporting depends on them.
 
 ---
@@ -162,9 +163,9 @@ These are the reasons it isn't production-ready yet:
 
 ## Roadmap
 
-The order follows dependencies: each phase sets up what the next one needs. **Brew log → packaging → inventory → TTB** is the backbone, and recipes and costing come last.
+The order follows dependencies: each phase sets up what the next one needs. **Brew log → packaging → inventory → TTB** is the backbone, TTB reports are the first feature breweries are expected to pay for, the taproom loop (POS sync, state returns) follows, and recipes and costing come last. Out of scope by design: CRM, delivery routes, wholesale ordering, and full accounting (export to QuickBooks instead).
 
-One deliberate split: the backup (a quick safety net) is done now, but the **shared database comes right after the brew log**, not before. The brew log adds the biggest new pieces of data (brew-day numbers, readings, event history), and the database is easier to design once that shape is settled.
+The shared database (Phase 3) was pulled ahead of the brew log: real crews can only try the app once data is shared, and multi-tenancy and offline are easier to build in from the start than to add later.
 
 ### ✅ Phase 0: Foundation (done)
 - [x] Tank dashboard with stage and days in stage
@@ -177,7 +178,7 @@ One deliberate split: the backup (a quick safety net) is done now, but the **sha
 ### ✅ Phase 1: Safety net (done)
 - [x] **Backup and restore** as a JSON file
 
-### Phase 2: Brew log and history (next)
+### Phase 2: Brew log and history
 The as-brewed record for each batch, compared against its beer's targets.
 - [ ] **Event history per batch.** Record every stage change and transfer (date, from, to, volume) instead of overwriting. Traceability, the CIP log, and TTB reporting are all built on this. Stage and tank may become "the latest event" rather than fields that get overwritten.
 - [ ] **Brew-day actuals:** key numbers such as mash temp and pH, pre-boil gravity, OG, volume to fermenter, yeast and pitch temp. Exact fields come from the brewery's current brew sheet.
@@ -188,14 +189,16 @@ The as-brewed record for each batch, compared against its beer's targets.
 - [ ] **Open a batch from a link** (what the QR code points at).
 - [ ] **Brewer notes** per batch.
 
-### Phase 3: Shared data, sign-in, and multiple breweries
+### Phase 3: Shared data, sign-in, multiple breweries, and offline (in progress)
 Turns the prototype into something a brewery can rely on.
-- [ ] **Shared database.** One copy of the data that every phone and computer reads and writes. This needs a hosted backend, since GitHub Pages can only serve files. Hosted database services like Supabase or Firebase are the likely candidates and keep server code to a minimum.
+- [x] **Database design** on Supabase (hosted Postgres): breweries, members and roles, locations, tanks, beers, batches, and append-only batch history, with row-level security and tests proving breweries can't reach each other's data (`supabase/`).
+- [ ] **App switched to the shared database:** one copy of the data that every phone and computer reads and writes.
 - [ ] **Multi-tenant from day one:** every record belongs to a brewery, and access rules keep each brewery's data separate.
 - [ ] **Sign-in and roles** (for example admin, brewer, read-only). This is when "users" become a record. Admins manage locations, tanks, beers, and recipes.
 - [ ] **QR codes work on any phone.** Before this phase, a batch only exists in the browser it was entered on.
 - [ ] **Move existing data in** from a backup file.
-- [ ] **Basic offline tolerance.** Brew floors have bad Wi-Fi. At minimum, the app should show the last data it loaded and clearly say when a save didn't go through.
+- [ ] **Each action saved as one all-or-nothing step** (for example "transfer batch 1042 to BT-2" updates the batch's history and both tanks together, or not at all). This keeps records consistent and is the foundation for working offline.
+- [ ] **Works offline:** the app opens and shows the last data without a connection; changes made offline are queued on the device and sent when the signal returns; the screen always shows what's saved and what's still waiting. Anything the database rejects on sync (a duplicate batch number, a tank someone else just filled) is shown to the person instead of being silently dropped.
 
 ### Phase 4: Tank care
 - [ ] **CIP log:** a record each time a tank is cleaned (date, who, what chemicals). "Last CIP date" comes from this log.
@@ -218,13 +221,19 @@ The payoff for keeping accurate volumes at every step.
 - [ ] **Excise tax return support** (TTB F 5000.24): taxable removals for the period.
 - [ ] Export in a format that's easy to copy into the TTB forms. Accuracy here depends entirely on the history from Phase 2 and the volumes from Phases 5–6. That's why those phases come first.
 
-### Phase 8: Recipes and costing
+### Phase 8: Taproom connection (POS sync)
+- [ ] Connect one point-of-sale system first (chosen by what pilot breweries use), so taproom sales draw down keg and serving-tank levels and count as taxable removals for TTB.
+
+### Phase 9: State returns
+- [ ] State excise returns built from the same records as TTB, starting with **California**, which requires a return every month even with no activity.
+
+### Phase 10: Recipes and costing
 - [ ] **Recipe builder (admins):** grain bill, hop schedule, yeast strain, and process notes on each beer.
 - [ ] **As-brewed snapshot:** each batch keeps a copy of the recipe as it was actually brewed, so later recipe changes don't rewrite history.
 - [ ] **Printable brew sheets pre-filled from the recipe:** target numbers and additions already printed, with blanks for the actuals.
 - [ ] **Ingredient cost per batch** and cost per barrel, using raw-material inventory from Phase 6.
 
-### Phase 9: Ready for other breweries
+### Phase 11: Ready for other breweries
 Multi-tenancy itself arrives in Phase 3. This phase is about letting a new brewery sign up on its own.
 - [ ] **Self-serve onboarding:** set up locations, tanks, and beers in a few minutes.
 - [ ] **Billing.**
