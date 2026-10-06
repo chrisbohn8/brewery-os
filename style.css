@@ -91,6 +91,7 @@ body {
 .card .tank { font-weight: 700; font-size: 1.15rem; }
 .card .type { color: var(--muted); font-size: 0.85rem; }
 .card .beer { font-size: 1.3rem; font-weight: 600; }
+.card .beer .style { font-size: 0.9rem; font-weight: 400; color: var(--muted); }
 .card .beer.none { color: var(--muted); font-weight: 400; }
 .card .meta, .muted { color: var(--muted); font-size: 0.9rem; }
 
@@ -111,25 +112,37 @@ body {
 .days { font-size: 1.6rem; font-weight: 700; }
 .days small { font-size: 0.85rem; font-weight: 400; color: var(--muted); }
 
-/* ---- Packaged batches list ---- */
-.history {
+/* ---- Lists below the tanks (packaged batches, beers) ---- */
+.list-section {
   max-width: 1100px;
   margin: 0 auto;
   padding: 0 16px 32px;
 }
-.history h2 { font-size: 1.1rem; margin: 0 0 8px; }
-.history ul { list-style: none; margin: 0; padding: 0; }
-.history .row {
+.list-section h2 { font-size: 1.1rem; margin: 0 0 8px; }
+.list-section ul { list-style: none; margin: 0; padding: 0; }
+.list-section .row {
   all: unset;
   box-sizing: border-box;
   cursor: pointer;
   width: 100%;
   display: flex;
   justify-content: space-between;
-  gap: 12px;
+  flex-wrap: wrap;
+  gap: 4px 12px;
   padding: 12px 0;
   border-bottom: 1px solid var(--border);
 }
+
+/* Beer rows: name on one line, targets on the next, so every row lines up */
+.list-section .row.stacked { flex-direction: column; }
+
+.section-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+.section-head h2 { margin: 0; }
 
 /* ---- Buttons ---- */
 .btn {

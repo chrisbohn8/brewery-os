@@ -16,9 +16,18 @@
   <main id="tanks"></main>
 
   <!-- Batches that have been packaged (no longer in a tank) -->
-  <section id="packaged" class="history" hidden>
+  <section id="packaged" class="list-section" hidden>
     <h2>Packaged batches</h2>
     <ul id="packaged-list"></ul>
+  </section>
+
+  <!-- The beers you make (recipes/products). Batches point at these. -->
+  <section id="beers" class="list-section">
+    <div class="section-head">
+      <h2>Beers</h2>
+      <button id="add-beer" class="btn">+ Add beer</button>
+    </div>
+    <ul id="beer-list"></ul>
   </section>
 
   <!-- Pop-up form for a batch. Opens when you tap a tank card. -->
@@ -36,7 +45,7 @@
       </div>
 
       <label>Beer
-        <input name="beerName" required placeholder="House Hazy">
+        <select name="beerId" required></select>
       </label>
 
       <label>Brew date
@@ -101,6 +110,39 @@
 
       <div class="actions">
         <button type="button" id="delete-tank" class="btn danger">Delete</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn cancel">Cancel</button>
+        <button type="submit" class="btn primary">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Pop-up form for a beer: the product itself, not one particular brew of it -->
+  <dialog id="beer-editor">
+    <form id="beer-form">
+      <h2 id="beer-title">Beer</h2>
+
+      <label>Name
+        <input name="name" required placeholder="House Hazy">
+      </label>
+
+      <label>Style
+        <input name="style" list="style-options" placeholder="Hazy IPA">
+        <datalist id="style-options"></datalist>
+      </label>
+
+      <div class="two-col">
+        <label>Target OG
+          <input name="targetOg" type="number" min="1" max="1.2" step="0.001" placeholder="1.066">
+        </label>
+        <label>Target FG
+          <input name="targetFg" type="number" min="0.99" max="1.2" step="0.001" placeholder="1.016">
+        </label>
+      </div>
+      <p class="muted">Target ABV: <strong id="target-abv">—</strong> (worked out from OG and FG)</p>
+
+      <div class="actions">
+        <button type="button" id="delete-beer" class="btn danger">Delete</button>
         <span class="spacer"></span>
         <button type="button" class="btn cancel">Cancel</button>
         <button type="submit" class="btn primary">Save</button>
