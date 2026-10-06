@@ -83,6 +83,17 @@ body {
 .top h1 { margin: 0; font-size: 1.6rem; }
 .top p { margin: 2px 0 0; }
 
+/* No signal: a band under the header saying how old the data is */
+.offline-banner {
+  max-width: 1100px;
+  margin: 0 auto 12px;
+  padding: 10px 16px;
+  background: var(--acid-due);
+  color: #fff;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
 /* ---- Tank area, grouped by location ---- */
 #tanks {
   padding: 0 16px 32px;

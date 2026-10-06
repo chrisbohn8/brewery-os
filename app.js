@@ -182,12 +182,18 @@ async function must(request) {
   return result;
 }
 
+// Did this fail because there's no connection (rather than the database saying no)?
+// Browsers word it differently: "Failed to fetch" (Chrome), "Load failed" (Safari), "NetworkError" (Firefox).
+function isConnectionProblem(error) {
+  return !navigator.onLine || /failed to fetch|load failed|networkerror|network request failed|fetch failed/i.test(error?.message || String(error));
+}
+
 // Turn a database error into something a person can act on
 function explain(error) {
+  if (isConnectionProblem(error)) return "Couldn't reach the database. Check your signal and try again.";
   if (error.code === "23505") return "That name or number is already used.";
   if (error.code === "23503") return "That's still linked to other records (for example, batch history), so it can't be deleted.";
   if (error.code === "42501") return "You don't have permission to do that.";
-  if (error.message?.includes("Failed to fetch")) return "Couldn't reach the database. Check your internet connection.";
   return error.message || String(error);
 }
 
@@ -229,10 +235,13 @@ async function loadAll() {
   };
 }
 
-// After any change: reload from the database and redraw, so the page always shows what's really saved
+// After any change: reload from the database and redraw, so the page always shows what's really saved.
+// Each successful load also updates this device's offline copy.
 async function refresh() {
   await loadAll();
   render();
+  saveOfflineCopy();
+  showOnline();
 }
 
 // Run a change, show a friendly message if it fails, and always refresh afterward.
@@ -240,19 +249,94 @@ async function refresh() {
 let busy = false;
 async function save(work) {
   if (busy) return false;
+  if (offline || !navigator.onLine) {
+    alert("You're offline, so this can't be saved yet. Nothing was changed. Try again when you have signal.");
+    return false;
+  }
   busy = true;
   document.body.classList.add("busy");
   try {
     await work();
     return true;
   } catch (e) {
-    alert(`Couldn't save: ${explain(e)}`);
+    if (isConnectionProblem(e)) {
+      showOffline();
+      alert("Lost the connection while saving. Check the screen once you're back online to see whether it went through.");
+    } else {
+      alert(`Couldn't save: ${explain(e)}`);
+    }
     return false;
   } finally {
-    try { await refresh(); } catch (e) { console.warn(e); }
+    try { await refresh(); } catch (e) { if (isConnectionProblem(e)) showOffline(); else console.warn(e); }
     busy = false;
     document.body.classList.remove("busy");
   }
+}
+
+// ----- Offline -----
+// Every time data loads, a copy is kept on this device. With no signal, the app shows that
+// copy, with a banner saying how old it is. Saving needs a connection for now; queuing
+// changes made offline comes next. Signing out deletes the copy (important on shared devices).
+const OFFLINE_KEY = "brewery-os.offline-copy";
+let offline = false;
+let signedInEmail = "";
+let lastLoadedAt = null;
+
+function saveOfflineCopy() {
+  lastLoadedAt = new Date().toISOString();
+  try {
+    localStorage.setItem(OFFLINE_KEY, JSON.stringify({ savedAt: lastLoadedAt, email: signedInEmail, brewery, data }));
+  } catch (e) {
+    console.warn("Couldn't keep an offline copy on this device.", e);
+  }
+}
+
+function readOfflineCopy() {
+  try {
+    return JSON.parse(localStorage.getItem(OFFLINE_KEY));
+  } catch {
+    return null;
+  }
+}
+
+function deleteOfflineCopy() {
+  try { localStorage.removeItem(OFFLINE_KEY); } catch {}
+}
+
+// "10:42 AM" today, "Oct 5, 10:42 AM" before that
+function whenSaved(iso) {
+  const d = new Date(iso);
+  const time = d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  return toDateString(d) === today() ? time : `${formatDate(toDateString(d))}, ${time}`;
+}
+
+function showOffline() {
+  offline = true;
+  const banner = document.getElementById("offline-banner");
+  banner.textContent = lastLoadedAt
+    ? `Offline · showing data from ${whenSaved(lastLoadedAt)}. Changes can't be saved until you have signal.`
+    : "Offline. Changes can't be saved until you have signal.";
+  banner.hidden = false;
+}
+
+function showOnline() {
+  offline = false;
+  document.getElementById("offline-banner").hidden = true;
+}
+
+// No connection: show the copy kept on this device, if there is one
+function openOfflineCopy() {
+  const copy = readOfflineCopy();
+  if (!copy?.brewery) return false;
+  brewery = copy.brewery;
+  data = copy.data;
+  signedInEmail = copy.email;
+  lastLoadedAt = copy.savedAt;
+  document.getElementById("signed-in-as").textContent = `Signed in as ${copy.email}`;
+  render();
+  showOffline();
+  showScreen("app-screen");
+  return true;
 }
 
 // ---------- 5. Looking things up ----------
@@ -1196,8 +1280,15 @@ document.getElementById("code-back").addEventListener("click", () => {
   signinForm.hidden = false;
 });
 
+// Signing out deletes this device's offline copy, and works even with no signal
+// ("local" = sign out on this device only)
 document.querySelectorAll(".sign-out").forEach((btn) =>
-  btn.addEventListener("click", () => db.auth.signOut())
+  btn.addEventListener("click", async () => {
+    deleteOfflineCopy();
+    await db.auth.signOut({ scope: "local" });
+    showOnline();
+    showScreen("signin-screen");
+  })
 );
 
 // New user with no brewery yet: create one (they become its admin)
@@ -1221,11 +1312,14 @@ async function start() {
   }
   starting = true;
   try {
-    const { data: { session } } = await db.auth.getSession();
+    const { data: { session }, error } = await db.auth.getSession();
     if (!session) {
+      // With no signal, the sign-in can't be checked: show this device's copy if it has one
+      if ((!navigator.onLine || (error && isConnectionProblem(error))) && openOfflineCopy()) return;
       showScreen("signin-screen");
       return;
     }
+    signedInEmail = session.user.email;
     document.getElementById("signed-in-as").textContent = `Signed in as ${session.user.email}`;
 
     // Which breweries are you in? (For now the app uses the first one.)
@@ -1239,6 +1333,7 @@ async function start() {
     await refresh();
     showScreen("app-screen");
   } catch (e) {
+    if (isConnectionProblem(e) && openOfflineCopy()) return;
     alert(`Something went wrong loading your data: ${explain(e)}`);
   } finally {
     starting = false;
@@ -1341,5 +1436,24 @@ document.querySelectorAll(".cancel").forEach((btn) =>
   btn.addEventListener("click", () => btn.closest("dialog").close())
 );
 
-// ---------- 14. Go ----------
+// ---------- 14. Staying up to date, online or off ----------
+// Keep a copy of the app itself on this device, so it opens with no signal (see sw.js)
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("sw.js").catch((e) => console.warn("No offline copy of the app:", e));
+}
+
+// Signal back: reload everything (this also hides the offline banner)
+window.addEventListener("online", () => start());
+// Signal gone: say so right away, before anyone tries to save
+window.addEventListener("offline", () => {
+  if (!document.getElementById("app-screen").hidden) showOffline();
+});
+// Coming back to the app (phone unlocked, tab switched back): get the latest
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && brewery && !busy && navigator.onLine) {
+    refresh().catch((e) => { if (isConnectionProblem(e)) showOffline(); });
+  }
+});
+
+// ---------- 15. Go ----------
 start();
