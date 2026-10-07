@@ -307,7 +307,7 @@ function explain(error) {
 let serverData = null;
 async function loadAll() {
   const b = brewery.id;
-  const [locations, beers, tanks, batches, events, cleanings, settings, members, invites] = await Promise.all([
+  const [locations, beers, tanks, batches, events, cleanings, settings, members, invites, permissions, memberRows, levels] = await Promise.all([
     must(db.from("locations").select("*").eq("brewery_id", b).order("created_at")),
     must(db.from("beers").select("*").eq("brewery_id", b)),
     must(db.from("tanks").select("*").eq("brewery_id", b).order("created_at")),
@@ -317,7 +317,12 @@ async function loadAll() {
     must(db.from("breweries").select("acid_after_styles, temperature_unit, gravity_unit, volume_unit, time_zone").eq("id", b).single()),
     must(db.rpc("brewery_members", { p_brewery_id: b })),
     must(db.from("invites").select("*").eq("brewery_id", b).order("created_at")), // admins only; others get none
+    must(db.rpc("my_permissions", { b })),
+    must(db.from("memberships").select("user_id, role, grants, revokes").eq("brewery_id", b)),
+    must(db.from("role_levels").select("level, permissions").eq("brewery_id", b)),
   ]);
+  // Each member: email and level (from brewery_members) plus their personal adjustments
+  const adjustments = Object.fromEntries(memberRows.map((r) => [r.user_id, r]));
   serverData = {
     locations: locations.map((l) => ({ id: l.id, name: l.name })),
     beers: beers.map((x) => ({
@@ -345,11 +350,18 @@ async function loadAll() {
       temperatureUnit: settings.temperature_unit, gravityUnit: settings.gravity_unit,
       volumeUnit: settings.volume_unit, timeZone: settings.time_zone,
     },
-    members: members.map((m) => ({ userId: m.user_id, email: m.email, role: m.role })),
+    members: members.map((m) => ({
+      userId: m.user_id, email: m.email, role: m.role,
+      grants: adjustments[m.user_id]?.grants || [], revokes: adjustments[m.user_id]?.revokes || [],
+    })),
+    levels: Object.fromEntries(levels.map((l) => [l.level, l.permissions])),
+    permissions,
     invites: invites.map((i) => ({ id: i.id, email: i.email, role: i.role })),
   };
   data = withWaitingChanges(serverData);
   brewery.prefs = serverData.prefs;
+  brewery.permissions = serverData.permissions;
+  brewery.role = (serverData.members.find((m) => m.email === signedInEmail) || {}).role || brewery.role;
 }
 
 // After any change: reload from the database and redraw, so the page always shows what's really saved.
@@ -745,8 +757,10 @@ function tankGroups() {
 function render() {
   document.getElementById("brewery-name").textContent = brewery.name;
   applyUnitLabels();
+  applyPermissions();
   renderSettings();
   renderTeam();
+  renderTankList();
 
   // A brand-new brewery: show ways to get started
   document.getElementById("empty-state").hidden = !isEmptyBrewery();
@@ -796,7 +810,7 @@ function render() {
 
   // Styles that always need an acid cycle afterward (one list for the whole brewery).
   // Only admins can change it.
-  const isAdmin = brewery.role === "admin";
+  const isAdmin = can("manage_cleaning"); // (name kept short: "may change the acid rules")
   acidStyleList.innerHTML = data.acidAfterStyles.length
     ? data.acidAfterStyles.map((style, i) => `
       <li class="item">
@@ -824,7 +838,9 @@ function tankCard(tank) {
     </div>`;
 
   if (!batch) {
-    const hint = tank.status === "empty" ? "Tap to start a batch" : "Tap to update status";
+    const hint = tank.status === "empty"
+      ? (can("start_batch") ? "Tap to start a batch" : "")
+      : (can("tank_status") ? "Tap to update status" : "");
     // An empty tank that needs acid before it's filled again says so, and why
     const acid = acidState(tank);
     const acidDue = acid.due ? `<div class="acid-due">Acid due · ${esc(acid.reason)}</div>` : "";
@@ -869,7 +885,7 @@ function fillBeerDropdown(selectedId) {
   batchForm.beerId.innerHTML =
     `<option value="">Choose a beer…</option>` +
     beersByName().map((b) => `<option value="${b.id}">${esc(b.name)}</option>`).join("") +
-    `<option value="${NEW_BEER}">+ New beer…</option>`;
+    (can("manage_beers") ? `<option value="${NEW_BEER}">+ New beer…</option>` : "");
   batchForm.beerId.value = selectedId;
   beerChoiceBeforeNew = selectedId;
 }
@@ -896,8 +912,9 @@ function openBatchEditor(batch, tankId) {
 
   document.getElementById("batch-title").textContent =
     batch ? `${beerName(batch)} ${batch.batchNumber ? "#" + batch.batchNumber : ""}` : `New batch in ${tankName(tankId)}`;
-  document.getElementById("delete-batch").hidden = !batch;
+  document.getElementById("delete-batch").hidden = !batch || !can("delete_records");
   document.getElementById("open-tank-settings").hidden = !tankId;
+  lockBatchForm(batch);
 
   batchForm.batchId.value = b.batchNumber;
   fillBeerDropdown(b.beerId);
@@ -907,6 +924,19 @@ function openBatchEditor(batch, tankId) {
   batchForm.stage.value = b.stage;
   batchForm.stageStartDate.value = b.stageStartDate;
   batchDialog.showModal();
+}
+
+// Only the parts of the batch form this person may change are editable:
+//   details (number, beer, brew date, size) -> start_batch; stage, tank, date -> move_beer; "Packaged" -> package
+function lockBatchForm(batch) {
+  const details = !batch || can("start_batch");
+  const moves = can("move_beer") || can("package");
+  for (const name of ["batchId", "beerId", "brewDate", "sizeBbl"]) batchForm[name].disabled = !details;
+  for (const name of ["tankId", "stage", "stageStartDate"]) batchForm[name].disabled = !moves;
+  for (const option of batchForm.stage.options) {
+    option.disabled = option.value === "packaged" ? !can("package") : (!can("move_beer") && option.value !== batchForm.stage.value);
+  }
+  batchForm.querySelector("button[type=submit]").hidden = !details && !moves;
 }
 
 // Picking "+ New beer…" opens the beer form on top of the batch form
@@ -1040,7 +1070,7 @@ function openTankEditor(tank) {
   const batch = tank && batchInTank(tank.id);
 
   document.getElementById("tank-title").textContent = tank ? `Edit ${tank.name}` : "Add tank";
-  document.getElementById("delete-tank").hidden = !tank;
+  document.getElementById("delete-tank").hidden = !tank || !(can("manage_equipment") && can("delete_records"));
 
   // Status can only be set by hand when the tank is empty
   document.getElementById("status-field").hidden = !!batch;
@@ -1058,7 +1088,21 @@ function openTankEditor(tank) {
   tankForm.status.value = t.status;
   tankForm.acidEveryTurns.value = t.acidEveryTurns ?? "";
   showAcidSection(tank);
+  lockTankForm();
   tankDialog.showModal();
+}
+
+// Only the parts of the tank form this person may change are editable:
+//   name, type, capacity, location -> manage_equipment; status -> tank_status; acid rule -> manage_cleaning
+function lockTankForm() {
+  const equipment = can("manage_equipment");
+  for (const name of ["name", "type", "capacityBbl", "locationId"]) tankForm[name].disabled = !equipment;
+  tankForm.status.disabled = !can("tank_status");
+  tankForm.acidEveryTurns.disabled = !can("manage_cleaning");
+  document.getElementById("log-acid").hidden = !can("acid_log");
+  tankForm.querySelectorAll("[data-remove-acid]").forEach((b) => { b.hidden = !can("acid_log"); });
+  tankForm.querySelector("button[type=submit]").hidden =
+    !(equipment || can("tank_status") || can("manage_cleaning"));
 }
 
 // The tank form's acid section: last acid cycle, turns since, and the log.
@@ -1079,7 +1123,7 @@ function showAcidSection(tank) {
   document.getElementById("acid-history").innerHTML = acidCycles(tank.id).slice(-5).reverse().map((c) => `
     <li class="item">
       <span>${formatDate(c.cleanedOn)}${c.note ? ` <span class="muted">· ${esc(c.note)}</span>` : ""}</span>
-      <button type="button" class="btn small" data-remove-acid="${c.id}">Remove</button>
+      <button type="button" class="btn small" data-remove-acid="${c.id}" ${can("acid_log") ? "" : "hidden"}>Remove</button>
     </li>`).join("");
 }
 
@@ -1175,8 +1219,10 @@ function openBeerEditor(beer) {
   editingBeer = beer;
   const b = beer || { name: "", style: "", targetOg: null, targetFg: null };
 
-  document.getElementById("beer-title").textContent = beer ? `Edit ${beer.name}` : "Add beer";
-  document.getElementById("delete-beer").hidden = !beer;
+  document.getElementById("beer-title").textContent = beer ? `${can("manage_beers") ? "Edit " : ""}${beer.name}` : "Add beer";
+  document.getElementById("delete-beer").hidden = !beer || !(can("manage_beers") && can("delete_records"));
+  for (const el of beerForm.querySelectorAll("input")) el.disabled = !can("manage_beers");
+  beerForm.querySelector("button[type=submit]").hidden = !can("manage_beers");
 
   // Suggest styles you've already used
   const styles = [...new Set(data.beers.map((x) => x.style).filter(Boolean))].sort();
@@ -1255,7 +1301,9 @@ let editingLocation = null; // the location open in the form, or null when addin
 function openLocationEditor(location) {
   editingLocation = location;
   document.getElementById("location-title").textContent = location ? `Edit ${location.name}` : "Add location";
-  document.getElementById("delete-location").hidden = !location;
+  document.getElementById("delete-location").hidden = !location || !(can("manage_equipment") && can("delete_records"));
+  locationForm.name.disabled = !can("manage_equipment");
+  locationForm.querySelector("button[type=submit]").hidden = !can("manage_equipment");
   locationForm.name.value = location ? location.name : "";
   locationDialog.showModal();
 }
@@ -1441,7 +1489,7 @@ async function loadIntoBrewery(source, description) {
         }))));
       }
       // The brewery-wide style list is an admin setting; skipped quietly for anyone else
-      if (d.acidAfterStyles.length && brewery.role === "admin") {
+      if (d.acidAfterStyles.length && can("manage_cleaning")) {
         await must(db.from("breweries").update({ acid_after_styles: d.acidAfterStyles }).eq("id", b));
       }
       if (d.batches.length) {
@@ -1634,7 +1682,10 @@ async function start() {
     }
     const chosen = readChoice();
     const m = memberships.find((x) => x.breweries.id === chosen) || memberships[0];
-    brewery = { id: m.breweries.id, name: m.breweries.name, role: m.role };
+    // Same brewery as before? Keep what we already know (permissions, units) while it reloads,
+    // so nothing flickers hidden in between.
+    const known = brewery?.id === m.breweries.id ? brewery : {};
+    brewery = { ...known, id: m.breweries.id, name: m.breweries.name, role: m.role };
     showBrewerySwitch(memberships);
     await refresh();
     showScreen("app-screen");
@@ -1681,8 +1732,97 @@ db.auth.onAuthStateChange((event) => {
   if (event === "SIGNED_IN" || event === "SIGNED_OUT") setTimeout(start, 0);
 });
 
-// ----- Brewery settings (units and time zone) -----
+// ----- Permissions -----
+// Each person has a LEVEL; each level is a set of permissions the brewery's admins can change,
+// and admins can adjust any one person on top of their level. Admins can always do everything.
+// The database enforces all of this (supabase/migrations/..._permissions.sql); the app uses the
+// same rules only to show and hide buttons. Keep this list in step with permission_list() there.
+const PERMISSIONS = [
+  { id: "cellar_log",       label: "Log readings and cellar work" },
+  { id: "tank_status",      label: "Set a tank's status (cleaning, maintenance)" },
+  { id: "acid_log",         label: "Log acid cycles" },
+  { id: "move_beer",        label: "Change stages and transfer beer" },
+  { id: "package",          label: "Package beer" },
+  { id: "start_batch",      label: "Start batches and edit batch details" },
+  { id: "manage_beers",     label: "Beers and recipes" },
+  { id: "manage_equipment", label: "Tanks and locations" },
+  { id: "manage_cleaning",  label: "Acid rules" },
+  { id: "manage_settings",  label: "Units and time zone" },
+  { id: "rename_brewery",   label: "Rename the brewery" },
+  { id: "backups",          label: "Download and load backups" },
+  { id: "delete_records",   label: "Delete batches, beers, tanks, and locations" },
+];
+const ROLES = [
+  { id: "viewer",      label: "Viewer",      short: "View" },
+  { id: "cellar",      label: "Cellar",      short: "Cellar" },
+  { id: "brewer",      label: "Brewer",      short: "Brewer" },
+  { id: "head_brewer", label: "Head brewer", short: "Head" },
+  { id: "admin",       label: "Admin",       short: "Admin" },
+];
+// What each level includes until a brewery changes it (same as default_permissions() in the database)
+const DEFAULT_LEVELS = {
+  viewer: [],
+  cellar: ["cellar_log", "tank_status", "acid_log", "move_beer", "package"],
+  brewer: ["cellar_log", "tank_status", "acid_log", "move_beer", "package", "start_batch"],
+  head_brewer: ["cellar_log", "tank_status", "acid_log", "move_beer", "package", "start_batch",
+                "manage_beers", "manage_equipment", "manage_cleaning", "manage_settings"],
+};
+
+// Can the signed-in person do this here?
+function can(permission) {
+  return brewery?.role === "admin" || (brewery?.permissions || []).includes(permission);
+}
+
+// What a level includes in this brewery (its own version, or the default)
+function levelPermissions(level) {
+  if (level === "admin") return PERMISSIONS.map((p) => p.id);
+  return (data.levels || {})[level] || DEFAULT_LEVELS[level] || [];
+}
+
+// A member's effective permissions: their level, plus what was added for them, minus what was removed
+function memberPermissions(member) {
+  if (member.role === "admin") return PERMISSIONS.map((p) => p.id);
+  const base = new Set(levelPermissions(member.role));
+  member.grants.forEach((g) => base.add(g));
+  member.revokes.forEach((r) => base.delete(r));
+  return [...base];
+}
+
+// Buttons marked data-needs="permission" are only shown to people with that permission
+function applyPermissions() {
+  document.querySelectorAll("[data-needs]").forEach((el) => { el.hidden = !can(el.dataset.needs); });
+}
+
+// ----- Settings screen -----
+const SETTINGS_PAGES = ["brewery", "equipment", "beers", "cleaning", "team", "backup", "account"];
+let settingsPage = "brewery";
+
+function showSettings(open, page = settingsPage) {
+  document.getElementById("floor-view").hidden = open;
+  document.getElementById("settings-view").hidden = !open;
+  document.getElementById("open-settings").hidden = open;
+  document.getElementById("close-settings").hidden = !open;
+  document.getElementById("view-title").textContent = open ? "Settings" : "Tanks";
+  if (open) {
+    settingsPage = page;
+    document.querySelectorAll("#settings-nav button").forEach((b) => {
+      b.toggleAttribute("aria-current", b.dataset.page === page);
+      if (b.dataset.page === page) b.setAttribute("aria-current", "page");
+    });
+    document.querySelectorAll(".settings-page").forEach((p) => { p.hidden = p.dataset.page !== page; });
+  }
+  window.scrollTo(0, 0);
+}
+document.getElementById("open-settings").addEventListener("click", () => showSettings(true));
+document.getElementById("close-settings").addEventListener("click", () => showSettings(false));
+document.getElementById("settings-nav").addEventListener("click", (e) => {
+  const button = e.target.closest("[data-page]");
+  if (button) showSettings(true, button.dataset.page);
+});
+
+// ----- Brewery: name, units, and time zone -----
 const settingsForm = document.getElementById("settings-form");
+const breweryNameForm = document.getElementById("brewery-name-form");
 
 // Every time zone the browser knows, for the dropdown (filled once)
 const TIME_ZONES = (Intl.supportedValuesOf?.("timeZone") || [DEFAULT_PREFS.timeZone]);
@@ -1690,7 +1830,7 @@ settingsForm.timeZone.innerHTML = TIME_ZONES.map((z) => `<option value="${z}">${
 
 function renderSettings() {
   const p = prefs();
-  const isAdmin = brewery.role === "admin";
+  const allowed = can("manage_settings");
   settingsForm.temperatureUnit.value = p.temperatureUnit;
   settingsForm.gravityUnit.value = p.gravityUnit;
   settingsForm.volumeUnit.value = p.volumeUnit;
@@ -1698,9 +1838,13 @@ function renderSettings() {
     settingsForm.timeZone.insertAdjacentHTML("afterbegin", `<option value="${esc(p.timeZone)}">${esc(p.timeZone)}</option>`);
   }
   settingsForm.timeZone.value = p.timeZone;
-  for (const el of settingsForm.elements) el.disabled = !isAdmin;
-  document.getElementById("save-settings").hidden = !isAdmin;
-  document.getElementById("settings-admin-note").hidden = isAdmin;
+  for (const el of settingsForm.elements) el.disabled = !allowed;
+  document.getElementById("save-settings").hidden = !allowed;
+  document.getElementById("settings-admin-note").hidden = allowed;
+
+  if (document.activeElement !== breweryNameForm.name) breweryNameForm.name.value = brewery.name;
+  breweryNameForm.name.disabled = !can("rename_brewery");
+  document.getElementById("backup-note").hidden = can("backups");
 }
 
 settingsForm.addEventListener("submit", async (e) => {
@@ -1712,30 +1856,51 @@ settingsForm.addEventListener("submit", async (e) => {
       volume_unit: settingsForm.volumeUnit.value,
       time_zone: settingsForm.timeZone.value,
     }).eq("id", brewery.id).select("id"));
-    if (!saved.length) throw new Error("Only an admin can change the brewery settings.");
+    if (!saved.length) throw new Error("You don't have permission to change the units.");
   });
 });
 
-// ----- Team: members, roles, and invites -----
-const ROLES = [
-  { id: "admin",  label: "Admin" },
-  { id: "brewer", label: "Brewer" },
-  { id: "viewer", label: "Viewer" },
-];
+breweryNameForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const name = breweryNameForm.name.value.trim();
+  if (!name || name === brewery.name) return;
+  const ok = await save(async () => {
+    const saved = await must(db.from("breweries").update({ name }).eq("id", brewery.id).select("id"));
+    if (!saved.length) throw new Error("You don't have permission to rename the brewery.");
+  });
+  if (ok) await start(); // the name shows in several places; reload them all
+});
 
+// ----- Equipment: every tank, for editing -----
+function renderTankList() {
+  document.getElementById("tank-list").innerHTML = data.tanks.map((t) => {
+    const details = [labelFrom(TANK_TYPES, t.type), showUnit("volume", t.capacityBbl), locationName(t)].filter(Boolean).join(" · ");
+    return `
+    <li>
+      <button class="row" data-tank-settings="${t.id}">
+        <strong>${esc(t.name)}</strong>
+        <span class="muted">${esc(details)}</span>
+      </button>
+    </li>`;
+  }).join("") || `<li class="muted">No tanks yet.</li>`;
+}
+document.getElementById("tank-list").addEventListener("click", (e) => {
+  const row = e.target.closest("[data-tank-settings]");
+  if (row) openTankEditor(findTank(row.dataset.tankSettings));
+});
+
+// ----- Team: members, levels, and invites -----
 function renderTeam() {
   const isAdmin = brewery.role === "admin";
   const members = data.members || [];
   const invites = data.invites || [];
   document.getElementById("member-list").innerHTML = members.map((m) => {
     const me = m.email === signedInEmail ? " (you)" : "";
-    const controls = isAdmin
-      ? `<select data-role-for="${m.userId}" aria-label="Role for ${esc(m.email)}">
-           ${ROLES.map((r) => `<option value="${r.id}" ${r.id === m.role ? "selected" : ""}>${r.label}</option>`).join("")}
-         </select>
-         <button class="btn small" data-remove-member="${m.userId}">Remove</button>`
-      : `<span class="muted">${labelFrom(ROLES, m.role)}</span>`;
-    return `<li class="item"><span class="who">${esc(m.email)}${me}</span><span class="controls">${controls}</span></li>`;
+    const adjusted = m.role !== "admin" && (m.grants.length || m.revokes.length) ? " · adjusted" : "";
+    const level = `${labelFrom(ROLES, m.role)}${adjusted}`;
+    return isAdmin
+      ? `<li class="item"><button class="row" data-member="${m.userId}"><span class="who">${esc(m.email)}${me}</span><span class="muted">${level} ›</span></button></li>`
+      : `<li class="item"><span class="who">${esc(m.email)}${me}</span><span class="muted">${level}</span></li>`;
   }).join("");
 
   document.getElementById("invite-area").hidden = !isAdmin;
@@ -1745,6 +1910,23 @@ function renderTeam() {
       <span class="who">${esc(i.email)} <span class="muted">· ${labelFrom(ROLES, i.role)}</span></span>
       <button class="btn small" data-cancel-invite="${i.id}">Cancel</button>
     </li>`).join("");
+
+  // Levels table: a row per permission, a column per level (admin column always all ticked)
+  const levelIds = ROLES.map((r) => r.id);
+  document.getElementById("levels-table").innerHTML = `
+    <thead><tr><th>Permission</th>${ROLES.map((r) => `<th title="${r.label}">${r.short}</th>`).join("")}</tr></thead>
+    <tbody>${PERMISSIONS.map((p) => `
+      <tr><td>${p.label}</td>${levelIds.map((l) => `
+        <td><input type="checkbox" data-level="${l}" data-permission="${p.id}"
+             aria-label="${p.label}: ${labelFrom(ROLES, l)}"
+             ${levelPermissions(l).includes(p.id) ? "checked" : ""}
+             ${!isAdmin || l === "admin" ? "disabled" : ""}></td>`).join("")}</tr>`).join("")}
+    </tbody>`;
+  document.getElementById("reset-levels").hidden = !isAdmin || !Object.keys(data.levels || {}).length;
+
+  // My own level, on the account page
+  const mine = members.find((m) => m.email === signedInEmail);
+  document.getElementById("my-level").textContent = mine ? `Your level: ${labelFrom(ROLES, mine.role)}` : "";
 }
 
 function inviteMessage(text) {
@@ -1754,6 +1936,7 @@ function inviteMessage(text) {
 }
 
 const inviteForm = document.getElementById("invite-form");
+inviteForm.role.innerHTML = ROLES.map((r) => `<option value="${r.id}" ${r.id === "cellar" ? "selected" : ""}>${r.label}</option>`).join("");
 inviteForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   const email = inviteForm.email.value.trim().toLowerCase();
@@ -1773,41 +1956,148 @@ inviteForm.addEventListener("submit", async (e) => {
     `Ask them to open ${location.host} and sign in with that email; they'll join ${brewery.name} automatically.`);
 });
 
-// Change someone's role, remove someone, or cancel an invite (admins only; the database checks too).
-// The database also refuses to remove or demote the last admin.
-document.getElementById("team").addEventListener("change", async (e) => {
-  const select = e.target.closest("[data-role-for]");
-  if (!select) return;
-  const userId = select.dataset.roleFor;
-  const member = data.members.find((m) => m.userId === userId);
-  if (member.email === signedInEmail && select.value !== "admin" &&
-      !confirm(`Change your own role to ${labelFrom(ROLES, select.value).toLowerCase()}? You'll no longer be able to manage the team.`)) {
-    select.value = member.role;
-    return;
-  }
-  const ok = await save(() => must(db.from("memberships").update({ role: select.value })
-    .eq("brewery_id", brewery.id).eq("user_id", userId)));
-  if (ok && member.email === signedInEmail) await start(); // your own role changed: reload what you can do
-});
-
 document.getElementById("team").addEventListener("click", async (e) => {
-  const remove = e.target.closest("[data-remove-member]");
+  const member = e.target.closest("[data-member]");
   const cancel = e.target.closest("[data-cancel-invite]");
-  if (remove) {
-    const member = data.members.find((m) => m.userId === remove.dataset.removeMember);
-    const yourself = member.email === signedInEmail;
-    const question = yourself
-      ? `Leave ${brewery.name}? You'll lose access to it.`
-      : `Remove ${member.email} from ${brewery.name}?`;
-    if (!confirm(question)) return;
-    const ok = await save(() => must(db.from("memberships").delete()
-      .eq("brewery_id", brewery.id).eq("user_id", member.userId)));
-    if (ok && yourself) await start();
-  }
+  if (member) openMemberEditor(member.dataset.member);
   if (cancel) {
     const ok = await save(() => must(db.from("invites").delete().eq("id", cancel.dataset.cancelInvite)));
     if (ok) inviteMessage("");
   }
+});
+
+// Changing what a whole level includes (admins)
+async function setLevel(level, permissions) {
+  const sorted = PERMISSIONS.map((p) => p.id).filter((p) => permissions.includes(p));
+  return save(() => must(db.from("role_levels").upsert({ brewery_id: brewery.id, level, permissions: sorted })));
+}
+document.getElementById("levels-table").addEventListener("change", async (e) => {
+  const box = e.target.closest("[data-level]");
+  if (!box) return;
+  const { level, permission } = box.dataset;
+  const current = levelPermissions(level).filter((p) => p !== permission);
+  await setLevel(level, box.checked ? [...current, permission] : current);
+});
+document.getElementById("reset-levels").addEventListener("click", async () => {
+  if (!confirm("Put every level back to what it includes by default? People's individual adjustments stay.")) return;
+  await save(() => must(db.from("role_levels").delete().eq("brewery_id", brewery.id)));
+});
+
+// ----- One person's level and permissions (admins) -----
+const memberDialog = document.getElementById("member-editor");
+const memberForm = document.getElementById("member-form");
+const scopeDialog = document.getElementById("scope-editor");
+let editingMemberId = null;
+memberForm.role.innerHTML = ROLES.map((r) => `<option value="${r.id}">${r.label}</option>`).join("");
+
+function editingMember() {
+  return data.members.find((m) => m.userId === editingMemberId);
+}
+
+function openMemberEditor(userId) {
+  editingMemberId = userId;
+  fillMemberEditor();
+  memberDialog.showModal();
+}
+
+function fillMemberEditor() {
+  const m = editingMember();
+  if (!m) { memberDialog.close(); return; }
+  const isMe = m.email === signedInEmail;
+  document.getElementById("member-title").textContent = `${m.email}${isMe ? " (you)" : ""}`;
+  memberForm.role.value = m.role;
+  document.getElementById("member-note").textContent = m.role === "admin"
+    ? "Admins can always do everything, including managing the team."
+    : "Their permissions (✓ = can do it). Changing one asks whether it's just for this person or for everyone at their level.";
+  const effective = memberPermissions(m);
+  const fromLevel = levelPermissions(m.role);
+  document.getElementById("member-permissions").innerHTML = PERMISSIONS.map((p) => {
+    let tag = "";
+    if (m.role !== "admin" && m.grants.includes(p.id)) tag = `<span class="tag added">added for them</span>`;
+    else if (m.role !== "admin" && m.revokes.includes(p.id)) tag = `<span class="tag removed">removed for them</span>`;
+    else if (fromLevel.includes(p.id)) tag = `<span class="tag">from level</span>`;
+    return `<li class="item"><label>
+      <input type="checkbox" data-member-permission="${p.id}" ${effective.includes(p.id) ? "checked" : ""} ${m.role === "admin" ? "disabled" : ""}>
+      <span>${p.label}</span></label>${tag}</li>`;
+  }).join("");
+  document.getElementById("reset-member").hidden = m.role === "admin" || (!m.grants.length && !m.revokes.length);
+  document.getElementById("remove-member").textContent = isMe ? "Leave this brewery" : "Remove from brewery";
+}
+
+// Ask: just this person, or everyone at their level? Resolves to "person", "level", or "cancel".
+function askScope(member, permission, on) {
+  const what = PERMISSIONS.find((p) => p.id === permission).label.toLowerCase();
+  const level = labelFrom(ROLES, member.role);
+  const name = member.email.split("@")[0];
+  document.getElementById("scope-title").textContent = `${on ? "Allow" : "Stop"}: ${what}`;
+  document.getElementById("scope-text").textContent =
+    `Change this just for ${name}, or for everyone at the ${level} level (now and anyone added later)?`;
+  document.getElementById("scope-person").textContent = `Just ${name}`;
+  document.getElementById("scope-level").textContent = `Everyone at ${level}`;
+  return new Promise((resolve) => {
+    scopeDialog.addEventListener("close", () => resolve(scopeDialog.returnValue || "cancel"), { once: true });
+    scopeDialog.returnValue = "";
+    scopeDialog.showModal();
+  });
+}
+
+document.getElementById("member-permissions").addEventListener("change", async (e) => {
+  const box = e.target.closest("[data-member-permission]");
+  if (!box) return;
+  const m = editingMember();
+  const permission = box.dataset.memberPermission;
+  const on = box.checked;
+  const scope = await askScope(m, permission, on);
+  if (scope === "cancel") { box.checked = !on; return; }
+
+  if (scope === "level") {
+    const current = levelPermissions(m.role).filter((p) => p !== permission);
+    await setLevel(m.role, on ? [...current, permission] : current);
+  } else {
+    // Just this person: add or remove an adjustment (dropping one that undid the level)
+    const inLevel = levelPermissions(m.role).includes(permission);
+    let grants = m.grants.filter((g) => g !== permission);
+    let revokes = m.revokes.filter((r) => r !== permission);
+    if (on && !inLevel) grants.push(permission);
+    if (!on && inLevel) revokes.push(permission);
+    await save(() => must(db.from("memberships").update({ grants, revokes })
+      .eq("brewery_id", brewery.id).eq("user_id", m.userId)));
+  }
+  if (m.email === signedInEmail) await start(); // your own permissions changed
+  fillMemberEditor();
+});
+
+memberForm.role.addEventListener("change", async () => {
+  const m = editingMember();
+  const role = memberForm.role.value;
+  if (m.email === signedInEmail && role !== "admin" &&
+      !confirm(`Change your own level to ${labelFrom(ROLES, role)}? You'll no longer be able to manage the team.`)) {
+    memberForm.role.value = m.role;
+    return;
+  }
+  const ok = await save(() => must(db.from("memberships").update({ role })
+    .eq("brewery_id", brewery.id).eq("user_id", m.userId)));
+  if (ok && m.email === signedInEmail) await start(); // your own level changed: reload what you can do
+  fillMemberEditor();
+});
+
+document.getElementById("reset-member").addEventListener("click", async () => {
+  const m = editingMember();
+  await save(() => must(db.from("memberships").update({ grants: [], revokes: [] })
+    .eq("brewery_id", brewery.id).eq("user_id", m.userId)));
+  if (m.email === signedInEmail) await start();
+  fillMemberEditor();
+});
+
+document.getElementById("remove-member").addEventListener("click", async () => {
+  const m = editingMember();
+  const yourself = m.email === signedInEmail;
+  if (!confirm(yourself ? `Leave ${brewery.name}? You'll lose access to it.` : `Remove ${m.email} from ${brewery.name}?`)) return;
+  const ok = await save(() => must(db.from("memberships").delete()
+    .eq("brewery_id", brewery.id).eq("user_id", m.userId)));
+  if (!ok) return;
+  memberDialog.close();
+  if (yourself) await start();
 });
 
 // ---------- 13. Wiring up taps and clicks ----------
@@ -1818,8 +2108,9 @@ tanksArea.addEventListener("click", (e) => {
   if (!card) return;
   const tank = findTank(card.dataset.tank);
   const batch = batchInTank(tank.id);
-  if (!batch && tank.status !== "empty") openTankEditor(tank);
-  else openBatchEditor(batch || null, tank.id);
+  if (batch) openBatchEditor(batch, tank.id);                         // anyone can look; the form says what they can change
+  else if (tank.status === "empty" && can("start_batch")) openBatchEditor(null, tank.id);
+  else openTankEditor(tank);                                          // status, acid log, settings (as permitted)
 });
 
 // Tapping a packaged batch opens it (to fix mistakes)
@@ -1871,6 +2162,7 @@ acidStyleList.addEventListener("click", async (e) => {
 });
 
 document.getElementById("add-tank").addEventListener("click", () => openTankEditor(null));
+document.getElementById("add-first-tank").addEventListener("click", () => openTankEditor(null));
 document.getElementById("add-beer").addEventListener("click", () => openBeerEditor(null));
 document.getElementById("add-location").addEventListener("click", () => openLocationEditor(null));
 

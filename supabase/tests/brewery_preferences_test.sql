@@ -36,8 +36,8 @@ set local role postgres;
 insert into memberships (brewery_id, user_id, role) select brewery_id, '00000000-0000-0000-0000-0000000000b2', 'brewer' from ids;
 select pg_temp.act_as('00000000-0000-0000-0000-0000000000b2');
 select is((select gravity_unit from breweries), 'sg', 'a brewer can see the preferences');
-update breweries set gravity_unit = 'plato';
-select is((select gravity_unit from breweries), 'sg', 'but a brewer''s change does nothing');
+select throws_ok($$ update breweries set gravity_unit = 'plato' $$, '42501',
+  'You don''t have permission to change units or the time zone.', 'but a brewer can''t change them');
 
 -- Someone outside the brewery sees nothing
 select pg_temp.act_as('00000000-0000-0000-0000-0000000000d2');

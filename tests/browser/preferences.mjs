@@ -1,6 +1,7 @@
 // Brewery preferences: numbers are shown and typed in the brewery's units, stored in standard
 // units, and an unchanged form never alters a stored value. Real Chrome, local test copy.
 import { chromium } from "playwright-core";
+import { settings, floor } from "./helpers.mjs";
 
 const APP = "http://localhost:8123/";
 const MAIL = "http://127.0.0.1:54324/api/v1";
@@ -18,10 +19,15 @@ page.on("dialog", (d) => { dialogs.push(d.message()); d.accept(); });
 page.on("pageerror", (e) => errors.push(e.message));
 // Wait until a save has started and finished (checking too early would see the old data)
 const settle = async () => { await wait(150); await page.waitForFunction(() => !busy); await wait(100); };
-const beerRow = (name) => page.evaluate((n) => [...document.querySelectorAll("#beer-list .row")].find((r) => r.innerText.includes(n))?.innerText.replace(/\s+/g, " "), name);
+// (the beer list lives on Settings → Beers; text on a hidden page reads as empty)
+const beerRow = async (name) => {
+  await settings(page, "beers");
+  return page.evaluate((n) => [...document.querySelectorAll("#beer-list .row")].find((r) => r.innerText.includes(n))?.innerText.replace(/\s+/g, " "), name);
+};
 const stored = (expr, arg) => page.evaluate(expr, arg);
 
 async function setUnits(gravity, volume, temperature = "F") {
+  await settings(page, "brewery");
   await page.selectOption('#settings-form [name="gravityUnit"]', gravity);
   await page.selectOption('#settings-form [name="volumeUnit"]', volume);
   await page.selectOption('#settings-form [name="temperatureUnit"]', temperature);
@@ -54,6 +60,7 @@ try {
   check((await beerRow("House Hazy"))?.includes("OG 16.1 °P"), `House Hazy (stored 1.066) shows in °P: "${await beerRow("House Hazy")}"`);
   check((await page.textContent("#beer-editor label")).includes("") && (await page.evaluate(() => document.querySelector(".gravity-unit").textContent)) === "°P", "the form says °P");
   const beerName = `Units Test ${run}`;
+  await settings(page, "beers");
   await page.click("#add-beer");
   await page.fill('#beer-form [name="name"]', beerName);
   await page.fill('#beer-form [name="targetOg"]', "12.5");
@@ -68,6 +75,7 @@ try {
   check((await beerRow(beerName))?.includes("OG 12.5 °P · FG 2.5 °P"), `and shown back as typed: "${await beerRow(beerName)}"`);
 
   console.log("2. Saving a form without changes keeps the exact stored value");
+  await settings(page, "beers");
   await page.click(`#beer-list .row >> text=${beerName}`);
   await page.waitForSelector("#beer-editor[open]");
   await page.click("#beer-form button[type=submit]");
@@ -76,6 +84,7 @@ try {
 
   console.log("3. Volume in hectoliters");
   const tankName = `U-${run}`;
+  await settings(page, "equipment");
   await page.click("#add-tank");
   await page.fill('#tank-form [name="name"]', tankName);
   await page.fill('#tank-form [name="capacityBbl"]', "15");
@@ -83,6 +92,7 @@ try {
   await page.waitForFunction((n) => data.tanks.some((t) => t.name === n), tankName);
   await setUnits("plato", "hl");
   const tankId = await stored((n) => data.tanks.find((t) => t.name === n).id, tankName);
+  await floor(page);
   const card = await page.locator(`.card[data-tank="${tankId}"]`).innerText();
   check(card.includes("17.6 hL"), `15 bbl shows as 17.6 hL: "${card.replace(/\s+/g, " ")}"`);
   check((await page.evaluate(() => document.querySelector(".volume-unit").textContent)) === "hL", "form labels say hL");

@@ -2,6 +2,7 @@
 // Serves the app on its own port (8124) so the server can be stopped to simulate "no signal".
 import { spawn } from "node:child_process";
 import { chromium } from "playwright-core";
+import { settings, floor } from "./helpers.mjs";
 
 const PORT = 8124;
 const APP = `http://localhost:${PORT}/`;
@@ -92,6 +93,7 @@ try {
   check((await screen()) === "app-screen", "still in the app");
 
   console.log("5. Signing out deletes the device copy");
+  await settings(page, "account");
   await page.click("#app-screen .sign-out");
   await page.waitForSelector("#signin-screen:not([hidden])");
   const left = await page.evaluate(() => localStorage.getItem("brewery-os.offline-copy"));

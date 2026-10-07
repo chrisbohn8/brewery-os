@@ -280,6 +280,43 @@ ul.plain .item .controls { display: flex; gap: 6px; align-items: center; flex-sh
   color: var(--text);
 }
 
+/* ---- Settings: a row of page buttons, then one page at a time ---- */
+.settings-nav {
+  max-width: 1100px;
+  margin: 0 auto 16px;
+  padding: 0 16px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.settings-nav button {
+  font: inherit;
+  font-size: 0.95rem;
+  padding: 8px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--text);
+  cursor: pointer;
+}
+.settings-nav button[aria-current="page"] { background: var(--text); color: var(--bg); border-color: var(--text); }
+
+/* What each level can do: permissions down the side, levels across */
+.table-scroll { overflow-x: auto; }
+.levels-table { border-collapse: collapse; width: 100%; font-size: 0.85rem; }
+.levels-table th, .levels-table td { padding: 8px 3px; border-bottom: 1px solid var(--border); text-align: center; }
+.levels-table th { font-size: 0.8rem; }
+.levels-table th:first-child, .levels-table td:first-child { text-align: left; }
+.levels-table input[type=checkbox] { width: 22px; height: 22px; }
+
+/* One person's permissions: a checkbox per permission, with where it comes from */
+.permission-list .item label { display: flex; align-items: center; gap: 10px; color: var(--text); font-size: 1rem; margin: 0; }
+.permission-list input[type=checkbox] { width: 22px; height: 22px; flex-shrink: 0; }
+.tag { font-size: 0.75rem; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); white-space: nowrap; }
+.tag.added { border-color: var(--ready); color: var(--ready); }
+.tag.removed { border-color: var(--maintenance); color: var(--maintenance); }
+.list-section .row.static { cursor: default; }
+
 /* ---- Edit pop-up ---- */
 dialog {
   border: none;

@@ -80,7 +80,7 @@ select pg_temp.act_as('00000000-0000-0000-0000-00000000000c');
 select throws_ok(
   $$ select pg_temp.save('fermenting', '2026-09-01', 'a0000000-0000-0000-0000-000000000001', '2026-09-01',
                          'b0000000-0000-0000-0000-000000000003', '2000') $$,
-  '42501', 'You don''t have permission to change batches.', 'viewers cannot save batches');
+  '42501', 'You don''t have permission to start batches or change batch details.', 'viewers cannot save batches');
 
 select * from finish();
 rollback;

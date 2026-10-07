@@ -112,10 +112,25 @@ These shape every decision, even for features that come later:
 - An admin picks the brewery's **temperature** (°F/°C), **gravity** (Plato/SG/Brix), and **volume** (bbl/hL/gal) units, and its **time zone**. Everyone sees and types numbers in those units: beer targets, tank capacities, and batch sizes.
 - Values are stored in one standard unit (SG, °C, US barrels), so changing a unit never changes a record. Opening a form and saving it without changes keeps the stored value exactly (no rounding drift).
 
+### Settings and permissions
+- The main screen is the tank board. Everything else is under **⚙︎ Settings**, which has these pages: Brewery (name, units, time zone), Equipment (tanks, locations), Beers, Cleaning (acid rules), Team & permissions, Backup, and My account.
+- Each person has a **level**, and the database enforces what it allows:
+
+  | Level | By default can |
+  |---|---|
+  | **Viewer** | look only |
+  | **Cellar** | log readings and cellar work, set tank status, log acid cycles, change stages and transfer beer, package beer |
+  | **Brewer** | everything Cellar can, plus start batches and edit batch details |
+  | **Head brewer** | everything Brewer can, plus beers, tanks and locations, acid rules, units |
+  | **Admin** | everything, including the team, permissions, renaming the brewery, backups, and deleting things |
+
+- Admins can change **what a level includes** for their brewery (the table under Team & permissions), or **adjust one person** on top of their level. When an admin changes a person's permission, the app asks: *just this person, or everyone at their level?*
+- The checks are fine-grained: a cellar person can set a tank to "Cleaning" but not rename it, and can transfer a batch but not change its batch number. Buttons a person can't use are hidden or greyed out.
+
 ### Accounts, breweries, and team
 - Sign in by email code or link; no passwords. Sign-in emails come from `noreply@brew.chrisbohn.org`.
 - **Invite coworkers:** in the Team section, an admin enters a coworker's email and picks a role. The coworker opens the app and signs in with that email; they join the brewery automatically. (The app doesn't email the invite yet; tell them to sign in.)
-- Admins change roles and remove people from the Team section. A brewery always keeps at least one admin: the database refuses to remove or demote the last one.
+- Admins change levels and remove people from Team & permissions. A brewery always keeps at least one admin: the database refuses to remove or demote the last one.
 - Someone who belongs to more than one brewery picks which one to work in under Account; the choice is remembered.
 - Each brewery's data is kept completely separate by the database itself (row-level security), and roles control who can change things: **admin**, **brewer**, and **viewer** (read-only).
 
@@ -267,7 +282,7 @@ The order follows dependencies: each phase sets up what the next one needs. **Br
 The shared database (Phase 3) was pulled ahead of the brew log: real crews can only try the app once data is shared, and multi-tenancy and offline are easier to build in from the start than to add later.
 
 ### Up next, in order
-1. **Settings screen and permission levels** (below, under "Floor and safety").
+1. ~~Settings screen and permission levels~~ (done).
 2. **Keep the data safe:** automatic daily backups, and a decision on Supabase's paid plan (the free plan pauses after a week without use and keeps no backups).
 3. **Brew log, step 2:** brew-day readings, cellar log, additions ([design](docs/brew-log-design.md)).
 4. **Moving beer** design, ahead of packaging (Phase 5).
@@ -316,7 +331,7 @@ Turns the prototype into something a brewery can rely on.
 These make the app trustworthy and quick on the floor. They aren't a separate phase; each is slotted in where it fits.
 
 **Settings and permissions**
-- [ ] **A Settings screen** (⚙︎ in the header), so the main screen stays about the floor. It has pages for:
+- [x] **A Settings screen** (⚙︎ in the header), so the main screen stays about the floor. It has pages for:
     - Brewery (name, units, time zone);
     - Equipment (locations, tanks);
     - Beers and recipes;
@@ -326,7 +341,7 @@ These make the app trustworthy and quick on the floor. They aren't a separate ph
     - My account.
 
   People only see the pages they're allowed to use.
-- [ ] **Permission levels, enforced by the database.** Admins pick one per person:
+- [x] **Permission levels, enforced by the database,** with per-person adjustments and editable levels. Admins pick one per person:
     - **Viewer:** look at everything, change nothing.
     - **Cellar:** daily floor work (readings, cellar log, acid cycles, tank status).
     - **Brewer:** adds batches, stages, transfers, packaging, and brew-day sheets.

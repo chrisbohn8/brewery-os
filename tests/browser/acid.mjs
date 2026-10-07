@@ -1,5 +1,6 @@
 // End-to-end test of acid tracking on the local Supabase stack.
 import { chromium } from "playwright-core";
+import { settings, floor } from "./helpers.mjs";
 
 const APP = "http://localhost:8123/";
 const MAIL = "http://127.0.0.1:54324/api/v1";
@@ -49,28 +50,34 @@ if (await page.isVisible("#signin-screen")) {
 }
 await page.waitForSelector("#app-screen:not([hidden])", { timeout: 15000 });
 await settle();
-check(await page.isVisible("#acid-settings"), "Acid cleaning section shows on the page");
+await settings(page, "cleaning");
+check(await page.isVisible("#acid-settings"), "Acid cleaning section shows on the Cleaning settings page");
+await floor(page);
 
 const tag = String(Date.now()).slice(-5);
 const STYLE = `Gose ${tag}`;
 
 // ---- Helpers ----
 async function addTank(name, every) {
+  await settings(page, "equipment");
   await page.click("#add-tank");
   await page.waitForSelector("#tank-editor[open]");
   await page.fill('#tank-form input[name="name"]', name);
   if (every) await page.fill('#tank-form input[name="acidEveryTurns"]', String(every));
   await page.click('#tank-form button[type="submit"]');
   await closed("tank-editor"); await settle();
+  await floor(page);
   return page.$eval(`#tanks .card:has(.tank:text-is("${name}"))`, (c) => c.dataset.tank);
 }
 async function addBeer(name, style) {
+  await settings(page, "beers");
   await page.click("#add-beer");
   await page.waitForSelector("#beer-editor[open]");
   await page.fill('#beer-form input[name="name"]', name);
   await page.fill('#beer-form input[name="style"]', style);
   await page.click('#beer-form button[type="submit"]');
   await closed("beer-editor"); await settle();
+  await floor(page);
   return page.$eval(`#beer-list [data-beer]:has(strong:text-is("${name}"))`, (r) => r.dataset.beer);
 }
 const card = (id) => `#tanks .card[data-tank="${id}"]`;
@@ -110,10 +117,12 @@ async function setEmpty(tankId) {
 
 // ---- Setup ----
 log("Adding the style", STYLE, "to the acid list");
+await settings(page, "cleaning");
 await page.fill('#acid-style-form input[name="style"]', STYLE);
 await page.click('#acid-style-form button[type="submit"]');
 await settle();
 check((await page.textContent("#acid-style-list")).includes(STYLE), "style appears on the acid list");
+await floor(page);
 
 const X = await addTank(`AC-X${tag}`, 2);
 const Y = await addTank(`AC-Y${tag}`);
@@ -172,6 +181,7 @@ await settle();
 check((await cardText(X)).includes("Acid due"), "and X is due again");
 
 // ---- Clean up the test style ----
+await settings(page, "cleaning");
 await page.click(`#acid-style-list [data-remove-style]`);
 await settle();
 check(!(await page.textContent("#acid-style-list")).includes(STYLE), "style can be removed from the list");

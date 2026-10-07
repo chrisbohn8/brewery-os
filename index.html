@@ -58,10 +58,11 @@
   <div id="app-screen" hidden>
   <header class="top">
     <div>
-      <h1>Tanks</h1>
+      <h1 id="view-title">Tanks</h1>
       <p id="brewery-name" class="muted"></p>
     </div>
-    <button id="add-tank" class="btn">+ Add tank</button>
+    <button id="open-settings" class="btn">⚙︎ Settings</button>
+    <button id="close-settings" class="btn" hidden>← Tanks</button>
   </header>
 
   <!-- Shown when there's no signal: how old the data on screen is -->
@@ -74,14 +75,17 @@
     <button id="sync-problems-ok" class="btn small">OK</button>
   </section>
 
+  <!-- ===== The floor: what's in every tank ===== -->
+  <div id="floor-view">
   <!-- A brand-new brewery has nothing in it yet: offer ways to get started -->
   <section id="empty-state" class="list-section" hidden>
     <h2>Nothing here yet</h2>
-    <p class="muted">Add your tanks one at a time with "+ Add tank", or start from:</p>
+    <p class="muted">Add your tanks in Settings → Equipment, or start from:</p>
     <div class="actions wrap">
-      <button id="load-sample" class="btn">Sample data</button>
-      <button id="load-browser-data" class="btn" hidden>Data saved in this browser</button>
-      <button class="btn restore-backup">A backup file…</button>
+      <button id="load-sample" class="btn" data-needs="backups">Sample data</button>
+      <button id="load-browser-data" class="btn" data-needs="backups" hidden>Data saved in this browser</button>
+      <button class="btn restore-backup" data-needs="backups">A backup file…</button>
+      <button id="add-first-tank" class="btn" data-needs="manage_equipment">+ Add a tank</button>
     </div>
   </section>
 
@@ -93,42 +97,31 @@
     <h2>Packaged batches</h2>
     <ul id="packaged-list"></ul>
   </section>
+  </div>
 
-  <!-- The beers you make (recipes/products). Batches point at these. -->
-  <section id="beers" class="list-section">
-    <div class="section-head">
-      <h2>Beers</h2>
-      <button id="add-beer" class="btn">+ Add beer</button>
-    </div>
-    <ul id="beer-list"></ul>
-  </section>
+  <!-- ===== Settings: one page at a time; people see what they're allowed to use ===== -->
+  <div id="settings-view" hidden>
+  <nav id="settings-nav" class="settings-nav" aria-label="Settings pages">
+    <button data-page="brewery">Brewery</button>
+    <button data-page="equipment">Equipment</button>
+    <button data-page="beers">Beers</button>
+    <button data-page="cleaning">Cleaning</button>
+    <button data-page="team">Team &amp; permissions</button>
+    <button data-page="backup">Backup</button>
+    <button data-page="account">My account</button>
+  </nav>
 
-  <!-- Locations (facilities). Tanks point at these. -->
-  <section id="locations" class="list-section">
-    <div class="section-head">
-      <h2>Locations</h2>
-      <button id="add-location" class="btn">+ Add location</button>
-    </div>
-    <ul id="location-list"></ul>
-  </section>
-
-  <!-- Acid cleaning: styles that always need an acid cycle afterward (one list for the brewery) -->
-  <section id="acid-settings" class="list-section">
-    <h2>Acid cleaning</h2>
-    <p class="muted">A tank is flagged "Acid due" after a batch of any of these styles leaves it.
-      Each tank can also be set to need acid every few turns, in its tank settings.</p>
-    <ul id="acid-style-list" class="plain"></ul>
-    <form id="acid-style-form" class="inline-add">
-      <input name="style" list="acid-style-options" placeholder="Style, like Sour" aria-label="Style">
-      <datalist id="acid-style-options"></datalist>
-      <button type="submit" class="btn">Add</button>
+  <div class="settings-page" data-page="brewery">
+  <section class="list-section">
+    <h2>Brewery name</h2>
+    <form id="brewery-name-form" class="inline-add">
+      <input name="name" required aria-label="Brewery name">
+      <button type="submit" class="btn" data-needs="rename_brewery">Rename</button>
     </form>
-    <p id="acid-admin-note" class="muted" hidden>Only an admin can change this list.</p>
   </section>
-
   <!-- Brewery settings: the units everyone sees and types in. Admins change them. -->
   <section id="brewery-settings" class="list-section">
-    <h2>Brewery settings</h2>
+    <h2>Units and time zone</h2>
     <form id="settings-form" class="settings-grid">
       <label>Temperature
         <select name="temperatureUnit">
@@ -156,10 +149,58 @@
       <button type="submit" class="btn" id="save-settings">Save settings</button>
     </form>
     <p class="muted">Changing a unit only changes how numbers are shown and typed; nothing already recorded changes.
-      <span id="settings-admin-note" hidden>Only an admin can change these.</span></p>
+      <span id="settings-admin-note" hidden>You don't have permission to change these.</span></p>
   </section>
+  </div>
 
-  <!-- Team: who's in this brewery. Admins invite people and change roles. -->
+  <div class="settings-page" data-page="equipment">
+  <!-- Every tank, for editing (the floor only shows what's in them) -->
+  <section id="tank-settings" class="list-section">
+    <div class="section-head">
+      <h2>Tanks</h2>
+      <button id="add-tank" class="btn" data-needs="manage_equipment">+ Add tank</button>
+    </div>
+    <ul id="tank-list"></ul>
+  </section>
+  <!-- Locations (facilities). Tanks point at these. -->
+  <section id="locations" class="list-section">
+    <div class="section-head">
+      <h2>Locations</h2>
+      <button id="add-location" class="btn" data-needs="manage_equipment">+ Add location</button>
+    </div>
+    <ul id="location-list"></ul>
+  </section>
+  </div>
+
+  <div class="settings-page" data-page="beers">
+  <!-- The beers you make (recipes/products). Batches point at these. -->
+  <section id="beers" class="list-section">
+    <div class="section-head">
+      <h2>Beers</h2>
+      <button id="add-beer" class="btn" data-needs="manage_beers">+ Add beer</button>
+    </div>
+    <ul id="beer-list"></ul>
+  </section>
+  </div>
+
+  <div class="settings-page" data-page="cleaning">
+  <!-- Acid cleaning: styles that always need an acid cycle afterward (one list for the brewery) -->
+  <section id="acid-settings" class="list-section">
+    <h2>Acid cleaning</h2>
+    <p class="muted">A tank is flagged "Acid due" after a batch of any of these styles leaves it.
+      Each tank can also be set to need acid every few turns, in its tank settings.</p>
+    <ul id="acid-style-list" class="plain"></ul>
+    <form id="acid-style-form" class="inline-add">
+      <input name="style" list="acid-style-options" placeholder="Style, like Sour" aria-label="Style">
+      <datalist id="acid-style-options"></datalist>
+      <button type="submit" class="btn">Add</button>
+    </form>
+    <p id="acid-admin-note" class="muted" hidden>You don't have permission to change this list.</p>
+  </section>
+  </div>
+
+  <div class="settings-page" data-page="team">
+  <!-- Team: who's in this brewery. Admins invite people, set levels, and adjust permissions. -->
   <section id="team" class="list-section">
     <h2>Team</h2>
     <ul id="member-list" class="plain"></ul>
@@ -168,38 +209,50 @@
       <ul id="invite-list" class="plain"></ul>
       <form id="invite-form" class="inline-add">
         <input name="email" type="email" required placeholder="coworker@email.com" aria-label="Email to invite">
-        <select name="role" aria-label="Role">
-          <option value="brewer">Brewer</option>
-          <option value="viewer">Viewer</option>
-          <option value="admin">Admin</option>
-        </select>
+        <select name="role" aria-label="Level"></select>
         <button type="submit" class="btn">Invite</button>
       </form>
       <p id="invite-message" class="muted" role="status" hidden></p>
     </div>
-    <p class="muted">Admin: everything, including the team. Brewer: day-to-day work. Viewer: look only.</p>
   </section>
 
+  <!-- What each level can do. Admins can change it for the whole brewery. -->
+  <section id="levels" class="list-section">
+    <h2>What each level can do</h2>
+    <p class="muted">Each person has a level. An admin can change what a level includes here, or adjust one
+      person by tapping their name above. Admins can always do everything. ("Head" is Head brewer.)</p>
+    <div class="table-scroll"><table id="levels-table" class="levels-table"></table></div>
+    <button id="reset-levels" class="btn small" hidden>Reset levels to the defaults</button>
+  </section>
+  </div>
+
+  <div class="settings-page" data-page="backup">
   <!-- Backup: everything in this brewery, as one file -->
   <section id="backup" class="list-section">
     <h2>Backup</h2>
     <p class="muted">Download everything in this brewery as one file. A backup can be loaded into an empty brewery.</p>
+    <p id="backup-note" class="muted" hidden>You don't have permission to download or load backups.</p>
     <div class="actions">
-      <button id="export-data" class="btn">Download</button>
-      <button class="btn restore-backup">Load…</button>
+      <button id="export-data" class="btn" data-needs="backups">Download</button>
+      <button class="btn restore-backup" data-needs="backups">Load…</button>
       <input id="import-file" type="file" accept=".json,application/json" hidden>
     </div>
   </section>
+  </div>
 
+  <div class="settings-page" data-page="account">
   <section class="list-section">
-    <h2>Account</h2>
+    <h2>My account</h2>
     <p id="signed-in-as" class="muted"></p>
+    <p id="my-level" class="muted"></p>
     <!-- Only shown to people who belong to more than one brewery -->
     <label id="brewery-switch-field" class="inline-label" hidden>Brewery
       <select id="brewery-switch"></select>
     </label>
     <button class="btn sign-out">Sign out</button>
   </section>
+  </div>
+  </div>
   </div>
 
   <!-- Pop-up form for a batch. Opens when you tap a tank card. -->
@@ -370,6 +423,37 @@
         <span class="spacer"></span>
         <button type="button" class="btn cancel">Cancel</button>
         <button type="submit" class="btn primary">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- One person's level and permissions (admins) -->
+  <dialog id="member-editor">
+    <form id="member-form" method="dialog">
+      <h2 id="member-title">Member</h2>
+      <label>Level
+        <select name="role"></select>
+      </label>
+      <p id="member-note" class="muted"></p>
+      <ul id="member-permissions" class="plain permission-list"></ul>
+      <div class="actions wrap">
+        <button type="button" id="remove-member" class="btn danger">Remove from brewery</button>
+        <button type="button" id="reset-member" class="btn">Back to level defaults</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn cancel">Done</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Asked when an admin changes one person's permission -->
+  <dialog id="scope-editor">
+    <form method="dialog">
+      <h2 id="scope-title">Apply this change to…</h2>
+      <p id="scope-text" class="muted"></p>
+      <div class="actions wrap">
+        <button value="person" class="btn primary" id="scope-person">Just this person</button>
+        <button value="level" class="btn" id="scope-level">Everyone at this level</button>
+        <button value="cancel" class="btn">Cancel</button>
       </div>
     </form>
   </dialog>

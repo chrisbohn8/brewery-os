@@ -1,5 +1,6 @@
 // End-to-end walk through Brewery OS on the local Supabase stack.
 import { chromium } from "playwright-core";
+import { settings, floor } from "./helpers.mjs";
 
 const APP = "http://localhost:8123/";
 const MAIL = "http://127.0.0.1:54324/api/v1";
@@ -74,6 +75,7 @@ const cardText = (id) => page.textContent(`#tanks .card[data-tank="${id}"]`);
 
 // Add three empty tanks for this run (the sample brewery's tanks are all in use)
 const tag = String(Date.now()).slice(-4);
+await settings(page, "equipment");
 for (const name of [`E2E-A${tag}`, `E2E-B${tag}`, `E2E-C${tag}`]) {
   log("Adding tank", name);
   await page.click("#add-tank");
@@ -84,6 +86,7 @@ for (const name of [`E2E-A${tag}`, `E2E-B${tag}`, `E2E-C${tag}`]) {
   await page.waitForSelector("#tank-editor:not([open])", { state: "attached", timeout: 15000 });
   await page.waitForTimeout(800);
 }
+await floor(page);
 let empties = await emptyTankIds();
 check(empties.length >= 2, `at least two empty tanks to work with (found ${empties.length})`);
 const [tankA, tankB] = empties;

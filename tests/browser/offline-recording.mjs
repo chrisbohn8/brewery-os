@@ -5,6 +5,7 @@
 import { spawn } from "node:child_process";
 import { mkdir } from "node:fs/promises";
 import { chromium } from "playwright-core";
+import { settings, floor } from "./helpers.mjs";
 
 const PORT = 8125;
 const APP = `http://localhost:${PORT}/`;
@@ -60,11 +61,13 @@ async function batchForm(tankName, { number, toTank, stage }) {
 }
 
 async function addTank(name) {
+  await settings(page, "equipment");
   await page.click("#add-tank");
   await page.fill('#tank-form [name="name"]', name);
   await page.fill('#tank-form [name="capacityBbl"]', "10");
   await page.click("#tank-form button[type=submit]");
   await settle();
+  await floor(page);
 }
 
 // The database's own view (as a coworker's phone would see it), via the API
@@ -179,6 +182,7 @@ try {
   await wait(300);
   await batchForm(B, { stage: "ready" });
   dialogs.length = 0;
+  await settings(page, "account");
   await page.click("#app-screen .sign-out");
   await page.waitForSelector("#signin-screen:not([hidden])");
   check(dialogs.some((m) => m.includes("hasn't been sent yet")), `warning: "${dialogs[0]}"`);

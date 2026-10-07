@@ -1,14 +1,16 @@
-// Team: an admin invites a coworker, the coworker joins by signing in, roles are changed and
-// enforced, the last admin can't step down, removal works, and someone in two breweries can switch.
+// Team and permissions: an admin invites a cellar person, who can transfer beer but not start
+// batches; the admin adjusts that one person ("just them") and then a whole level ("everyone at
+// Cellar"); the last admin can't step down; switching breweries; removing people.
 // Real Chrome against the local Supabase test copy (served by the preview server on port 8123).
 import { chromium } from "playwright-core";
+import { settings, floor } from "./helpers.mjs";
 
 const APP = "http://localhost:8123/";
 const MAIL = "http://127.0.0.1:54324/api/v1";
 const ADMIN = "brewer1@example.test";        // admin of "Example Brewing"
 const OTHER = "brewer2@example.test";        // admin of "Second Brewing"
 const run = Date.now().toString(36).slice(-5);
-const CREW = `crew-${run}@example.test`;     // a brand-new coworker
+const CREW = `cellar-${run}@example.test`;   // a brand-new cellar person
 const fails = [];
 const check = (ok, msg) => { console.log(ok ? "  PASS" : "  FAIL", msg); if (!ok) fails.push(msg); };
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -43,64 +45,115 @@ async function person(email) {
   return page;
 }
 const screen = (p) => p.evaluate(() => ["signin-screen", "setup-screen", "app-screen"].find((id) => !document.getElementById(id).hidden));
-const settle = (p) => p.waitForFunction(() => !busy);
-const members = (p) => p.evaluate(() => [...document.querySelectorAll("#member-list .item")].map((li) => li.innerText.replace(/\s+/g, " ").trim()));
-const roleOf = async (p, email) => p.evaluate((e) => data.members.find((m) => m.email === e)?.role, email);
-const userIdOf = async (p, email) => p.evaluate((e) => data.members.find((m) => m.email === e)?.userId, email);
+const settle = async (p) => { await wait(150); await p.waitForFunction(() => !busy); await wait(100); };
+const perms = (p) => p.evaluate(() => brewery.permissions);
+const userIdOf = (p, email) => p.evaluate((e) => data.members.find((m) => m.email === e)?.userId, email);
+const tankIdOf = (p, name) => p.evaluate((n) => data.tanks.find((t) => t.name === n)?.id, name);
+async function openMember(admin, email) {
+  await settings(admin, "team");
+  await admin.click(`[data-member="${await userIdOf(admin, email)}"]`);
+  await admin.waitForSelector("#member-editor[open]");
+}
+async function toggleForMember(admin, permission, scope) { // scope: "person" or "level"
+  await admin.click(`[data-member-permission="${permission}"]`);
+  await admin.waitForSelector("#scope-editor[open]");
+  await admin.click(scope === "person" ? "#scope-person" : "#scope-level");
+  await settle(admin);
+}
 
 try {
-  console.log("1. The admin invites a new coworker as a brewer");
+  console.log("Setup: the admin adds two tanks and starts a batch in the first");
   const admin = await person(ADMIN);
-  check(await screen(admin) === "app-screen", "admin is in the app");
-  check(await admin.isVisible("#invite-form"), "admin sees the invite form");
+  const [T1, T2] = [`P1-${run}`, `P2-${run}`];
+  await settings(admin, "equipment");
+  for (const t of [T1, T2]) {
+    await admin.click("#add-tank");
+    await admin.fill('#tank-form [name="name"]', t);
+    await admin.click("#tank-form button[type=submit]");
+    await admin.waitForFunction((n) => data.tanks.some((x) => x.name === n), t);
+  }
+  await floor(admin);
+  await admin.click(`.card[data-tank="${await tankIdOf(admin, T1)}"]`);
+  await admin.waitForSelector("#batch-editor[open]");
+  await admin.fill('#batch-form [name="batchId"]', `P${run}`);
+  await admin.selectOption('#batch-form [name="beerId"]', await admin.evaluate(() => data.beers[0].id));
+  await admin.click("#batch-form button[type=submit]");
+  await admin.waitForFunction((n) => data.batches.some((b) => b.batchNumber === n), `P${run}`);
+
+  console.log("1. The admin invites a cellar person");
+  await settings(admin, "team");
   await admin.fill('#invite-form [name="email"]', CREW.toUpperCase()); // capitals shouldn't matter
-  await admin.selectOption('#invite-form [name="role"]', "brewer");
+  check((await admin.inputValue('#invite-form [name="role"]')) === "cellar", "the invite form suggests Cellar");
   await admin.click("#invite-form button[type=submit]");
   await settle(admin);
-  const invited = await admin.evaluate(() => [...document.querySelectorAll("#invite-list .item")].map((li) => li.innerText));
-  check(invited.some((t) => t.includes(CREW)), `invite listed: ${invited.find((t) => t.includes(CREW))?.replace(/\s+/g, " ")}`);
-  const msg = await admin.textContent("#invite-message");
-  check(msg.includes("sign in with that email"), `instructions shown: "${msg}"`);
+  check((await admin.textContent("#invite-list")).includes(CREW), "the invite is listed");
 
-  console.log("2. The coworker signs in and lands straight in the brewery");
+  console.log("2. The cellar person can move beer but not start batches or change setup");
   const crew = await person(CREW);
-  check(await screen(crew) === "app-screen", "no 'create a brewery' screen: joined automatically");
-  check((await crew.textContent("#brewery-name")) === "Example Brewing", "in Example Brewing");
-  check(await crew.evaluate(() => brewery.role) === "brewer", "as a brewer");
-  check(!(await crew.isVisible("#invite-form")), "a brewer doesn't see the invite form");
-  check((await members(crew)).some((t) => t.includes(`${CREW} (you)`)), "sees themself on the team");
+  globalThis.pages = { admin, crew };
+  check(await screen(crew) === "app-screen", "joined the brewery automatically");
+  check(await crew.evaluate(() => brewery.role) === "cellar", "as Cellar");
+  check(!(await crew.textContent(`.card[data-tank="${await tankIdOf(crew, T2)}"]`)).includes("Tap to start a batch"),
+    "empty tanks don't offer to start a batch");
+  await crew.click(`.card[data-tank="${await tankIdOf(crew, T1)}"]`);
+  await crew.waitForSelector("#batch-editor[open]");
+  check(await crew.isDisabled('#batch-form [name="batchId"]'), "the batch number is locked");
+  check(!(await crew.isDisabled('#batch-form [name="tankId"]')), "the tank can be changed");
+  await crew.selectOption('#batch-form [name="tankId"]', await tankIdOf(crew, T2));
+  await crew.click("#batch-form button[type=submit]");
+  await settle(crew);
+  check((await crew.textContent(`.card[data-tank="${await tankIdOf(crew, T2)}"]`)).includes(`#P${run}`), "the transfer saved");
+  await settings(crew, "equipment");
+  check(!(await crew.isVisible("#add-tank")) && !(await crew.isVisible("#add-location")), "no 'add tank' or 'add location' buttons");
+  await settings(crew, "team");
+  check(!(await crew.isVisible("#invite-form")), "no invite form");
+  check(await crew.isDisabled('#levels-table input >> nth=0'), "can see what levels include, but not change them");
+  await floor(crew);
 
-  console.log("3. The admin makes them a viewer; the database enforces it");
+  console.log("3. The admin removes packaging for just this person");
   await admin.reload();
-  await admin.waitForSelector("#app-screen:not([hidden]) #member-list .item");
-  check(!(await admin.evaluate(() => [...document.querySelectorAll("#invite-list .item")].length)) ||
-        !(await admin.evaluate((e) => data.invites.some((i) => i.email === e), CREW)), "the used invite is gone");
-  await admin.selectOption(`[data-role-for="${await userIdOf(admin, CREW)}"]`, "viewer");
-  await settle(admin);
-  check(await roleOf(admin, CREW) === "viewer", "role changed to viewer");
+  await admin.waitForSelector("#app-screen:not([hidden])");
+  await openMember(admin, CREW);
+  await toggleForMember(admin, "package", "person");
+  check((await admin.textContent("#member-permissions")).includes("removed for them"), "shown as 'removed for them'");
+  await admin.click("#member-editor .cancel");
   await crew.reload();
   await crew.waitForSelector("#app-screen:not([hidden])");
-  check(await crew.evaluate(() => brewery.role) === "viewer", "the coworker is now a viewer");
-  await crew.click("#add-location");
-  await crew.fill('#location-form [name="name"]', `Viewer test ${run}`);
-  await crew.click("#location-form button[type=submit]");
-  await settle(crew);
-  check(crew.dialogs.some((d) => d.includes("permission")), `a viewer's change is refused: "${crew.dialogs.at(-1)}"`);
-  check(!(await crew.evaluate((n) => data.locations.some((l) => l.name === n), `Viewer test ${run}`)), "and nothing was added");
+  check(!(await perms(crew)).includes("package"), "the cellar person can no longer package");
+  await crew.click(`.card[data-tank="${await tankIdOf(crew, T2)}"]`);
+  await crew.waitForSelector("#batch-editor[open]");
+  check(await crew.evaluate(() => batchForm.stage.querySelector('[value="packaged"]').disabled), "'Packaged' is greyed out for them");
+  await crew.keyboard.press("Escape");
 
-  console.log("4. The only admin can't step down");
+  console.log("4. The admin lets everyone at Cellar start batches");
+  await openMember(admin, CREW);
+  await toggleForMember(admin, "start_batch", "level");
+  await admin.click("#member-editor .cancel");
+  check(await admin.evaluate(() => levelPermissions("cellar").includes("start_batch")), "the Cellar level now includes it");
+  await crew.reload();
+  await crew.waitForSelector("#app-screen:not([hidden])");
+  check((await perms(crew)).includes("start_batch") && !(await perms(crew)).includes("package"),
+    "the cellar person can now start batches (and still can't package)");
+  await settings(admin, "team");
+  await admin.click("#reset-levels");
+  await settle(admin);
+  check(!(await admin.evaluate(() => levelPermissions("cellar").includes("start_batch"))), "levels can be reset to the defaults");
+
+  console.log("5. The only admin can't step down");
   admin.dialogs.length = 0;
-  await admin.selectOption(`[data-role-for="${await userIdOf(admin, ADMIN)}"]`, "brewer");
+  await openMember(admin, ADMIN);
+  await admin.selectOption('#member-form [name="role"]', "brewer");
   await settle(admin);
   check(admin.dialogs.some((d) => d.includes("needs at least one admin")), `refused: "${admin.dialogs.at(-1)}"`);
-  check(await roleOf(admin, ADMIN) === "admin", "still the admin");
+  check(await admin.evaluate(() => brewery.role) === "admin", "still the admin");
+  await admin.click("#member-editor .cancel");
 
-  console.log("5. Someone in two breweries can switch between them");
+  console.log("6. Someone in two breweries can switch between them");
   await admin.fill('#invite-form [name="email"]', OTHER);
-  await admin.selectOption('#invite-form [name="role"]', "brewer");
   await admin.click("#invite-form button[type=submit]");
   await settle(admin);
   const other = await person(OTHER);
+  await settings(other, "account");
   check(await other.isVisible("#brewery-switch-field"), "the brewery switcher appears");
   const startName = await other.textContent("#brewery-name");
   const target = startName === "Example Brewing" ? "Second Brewing" : "Example Brewing";
@@ -111,22 +164,26 @@ try {
   await other.waitForSelector("#app-screen:not([hidden])");
   check((await other.textContent("#brewery-name")) === target, "the choice is remembered after reloading");
 
-  console.log("6. Removing people");
+  console.log("7. Removing people");
   await admin.reload();
-  await admin.waitForSelector("#app-screen:not([hidden]) #member-list .item");
+  await admin.waitForSelector("#app-screen:not([hidden])");
   for (const email of [CREW, OTHER]) {
-    await admin.click(`[data-remove-member="${await userIdOf(admin, email)}"]`);
+    await openMember(admin, email);
+    await admin.click("#remove-member");
     await settle(admin);
   }
-  check(!(await members(admin)).some((t) => t.includes(CREW) || t.includes(OTHER)), "both removed from the team");
+  check(!(await admin.evaluate((es) => data.members.some((m) => es.includes(m.email)), [CREW, OTHER])), "both removed from the team");
   await crew.reload();
   await crew.waitForSelector("#setup-screen:not([hidden]), #app-screen:not([hidden])");
-  check(await screen(crew) === "setup-screen", "the removed coworker no longer gets in (back to the welcome screen)");
-  check(await crew.isVisible("#check-invites"), "with a 'Check for invites' button");
-  check([admin, crew, other].every((p) => p.errors.length === 0), "no page errors");
+  check(await screen(crew) === "setup-screen", "the removed person no longer gets in");
+  check([admin, crew, other].every((p) => p.errors.length === 0), `no page errors (${[admin, crew, other].flatMap((p) => p.errors).join("; ")})`);
 } catch (e) {
   fails.push("crashed: " + e.message);
-  console.log("CRASH", e.message);
+  console.log("CRASH", e.message.split("\n")[0]);
+  for (const [who, p] of Object.entries(globalThis.pages || {})) {
+    console.log(who, "dialogs:", p.dialogs, "errors:", p.errors,
+      "state:", await p.evaluate(() => ({ role: brewery?.role, perms: brewery?.permissions, screen: ["signin-screen","setup-screen","app-screen"].find((id) => !document.getElementById(id).hidden) })).catch((x) => x.message));
+  }
 } finally {
   await browser.close();
 }

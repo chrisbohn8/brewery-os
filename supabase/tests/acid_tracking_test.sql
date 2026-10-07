@@ -69,9 +69,10 @@ select lives_ok(
   $$ insert into tank_cleanings (brewery_id, tank_id, cleaned_on)
      select brewery_a, '21000000-0000-0000-0000-000000000002', '2026-10-02' from ids $$,
   'a brewer can log an acid cycle');
-update breweries set acid_after_styles = '{}' where id = (select brewery_a from ids);
-select is((select acid_after_styles from breweries where id = (select brewery_a from ids)), array['Sour', 'Brett'],
-  'a brewer cannot change the brewery''s acid-after styles');
+select throws_ok(
+  $$ update breweries set acid_after_styles = '{}' where id = (select brewery_a from ids) $$,
+  '42501', 'You don''t have permission to change acid rules.',
+  'a brewer cannot change the brewery''s acid-after styles (by default only head brewers and admins can)');
 
 -- ---------- Carol (viewer) can read but not write ----------
 select pg_temp.act_as('00000000-0000-0000-0000-0000000000c1');
