@@ -405,7 +405,8 @@ The payoff for keeping accurate volumes at every step.
 - [ ] State excise returns built from the same records as TTB, starting with **California**, which requires a return every month even with no activity.
 
 ### Phase 10: Recipes and costing
-- [ ] **Recipe builder (admins):** grain bill, hop schedule, yeast strain, and process notes on each beer.
+Recipe *building* is well served by dedicated tools, so this stays light. The brew log (Phase 2) already keeps a simple per-location recipe that a batch starts from and the brewer adjusts by hand.
+- [ ] **Import recipes** from popular recipe tools, rather than building a full recipe builder.
 - [ ] **As-brewed snapshot:** each batch keeps a copy of the recipe as it was actually brewed, so later recipe changes don't rewrite history.
 - [ ] **Printable brew sheets pre-filled from the recipe:** target numbers and additions already printed, with blanks for the actuals.
 - [ ] **Ingredient cost per batch** and cost per barrel, using raw-material inventory from Phase 6.

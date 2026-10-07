@@ -149,5 +149,7 @@ Steps 1–3 replace the brew-day and cellar parts of the spreadsheet; step 4 rep
 2. **The time log** (mash start → KO end): is it used for anything later (brewhouse efficiency, scheduling), or just a record?
 3. **Who edits the template:** admins only (suggested)?
 4. **Corrections:** is it fine that a corrected reading keeps the old value in its history (shown as "changed from 4.8 by Sam, Oct 6")?
-5. **The same beer at both locations:** does each brewhouse keep its own recipe (likely, since 15 vs 30 bbl and not a straight multiple), or should the app scale one recipe and let the brewer adjust?
-6. **Batch logs at the second location:** its workbook holds per-beer templates; where are its actual batch logs kept (the same kind of per-batch sheet)?
+5. ~~The same beer at both locations~~ **Decided:** each brewhouse keeps its own recipe and the brewer adjusts by hand; no scaling. Recipes stay simple (the "plan" a sheet is printed from). Full recipe building is left to dedicated tools; importing from them may come later.
+6. **Batch logs at the second location** appear to be printed and filled by hand, possibly never typed in. This makes the printed sheet + "type it in" screen central, and means the app is often the *first* digital record.
+
+**The brew log is the core:** it measures the whole process (brew day, fermentation, cellar work, transfers, packaging), not just the recipe.
