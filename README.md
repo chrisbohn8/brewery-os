@@ -321,7 +321,7 @@ The shared database (Phase 3) was pulled ahead of the brew log: real crews can o
 1. ~~Settings screen and permission levels~~ (done).
 2. ~~Keep the data safe~~: nightly backups are running and a restore has been rehearsed. **Supabase's paid plan before real records** (decided).
 3. **Brew log, step 2:** ~~cellar log, additions, brew-day sheet~~ (done); ~~printed sheet with QR code~~ (done); next **brew-day ingredients with lot numbers** and the sheet's field list ([design](docs/brew-log-design.md)).
-4. **Moving beer** design, ahead of packaging (Phase 5).
+4. **Moving beer** design, ahead of packaging (Phase 5): **draft in [docs/moving-beer-design.md](docs/moving-beer-design.md).**
 
 ### ✅ Phase 0: Foundation (done)
 - [x] Tank dashboard with stage and days in stage
@@ -415,7 +415,7 @@ These make the app trustworthy and quick on the floor. They aren't a separate ph
 - [ ] **Tank notes:** quirks, gasket replacements, maintenance history.
 
 ### Phase 5: Moving beer and packaging
-Beer is tracked by **volume, not just location**: a batch has barrels in places, and every move records how much moved. This is the foundation for inventory and TTB. A short design comes first, like the brew log's, because a batch can now be in more than one tank.
+Beer is tracked by **volume, not just location**: a batch has barrels in places, and every move records how much moved. This is the foundation for inventory and TTB. **Design draft:** [docs/moving-beer-design.md](docs/moving-beer-design.md) (a ledger of movements; a tank's contents are worked out from it).
 - [ ] **Transfers with volumes,** including **splits** (one batch into two brite tanks) and **blends** (two batches into one tank). Each tank shows its running balance.
 - [ ] **Package types set per brewery:**
     - kegs: ½, ¼, and ⅙ bbl, and 50 L;
