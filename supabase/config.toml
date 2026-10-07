@@ -426,3 +426,31 @@ content_path = "./supabase/templates/magic_link.html"
 [auth.email.template.confirmation]
 subject = "Your Brewery OS sign-in code"
 content_path = "./supabase/templates/confirmation.html"
+
+# ---- The real project (https://brew.chrisbohn.org) ----
+# Everything above is for the local test copy. These settings replace them ONLY when
+# pushing to the real project (`supabase config diff`, then `supabase config push`).
+# Values not listed here (like the Resend email settings) are left as they are online.
+[remotes.production]
+project_id = "itxshxihltidwgwtzdcj"
+
+[remotes.production.auth]
+site_url = "https://brew.chrisbohn.org/"
+additional_redirect_urls = ["https://brew.chrisbohn.org/**"]
+
+[remotes.production.auth.email]
+enable_confirmations = true
+max_frequency = "1m0s"   # at most one sign-in email per minute per address
+otp_length = 8
+
+[remotes.production.auth.mfa.totp]
+enroll_enabled = true
+verify_enabled = true
+
+[remotes.production.db.pooler]
+default_pool_size = 15
+max_client_conn = 200
+
+[remotes.production.storage.analytics]
+enabled = true
+max_namespaces = 10
