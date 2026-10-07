@@ -317,6 +317,44 @@ try {
   await allSent();
   check((await count()).startsWith(`${usualCount} of `), "back to the usual set");
 
+  console.log("15. Renaming a field and setting the brewery's own target");
+  await settings(page, "sheet");
+  await page.click('[data-edit-field="sparge_temp"]');
+  await page.waitForSelector("#field-editor[open]");
+  check((await text("#field-usual-target")) === "168.0 °F", `the usual target is shown: "${await text("#field-usual-target")}"`);
+  await page.screenshot({ path: SHOTS + "field-editor.png" });
+  await page.fill('#field-form [name="label"]', "Sparge liquor");
+  await page.fill('#field-form [name="targetMin"]', "170");
+  await page.fill('#field-form [name="targetMax"]', "172");
+  await page.click("#field-form button[type=submit]");
+  await allSent();
+  const mine = await page.evaluate(() => brewery.sheetFieldSettings.sparge_temp);
+  check(mine.label === "Sparge liquor" && Math.abs(mine.target.min - (170 - 32) * 5 / 9) < 1e-3, `saved in °C: ${JSON.stringify(mine)}`);
+  await page.click('[data-edit-field="ko_ph"]');
+  await page.waitForSelector("#field-editor[open]");
+  await page.check('#field-form [name="targetKind"][value="none"]');
+  await page.click("#field-form button[type=submit]");
+  await allSent();
+  check((await text("#sheet-field-picker")).includes('usually "Sparge temp"'), "the list shows the usual name too");
+  await floor(page);
+  await page.click(`.card[data-tank="${tankId}"]`);
+  await page.waitForSelector("#batch-view:not([hidden])");
+  await page.click("#bv-sheet");
+  const sparge = await row("sparge_temp").innerText();
+  check(sparge.includes("Sparge liquor (°F)") && sparge.includes("target 170.0 °F–172.0 °F"), `the sheet uses the new name and target: "${sparge.replace(/\s+/g, " ")}"`);
+  await enter("sparge_temp", "185");
+  await allSent();
+  check((await row("sparge_temp").getAttribute("class")).includes("off-target"), "185 °F is flagged against the brewery's 170–172 °F");
+  check(!(await row("ko_ph").innerText()).includes("target"), "knockout pH has no target now");
+  await settings(page, "sheet");
+  for (const key of ["sparge_temp", "ko_ph"]) {
+    await page.click(`[data-edit-field="${key}"]`);
+    await page.waitForSelector("#field-editor[open]");
+    await page.click("#field-back-to-usual");
+    await allSent();
+  }
+  check(await page.evaluate(() => Object.keys(brewery.sheetFieldSettings).length === 0), "'Back to usual' undoes both");
+
   console.log("12. Scanning the QR code opens the batch (signed in)");
   const link = await page.evaluate((id) => `${location.origin}${location.pathname}#batch=${id}`, batchId);
   await page.goto(APP);

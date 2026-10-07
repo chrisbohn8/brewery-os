@@ -317,7 +317,7 @@ async function loadAll() {
     must(db.from("batch_status").select("*").eq("brewery_id", b)),
     must(db.from("batch_events").select("*").eq("brewery_id", b).order("effective_date").order("recorded_at")),
     must(db.from("tank_cleanings").select("*").eq("brewery_id", b).order("cleaned_on").order("recorded_at")),
-    must(db.from("breweries").select("acid_after_styles, temperature_unit, gravity_unit, volume_unit, time_zone, target_limits, sheet_fields, sheet_custom_fields").eq("id", b).single()),
+    must(db.from("breweries").select("acid_after_styles, temperature_unit, gravity_unit, volume_unit, time_zone, target_limits, sheet_fields, sheet_custom_fields, sheet_field_settings").eq("id", b).single()),
     must(db.rpc("brewery_members", { p_brewery_id: b })),
     must(db.from("invites").select("*").eq("brewery_id", b).order("created_at")), // admins only; others get none
     must(db.rpc("my_permissions", { b })),
@@ -361,6 +361,7 @@ async function loadAll() {
     acidAfterStyles: settings.acid_after_styles,
     sheetFields: settings.sheet_fields,
     sheetCustomFields: settings.sheet_custom_fields,
+    sheetFieldSettings: settings.sheet_field_settings,
     prefs: {
       temperatureUnit: settings.temperature_unit, gravityUnit: settings.gravity_unit,
       volumeUnit: settings.volume_unit, timeZone: settings.time_zone, targetLimits: settings.target_limits,
@@ -390,6 +391,7 @@ async function loadAll() {
   brewery.prefs = serverData.prefs;
   brewery.sheetFields = serverData.sheetFields;
   brewery.sheetCustomFields = serverData.sheetCustomFields;
+  brewery.sheetFieldSettings = serverData.sheetFieldSettings;
   brewery.permissions = serverData.permissions;
   brewery.role = (serverData.members.find((m) => m.email === signedInEmail) || {}).role || brewery.role;
 }
@@ -1998,9 +2000,12 @@ function renderSheetPicker() {
       <legend>${section.title} <span class="muted">· ${section.perTurn ? "each turn" : "whole batch"}</span></legend>
       ${allowed ? `<div class="picker-all"><button type="button" class="link" data-pick-section="${section.title}" data-pick="all">All</button>
         <button type="button" class="link" data-pick-section="${section.title}" data-pick="none">None</button></div>` : ""}
-      ${section.fields.map((f) => `<label class="pick">
+      ${section.fields.map((f) => `<div class="pick-row"><label class="pick">
         <input type="checkbox" data-pick-field="${f.key}" ${choice.has(f.key) ? "checked" : ""} ${allowed ? "" : "disabled"}>
-        <span>${esc(f.label)} <span class="muted">${esc(fieldMeta(f))}${f.own ? " · your own" : ""}</span></span></label>`).join("")}
+        <span>${esc(f.label)} <span class="muted">${esc(fieldMeta(f))}${f.own ? " · your own" : ""}${
+          f.usualLabel && f.usualLabel !== f.label ? ` · usually "${esc(f.usualLabel)}"` : ""}${
+          f.targetSet ? ` · ${esc(f.target ? targetText(f, f.target({})) : "no target")}` : ""}</span></span></label>
+        ${allowed ? `<button type="button" class="link" data-edit-field="${f.key}">Edit</button>` : ""}</div>`).join("")}
     </fieldset>`).join("");
   document.getElementById("sheet-fields-actions").hidden = !allowed;
   document.getElementById("custom-field-form").hidden = !allowed;
@@ -2029,6 +2034,79 @@ document.getElementById("sheet-field-picker").addEventListener("click", (e) => {
   }
   renderSheetPicker();
 });
+document.getElementById("sheet-field-picker").addEventListener("click", (e) => {
+  const button = e.target.closest("[data-edit-field]");
+  if (button) openFieldEditor(button.dataset.editField);
+});
+
+// ----- Editing one field: its name and target -----
+const fieldDialog = document.getElementById("field-editor");
+const fieldForm = document.getElementById("field-form");
+let editingField = null;
+
+// A target number as shown in the brewery's units (meters in gallons), and back
+const targetShown = (f, v) => (v == null ? "" : f.type === "meter" ? +(v * 31).toFixed(1) : UNIT_TYPES.includes(f.type) ? toShown(f.type, v) : v);
+const targetStored = (f, text) => (text === "" ? null : f.type === "meter" ? Number(text) / 31 : UNIT_TYPES.includes(f.type) ? fromShown(f.type, text) : Number(text));
+
+function usualTargetText(f) {
+  const usual = f.usualTarget ?? (f.targetSet ? undefined : f.target);
+  if (!usual) return "no target";
+  const fixed = usual({});
+  return fixed ? targetText(f, fixed).replace(/^target /, "") : "worked out for each batch (from the beer, the brewhouse, or the water math)";
+}
+
+function openFieldEditor(key) {
+  const f = catalogFields().find((x) => x.key === key);
+  const mine = brewery.sheetFieldSettings?.[key] || {};
+  editingField = f;
+  document.getElementById("field-title").textContent = f.usualLabel || f.label;
+  fieldForm.label.value = mine.label || "";
+  fieldForm.label.placeholder = f.usualLabel || f.label;
+  const canTarget = TARGET_TYPES.includes(f.type);
+  document.getElementById("field-target").hidden = !canTarget;
+  if (canTarget) {
+    document.getElementById("field-usual-target").textContent = usualTargetText(f);
+    const unit = f.type === "meter" ? "gal" : UNIT_TYPES.includes(f.type) ? UNIT_INFO[f.type][prefs()[`${f.type}Unit`]].label : f.type === "ph" ? "pH" : f.unit || "";
+    document.querySelectorAll("#field-target .target-unit").forEach((el) => { el.textContent = unit; });
+    fieldForm.targetKind.value = mine.target === "none" ? "none" : mine.target ? "own" : "usual";
+    fieldForm.targetMin.value = targetShown(f, mine.target?.min);
+    fieldForm.targetMax.value = targetShown(f, mine.target?.max);
+  }
+  fieldDialog.showModal();
+}
+
+fieldForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const f = editingField;
+  const mine = {};
+  const label = fieldForm.label.value.trim();
+  if (label && label !== (f.usualLabel || f.label)) mine.label = label;
+  if (TARGET_TYPES.includes(f.type)) {
+    const kind = fieldForm.targetKind.value;
+    if (kind === "none") mine.target = "none";
+    if (kind === "own") {
+      const min = targetStored(f, fieldForm.targetMin.value), max = targetStored(f, fieldForm.targetMax.value);
+      if (min == null && max == null) { alert("Type a lowest value, a highest value, or both (the same number for an exact target)."); return; }
+      if (min != null && max != null && min > max) { alert("The lowest value is higher than the highest."); return; }
+      mine.target = { ...(min != null && { min }), ...(max != null && { max }) };
+    }
+  }
+  await saveFieldSettings(f.key, Object.keys(mine).length ? mine : null);
+});
+// Typing a number means "my own target"
+["targetMin", "targetMax"].forEach((name) => fieldForm[name].addEventListener("input", () => { fieldForm.targetKind.value = "own"; }));
+document.getElementById("field-back-to-usual").addEventListener("click", () => saveFieldSettings(editingField.key, null));
+
+async function saveFieldSettings(key, mine) {
+  const all = { ...(brewery.sheetFieldSettings || {}) };
+  if (mine) all[key] = mine; else delete all[key];
+  const ok = await save(async () => {
+    const saved = await must(db.from("breweries").update({ sheet_field_settings: all }).eq("id", brewery.id).select("id"));
+    if (!saved.length) throw new Error("You don't have permission to change the brew sheet's fields.");
+  });
+  if (ok) fieldDialog.close();
+}
+
 document.getElementById("pick-usual").addEventListener("click", () => { pickerChoice = new Set(USUAL_FIELDS); renderSheetPicker(); });
 document.getElementById("pick-everything").addEventListener("click", () => {
   pickerChoice = new Set(catalogFields().map((f) => f.key));
@@ -2660,15 +2738,27 @@ const CUSTOM_TYPES = [
   { id: "time", label: "Time of day" }, { id: "text", label: "Text / initials" },
 ];
 
-// The full catalog: the app's fields plus the brewery's own, each at the end of its section
+// The full catalog: the app's fields plus the brewery's own (each at the end of its section),
+// with the brewery's own names and targets applied (Settings → Brew sheet → Edit)
 function sheetCatalog() {
   const own = brewery?.sheetCustomFields || [];
   return SHEET_CATALOG.map((section) => ({
     ...section,
     fields: [...section.fields, ...own.filter((c) => c.section === section.title)
-      .map((c) => field(c.key, c.label, c.type, { unit: c.unit || undefined, own: true }))],
+      .map((c) => field(c.key, c.label, c.type, { unit: c.unit || undefined, own: true }))].map(withBrewerySettings),
   }));
 }
+function withBrewerySettings(f) {
+  const mine = brewery?.sheetFieldSettings?.[f.key];
+  if (!mine) return f;
+  const changed = { ...f, usualLabel: f.label, usualTarget: f.target };
+  if (mine.label) changed.label = mine.label;
+  if (mine.target === "none") { changed.target = undefined; changed.targetSet = true; }
+  else if (mine.target) { changed.target = () => ({ ...mine.target }); changed.targetSet = true; }
+  return changed;
+}
+// Field types that can have a target (the rest are times and words)
+const TARGET_TYPES = ["temperature", "gravity", "volume", "ph", "number", "meter"];
 function catalogFields() {
   return sheetCatalog().flatMap((section) => section.fields);
 }
@@ -2892,6 +2982,7 @@ document.getElementById("bv-sheet-back").addEventListener("click", () => showShe
 function printTarget(field, b) {
   const loc = brewLocation(b);
   if (field.key === "mash_water_volume" && loc?.waterGristQtLb) return `grist × ${loc.waterGristQtLb} ÷ 4 gal`;
+  if (field.targetSet) return targetText(field, field.target ? field.target({}) : null).replace(/^target /, "");
   if (field.key === "sparge_water_volume" && loc?.waterGristQtLb && loc.kettleFullBbl) return "total − mash water";
   if (field.key === "end_sparge_volume" && loc?.waterGristQtLb && loc.kettleFullBbl) {
     return `${loc.kettleFullBbl} × 31 + grist × ${loc.absorptionGalLb || 0} gal`;

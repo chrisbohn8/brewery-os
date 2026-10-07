@@ -653,6 +653,34 @@
     </form>
   </dialog>
 
+  <!-- One brew-day field: the brewery's own name and target for it (Settings → Brew sheet → Edit) -->
+  <dialog id="field-editor">
+    <form id="field-form">
+      <h2 id="field-title" tabindex="-1" autofocus>Field</h2>
+      <label>Name on your sheet
+        <input name="label" maxlength="60">
+      </label>
+      <p class="muted">Leave it empty to keep the usual name. Renaming doesn't change anything already recorded.</p>
+      <fieldset id="field-target" class="group">
+        <legend>Target</legend>
+        <label class="choice"><input type="radio" name="targetKind" value="usual"> Usual: <span id="field-usual-target"></span></label>
+        <label class="choice"><input type="radio" name="targetKind" value="own"> My own:</label>
+        <div class="two-col">
+          <label><span>Lowest (<span class="target-unit"></span>)</span> <input name="targetMin" type="number" step="any" inputmode="decimal"></label>
+          <label><span>Highest (<span class="target-unit"></span>)</span> <input name="targetMax" type="number" step="any" inputmode="decimal"></label>
+        </div>
+        <p class="muted">For an exact target, type the same number in both. Values far from it are highlighted on the sheet.</p>
+        <label class="choice"><input type="radio" name="targetKind" value="none"> No target</label>
+      </fieldset>
+      <div class="actions">
+        <button type="button" id="field-back-to-usual" class="btn">Back to usual</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn cancel">Cancel</button>
+        <button type="submit" class="btn primary">Save</button>
+      </div>
+    </form>
+  </dialog>
+
   <!-- One person's level and permissions (admins) -->
   <dialog id="member-editor">
     <form id="member-form" method="dialog">

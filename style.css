@@ -484,9 +484,15 @@ dialog fieldset.acid p { margin: 0 0 8px; }
 .picker-section { border: 1px solid var(--border); border-radius: 10px; padding: 8px 12px 10px; margin: 12px 0; position: relative; }
 .picker-section legend { font-weight: 600; padding: 0 4px; }
 .picker-section legend .muted { font-weight: 400; font-size: 0.85rem; }
-.picker-all { position: absolute; top: 4px; right: 10px; display: flex; gap: 10px; font-size: 0.85rem; }
+.picker-all { display: flex; justify-content: flex-end; gap: 12px; font-size: 0.85rem; margin: -4px 0 2px; }
 .pick { display: flex; gap: 10px; align-items: flex-start; padding: 7px 0; border-bottom: 1px solid var(--border); }
 .pick:last-child { border-bottom: 0; }
 .pick input { width: 20px; height: 20px; margin: 1px 0 0; flex: none; }
 .pick .muted { font-size: 0.8rem; margin-left: 4px; }
 .picker-all .link { display: inline; margin: 0; text-decoration: underline; color: var(--muted); }
+.pick-row { display: flex; align-items: center; gap: 10px; border-bottom: 1px solid var(--border); }
+.pick-row:last-child { border-bottom: 0; }
+.pick-row .pick { flex: 1; border-bottom: 0; }
+.pick-row .link { margin: 0; flex: none; font-size: 0.85rem; }
+#field-target label.choice { display: flex; gap: 8px; align-items: center; margin: 6px 0; color: var(--text); }
+#field-target label.choice input { width: auto; }
