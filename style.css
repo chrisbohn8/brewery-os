@@ -334,6 +334,40 @@ dialog fieldset.group { border: 1px solid var(--border); border-radius: 10px; pa
 dialog fieldset.group legend { font-weight: 600; padding: 0 4px; }
 dialog fieldset.group p { margin: 0 0 8px; }
 
+/* ---- The brew-day sheet ---- */
+.turn-bar { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin: 8px 0; }
+.turn-tabs { display: flex; gap: 6px; }
+.turn-tabs button {
+  font: inherit; padding: 8px 14px; border-radius: 999px; border: 1px solid var(--border);
+  background: var(--card); color: var(--text); cursor: pointer;
+}
+.turn-tabs button[aria-selected="true"] { background: var(--text); color: var(--bg); border-color: var(--text); }
+.sheet-section { margin-top: 18px; }
+.sheet-section h3 { font-size: 1rem; margin: 0 0 4px; }
+.sheet-section .per { font-weight: 400; color: var(--muted); font-size: 0.85rem; }
+.field {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 4px 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+.field .name { font-size: 0.95rem; }
+.field .target { color: var(--muted); font-size: 0.8rem; }
+.field input {
+  font: inherit; font-size: 16px; padding: 8px; width: 120px;
+  border: 1px solid var(--border); border-radius: 8px; background: var(--card); color: var(--text);
+}
+.field input[type=text] { width: 100%; grid-column: 1 / -1; }
+.field input[type=time] { width: 140px; }
+.field .meter { display: flex; gap: 6px; align-items: center; }
+.field .meter input { width: 92px; }
+.field .result { grid-column: 1 / -1; color: var(--muted); font-size: 0.85rem; }
+.field.off-target input { border: 2px solid var(--acid-due); }
+.field .off { grid-column: 1 / -1; color: var(--acid-due); font-size: 0.8rem; font-weight: 600; }
+.field.saved input { border-color: var(--ready); }
+
 /* ---- Edit pop-up ---- */
 dialog {
   border: none;

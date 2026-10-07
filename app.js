@@ -307,7 +307,7 @@ function explain(error) {
 let serverData = null;
 async function loadAll() {
   const b = brewery.id;
-  const [locations, beers, tanks, batches, events, cleanings, settings, members, invites, permissions, memberRows, levels, cellar, additions] = await Promise.all([
+  const [locations, beers, tanks, batches, events, cleanings, settings, members, invites, permissions, memberRows, levels, cellar, additions, readings] = await Promise.all([
     must(db.from("locations").select("*").eq("brewery_id", b).order("created_at")),
     must(db.from("beers").select("*").eq("brewery_id", b)),
     must(db.from("tanks").select("*").eq("brewery_id", b).order("created_at")),
@@ -322,6 +322,8 @@ async function loadAll() {
     must(db.from("role_levels").select("level, permissions").eq("brewery_id", b)),
     must(db.from("cellar_entries").select("*").eq("brewery_id", b).order("occurred_on").order("recorded_at")),
     must(db.from("batch_additions").select("*").eq("brewery_id", b).order("added_on").order("recorded_at")),
+    // (only each field's current value; history stays in the database)
+    must(db.from("batch_readings_current").select("id, batch_id, turn, field_key, value, value_text, raw, recorded_at").eq("brewery_id", b)),
   ]);
   // Each member: email and level (from brewery_members) plus their personal adjustments
   const adjustments = Object.fromEntries(memberRows.map((r) => [r.user_id, r]));
@@ -345,6 +347,7 @@ async function loadAll() {
     batches: batches.map((x) => ({
       id: x.id, batchNumber: x.batch_number, beerId: x.beer_id, brewDate: x.brew_date,
       sizeBbl: x.size_bbl === null ? null : Number(x.size_bbl),
+      turns: x.turns || 1,
       // These three come from the newest event in the batch's history
       stage: x.stage, tankId: x.tank_id, stageStartDate: x.stage_started_on,
     })),
@@ -366,6 +369,10 @@ async function loadAll() {
       id: c.id, batchId: c.batch_id, occurredOn: c.occurred_on, action: c.action,
       gravitySg: num(c.gravity_sg), ph: num(c.ph), tempC: num(c.temp_c),
       cellarChange: c.cellar_change, notes: c.notes, edited: !!c.updated_at, recordedAt: c.recorded_at,
+    })),
+    readings: readings.map((r) => ({
+      id: r.id, batchId: r.batch_id, turn: r.turn, fieldKey: r.field_key, value: num(r.value),
+      valueText: r.value_text, raw: r.raw, recordedAt: r.recorded_at,
     })),
     additions: additions.map((a) => ({
       id: a.id, batchId: a.batch_id, addedOn: a.added_on, kind: a.kind, name: a.name,
@@ -553,6 +560,17 @@ const additionRow = (a) => ({
   timing: a.timing, lot: a.lot, notes: a.notes,
 });
 Object.assign(SEND, {
+  saveReading: async (a) => {
+    try {
+      await must(db.from("batch_readings").insert({
+        id: a.id, brewery_id: a.breweryId, batch_id: a.batchId, turn: a.turn, field_key: a.fieldKey,
+        value: a.value, value_text: a.valueText, raw: a.raw,
+      }));
+    } catch (e) {
+      if (e.code !== "23505") throw e; // already there: it was sent before the connection dropped
+    }
+  },
+  setTurns: (a) => must(db.from("batches").update({ turns: a.turns }).eq("id", a.batchId)),
   logCellar: (a) => must(db.rpc("log_cellar_entry", a)),
   editCellar: (a) => must(db.from("cellar_entries").update(cellarRow(a)).eq("id", a.id)),
   logAddition: async (a) => {
@@ -570,7 +588,11 @@ const SHOW = {
   saveBatch(d, a) {
     let batch = d.batches.find((b) => b.id === a.p_id);
     const before = batch ? { stage: batch.stage, tankId: batch.tankId } : null;
-    if (!batch) d.batches.push(batch = { id: a.p_id });
+    if (!batch) {
+      // A new batch: the database gives it the brewhouse's usual number of turns
+      const usualTurns = d.locations.find((l) => l.id === d.tanks.find((t) => t.id === a.p_tank_id)?.locationId)?.usualTurns;
+      d.batches.push(batch = { id: a.p_id, turns: usualTurns || 1 });
+    }
     const inTank = a.p_stage !== "packaged";
     const newTank = inTank ? a.p_tank_id : null;
     const stageChanged = before?.stage !== a.p_stage;
@@ -618,6 +640,15 @@ const SHOW = {
   logAddition(d, a) {
     d.additions.push({ ...a, recordedAt: new Date().toISOString() });
   },
+  saveReading(d, a) {
+    // The newest reading is the current one: replace this field's value for this batch and turn
+    d.readings = d.readings.filter((r) => !(r.batchId === a.batchId && r.fieldKey === a.fieldKey && r.turn === a.turn));
+    d.readings.push({ ...a, recordedAt: new Date().toISOString() });
+  },
+  setTurns(d, a) {
+    const batch = d.batches.find((b) => b.id === a.batchId);
+    if (batch) batch.turns = a.turns;
+  },
   editAddition(d, a) {
     const addition = d.additions.find((x) => x.id === a.id);
     if (addition) Object.assign(addition, a);
@@ -630,6 +661,7 @@ function withWaitingChanges(base) {
   // (an offline copy saved by an older version may not have these yet)
   d.cellar ??= [];
   d.additions ??= [];
+  d.readings ??= [];
   for (const change of outbox) SHOW[change.kind](d, change.args);
   return d;
 }
@@ -662,6 +694,21 @@ async function saveOrKeep(kind, args, label) {
       keep();
     }
   });
+}
+
+// Keep a change in the waiting list and send it shortly. Used where values are typed quickly one
+// after another (the brew-day sheet): each is kept on the phone first, then all are sent in order,
+// so none is dropped while an earlier one is still being saved.
+let sendSoonTimer = null;
+function queueChange(kind, args, label) {
+  outbox.push({ id: newId(), kind, args, label, madeAt: new Date().toISOString() });
+  storeList(OUTBOX_KEY, outbox);
+  data = withWaitingChanges(serverData);
+  render();
+  if (offline || !navigator.onLine) { showOffline(); return; }
+  updateBanner();
+  clearTimeout(sendSoonTimer);
+  sendSoonTimer = setTimeout(() => refresh().catch((e) => { if (isConnectionProblem(e)) showOffline(); }), 400);
 }
 
 // Send everything waiting, oldest first. Stops (keeping the rest) if the signal drops again.
@@ -2221,6 +2268,8 @@ let viewingBatchId = null;
 
 function openBatchView(batchId) {
   viewingBatchId = batchId;
+  document.getElementById("bv-brewday").hidden = true;
+  document.getElementById("bv-main").hidden = false;
   showView("batch");
   viewingBatchId = batchId; // (showView clears it when leaving the page)
   renderBatchView();
@@ -2282,6 +2331,8 @@ function renderBatchView() {
       ${a.notes ? `<div class="muted">${esc(a.notes)}</div>` : ""}
     </button></li>`).join("") || `<li class="item muted">No additions yet.</li>`;
 
+  renderSheet();
+
   // History: stage changes and transfers, oldest first
   const history = data.events.filter((e) => e.batchId === b.id);
   document.getElementById("bv-history").innerHTML = history.map((e) => `
@@ -2292,6 +2343,265 @@ document.getElementById("bv-edit").addEventListener("click", () => {
   const b = viewingBatch();
   if (b) openBatchEditor(b, isInTank(b) ? b.tankId : null);
 });
+
+// ----- The brew-day sheet -----
+// The brewery's sheet: sections of fields, in the same order as the paper sheet, so typing in a
+// filled-in sheet goes top to bottom. (This is the default sheet; breweries will be able to rename,
+// reorder, add, and hide fields later. Readings are stored under each field's key.)
+//
+// Field types decide how a value is typed, stored, and shown:
+//   temperature, gravity, volume  -> typed in the brewery's units, stored in standard units
+//   ph, number                    -> stored as typed (number fields can name a unit, e.g. "gal/min")
+//   meter                         -> a flow meter's start and end readings (gallons); stores the difference
+//   time                          -> a time of day ("07:05")
+//   text                          -> words
+//
+// Targets come from the sheet itself (fixed), the location's brewhouse, the beer, or the water math.
+// A target is { min, max } in standard units (one or both), or { text } when it's just a note.
+const F_TO_C = (f) => (f - 32) * 5 / 9;
+const exactly = (v) => ({ min: v, max: v });
+const SHEET = [
+  { title: "Mash & runoff", perTurn: true, fields: [
+    { key: "grist_weight", label: "Grist weight", type: "number", unit: "lb" },
+    { key: "flow_rate", label: "Flow rate", type: "number", unit: "gal/min", target: (c) => c.location?.flowTarget ? { text: c.location.flowTarget } : null },
+    { key: "mash_water_volume", label: "Mash water", type: "meter", target: (c) => c.water ? exactly(c.water.mashGal / 31) : null },
+    { key: "mash_strike_temp", label: "Strike temp", type: "temperature" },
+    { key: "mash_temp", label: "Mash temp", type: "temperature" },
+    { key: "vorlauf_start_temp", label: "Vorlauf start temp", type: "temperature" },
+    { key: "vorlauf_end_temp", label: "Vorlauf end temp", type: "temperature" },
+    { key: "sparge_temp", label: "Sparge temp", type: "temperature", target: () => exactly(F_TO_C(168)) },
+    { key: "end_sparge_temp", label: "End of sparge temp", type: "temperature" },
+    { key: "end_sparge_volume", label: "End of sparge volume", type: "meter", target: (c) => c.water?.totalGal ? exactly(c.water.totalGal / 31) : null },
+    { key: "kettle_full_volume", label: "Kettle full volume", type: "volume", target: (c) => c.location?.kettleFullBbl ? exactly(c.location.kettleFullBbl) : null },
+  ]},
+  { title: "Gravity", perTurn: true, fields: [
+    { key: "first_runnings_gravity", label: "First runnings", type: "gravity" },
+    { key: "final_runnings_gravity", label: "Final runnings", type: "gravity" },
+    { key: "kettle_full_gravity", label: "Kettle full", type: "gravity" },
+    { key: "ko_gravity", label: "Knockout", type: "gravity", target: (c) => c.beer?.targetOg ? exactly(c.beer.targetOg) : null },
+    { key: "tank_sample_gravity", label: "Tank sample", type: "gravity", target: (c) => c.beer?.targetOg ? exactly(c.beer.targetOg) : null },
+  ]},
+  { title: "pH", perTurn: true, fields: [
+    { key: "first_runnings_ph", label: "First runnings", type: "ph", target: () => ({ min: 5.2, max: 5.4 }) },
+    { key: "final_runnings_ph", label: "Final runnings", type: "ph" },
+    { key: "kettle_full_ph", label: "Kettle full", type: "ph", target: () => ({ min: 5.2, max: 5.3 }) },
+    { key: "ko_ph", label: "Knockout", type: "ph", target: () => ({ min: 4.8, max: 4.9 }) },
+    { key: "tank_sample_ph", label: "Tank sample", type: "ph" },
+  ]},
+  { title: "Knockout & yeast", perTurn: false, fields: [
+    { key: "ko_volume", label: "Total knockout volume", type: "volume" },
+    { key: "oxygen_rate", label: "Oxygen", type: "number", unit: "L/min", target: () => exactly(3) },
+    { key: "yeast_strain", label: "Yeast strain", type: "text" },
+    { key: "yeast_source", label: "Yeast source", type: "text" },
+    { key: "yeast_generation", label: "Generation", type: "text" },
+    { key: "yeast_amount", label: "Yeast amount", type: "text" },
+  ]},
+  { title: "Time log", perTurn: true, fields: [
+    ["mash_start", "Mash start"], ["mash_end", "Mash end"], ["vorlauf_start", "Vorlauf start"], ["vorlauf_end", "Vorlauf end"],
+    ["runoff_start", "Runoff start"], ["first_wort", "First wort"], ["sparge_start", "Sparge start"], ["sparge_end", "Sparge end"],
+    ["runoff_end", "Runoff end"], ["boil_start", "Boil start"], ["boil_end", "Boil end"], ["whirlpool_start", "Whirlpool start"],
+    ["whirlpool_end", "Whirlpool end"], ["ko_start", "Knockout start"], ["ko_end", "Knockout end"],
+  ].map(([key, label]) => ({ key, label, type: "time" })) },
+  { title: "Notes", perTurn: false, fields: [
+    { key: "brew_notes", label: "Brew-day notes", type: "text" },
+  ]},
+];
+const SHEET_FIELDS = SHEET.flatMap((section) => section.fields);
+const UNIT_TYPES = ["temperature", "gravity", "volume"];
+
+// How far from a target counts as "far" (standard units; volumes are a share), to catch typos without nagging
+const TOLERANCE = { gravity: 0.004, temperature: 1.7, ph: 0.15, number: 0.1, volume: 0.1, meter: 0.1 };
+
+let sheetTurn = 1;
+
+// The current value of a field for a batch (and turn; null for whole-batch fields)
+function reading(batchId, fieldKey, turn) {
+  return data.readings.find((r) => r.batchId === batchId && r.fieldKey === fieldKey && (r.turn ?? null) === (turn ?? null));
+}
+
+// Where the batch was brewed: the location of the first tank in its history
+function brewLocation(batch) {
+  const first = data.events
+    .filter((e) => e.batchId === batch.id && e.tankId)
+    .sort((a, b) => a.effectiveDate.localeCompare(b.effectiveDate))[0];
+  return findLocation(findTank(first?.tankId ?? batch.tankId)?.locationId);
+}
+
+// Water volumes for one turn (gallons), from its grist weight and the location's brewhouse:
+//   mash water  = grist (lb) x water-to-grist (qt/lb) / 4
+//   total water = kettle full (bbl) x 31 + grist (lb) x grain absorption (gal/lb)
+//   sparge      = total - mash
+function waterFor(batch, turn) {
+  const location = brewLocation(batch);
+  const grist = reading(batch.id, "grist_weight", turn)?.value;
+  if (!location || !grist || !location.waterGristQtLb) return null;
+  const mashGal = grist * location.waterGristQtLb / 4;
+  const totalGal = location.kettleFullBbl ? location.kettleFullBbl * 31 + grist * (location.absorptionGalLb || 0) : null;
+  return { mashGal, totalGal, spargeGal: totalGal ? totalGal - mashGal : null };
+}
+
+function sheetContext(batch, turn) {
+  return { batch, beer: findBeer(batch.beerId), location: brewLocation(batch), water: waterFor(batch, turn) };
+}
+
+// "target 168.0 °F", "target 5.2–5.4", "target 20-22"
+function targetText(field, target) {
+  if (!target) return "";
+  if (target.text) return `target ${target.text}`;
+  const show = (v) => {
+    if (field.type === "meter") return `${Math.round(v * 31)} gal`;
+    if (UNIT_TYPES.includes(field.type)) return showUnit(field.type, v);
+    return `${+v.toFixed(2)}${field.unit ? " " + field.unit : ""}`;
+  };
+  if (target.min != null && target.max != null) return `target ${target.min === target.max ? show(target.min) : `${show(target.min)}–${show(target.max)}`}`;
+  return target.min != null ? `target ${show(target.min)} or more` : `target up to ${show(target.max)}`;
+}
+
+function isOffTarget(field, target, value) {
+  if (!target || target.text || value == null) return false;
+  const tol = TOLERANCE[field.type] ?? 0;
+  const slack = (v) => (field.type === "volume" || field.type === "meter" ? Math.abs(v) * tol : tol);
+  return (target.min != null && value < target.min - slack(target.min)) ||
+         (target.max != null && value > target.max + slack(target.max));
+}
+
+function renderSheet() {
+  const b = viewingBatch();
+  const sheet = document.getElementById("sheet");
+  if (!b || document.getElementById("bv-brewday").hidden) return;
+  // Don't redraw under someone's fingers: while they're typing in the sheet, leave it alone
+  // (what they typed is already in the boxes, and is saved when they leave each box)
+  if (sheet.contains(document.activeElement)) return;
+
+  const editable = can("start_batch");
+  sheetTurn = Math.min(sheetTurn, b.turns);
+  const turnCount = document.getElementById("turn-count");
+  turnCount.value = String(b.turns);
+  turnCount.disabled = !editable;
+  const tabs = document.getElementById("turn-tabs");
+  tabs.hidden = b.turns < 2;
+  tabs.innerHTML = Array.from({ length: b.turns }, (_, i) => i + 1).map((t) =>
+    `<button type="button" role="tab" aria-selected="${t === sheetTurn}" data-turn="${t}">Turn ${t}</button>`).join("");
+  document.getElementById("sheet-note").textContent = editable
+    ? "Each value saves as soon as you leave its box (also with no signal). Values far from their target are highlighted."
+    : "Your permission level can see the sheet but not fill it in.";
+
+  sheet.innerHTML = SHEET.map((section) => {
+    const turn = section.perTurn ? sheetTurn : null;
+    const c = sheetContext(b, turn);
+    const per = section.perTurn ? (b.turns > 1 ? `turn ${sheetTurn}` : "") : (b.turns > 1 ? "whole batch" : "");
+    const water = section.title === "Mash & runoff" && c.water
+      ? `<p class="muted water">Water for this turn: mash ${Math.round(c.water.mashGal)} gal${c.water.totalGal
+          ? ` · sparge ${Math.round(c.water.spargeGal)} gal · total ${Math.round(c.water.totalGal)} gal` : ""} (from the grist weight and the brewhouse settings)</p>`
+      : "";
+    return `<div class="sheet-section"><h3>${section.title}${per ? ` <span class="per">· ${per}</span>` : ""}</h3>
+      ${section.fields.map((f) => fieldHtml(f, b, turn, c, editable)).join("")}${water}</div>`;
+  }).join("");
+  // Boxes in the brewery's units
+  sheet.querySelectorAll("input[data-unit]").forEach((input) => {
+    const turn = input.dataset.turn ? Number(input.dataset.turn) : null;
+    fillUnitInput(input, input.dataset.unit, reading(b.id, input.dataset.field, turn)?.value ?? null);
+  });
+  applyUnitLabels();
+}
+
+function fieldHtml(f, b, turn, c, editable) {
+  const r = reading(b.id, f.key, turn);
+  const target = f.target ? f.target(c) : null;
+  const off = isOffTarget(f, target, r?.value);
+  const attrs = `data-field="${f.key}"${turn ? ` data-turn="${turn}"` : ""}${editable ? "" : " disabled"}`;
+  const numberBox = (extra) => `<input type="number" step="any" inputmode="decimal" ${extra} ${attrs}>`;
+  let input;
+  if (f.type === "meter") {
+    input = `<span class="meter">
+      ${numberBox(`placeholder="start" aria-label="${f.label}: meter start" data-part="start" value="${r?.raw?.start ?? ""}"`)}
+      ${numberBox(`placeholder="end" aria-label="${f.label}: meter end" data-part="end" value="${r?.raw?.end ?? ""}"`)}</span>`;
+  } else if (f.type === "time" || f.type === "text") {
+    input = `<input type="${f.type}" aria-label="${f.label}" value="${esc(r?.valueText ?? "")}" ${attrs}>`;
+  } else if (UNIT_TYPES.includes(f.type)) {
+    input = numberBox(`aria-label="${f.label}" data-unit="${f.type}"`);
+  } else {
+    input = numberBox(`aria-label="${f.label}" value="${r?.value ?? ""}"`);
+  }
+  const unit = f.unit ? ` (${f.unit})` : UNIT_TYPES.includes(f.type) ? ` (<span class="${f.type}-unit"></span>)` : f.type === "meter" ? " (meter, gal)" : "";
+  return `<div class="field${off ? " off-target" : ""}">
+    <div><div class="name">${f.label}${unit}</div><div class="target">${targetText(f, target)}</div></div>
+    ${input}${f.type === "meter" && r?.value != null ? `<div class="result">= ${Math.round(r.value * 31)} gal</div>` : ""}${off ? `<div class="off">Far from target. Typo?</div>` : ""}
+  </div>`;
+}
+
+// Save a value as soon as its box is left. It goes into the "waiting to send" list first, so it's
+// kept on the phone with no signal, and nothing is lost when several are typed quickly.
+document.getElementById("sheet").addEventListener("change", (e) => {
+  const input = e.target.closest("[data-field]");
+  const b = viewingBatch();
+  if (!input || !b || !can("start_batch")) return;
+  const key = input.dataset.field;
+  const turn = input.dataset.turn ? Number(input.dataset.turn) : null;
+  const field = SHEET_FIELDS.find((f) => f.key === key);
+  const row = input.closest(".field");
+  const current = reading(b.id, key, turn);
+  let value = null, valueText = null, raw = null;
+
+  if (field.type === "meter") {
+    const start = row.querySelector('[data-part="start"]').value, end = row.querySelector('[data-part="end"]').value;
+    if (start === "" || end === "") return; // wait for both readings
+    if (Number(end) < Number(start)) { alert(`${field.label}: the end reading is lower than the start reading.`); return; }
+    if (current?.raw?.start === Number(start) && current?.raw?.end === Number(end)) return;
+    raw = { start: Number(start), end: Number(end), unit: "gal" };
+    value = (raw.end - raw.start) / 31; // gallons -> barrels
+    row.querySelector(".result")?.remove();
+    row.querySelector(".meter").insertAdjacentHTML("afterend", `<div class="result">= ${Math.round(raw.end - raw.start)} gal</div>`);
+  } else if (field.type === "time" || field.type === "text") {
+    valueText = input.value.trim();
+    if (valueText === (current?.valueText ?? "")) return;
+  } else if (input.dataset.unit) {
+    value = readUnitInput(input, input.dataset.unit);
+    if (value == null || (current && Math.abs(current.value - value) < 1e-9)) return;
+  } else {
+    if (input.value === "") return;
+    value = Number(input.value);
+    if (current?.value === value) return;
+  }
+
+  // Show "far from target" right away (the sheet isn't redrawn while someone is typing in it)
+  const target = field.target ? field.target(sheetContext(b, turn)) : null;
+  const off = isOffTarget(field, target, value);
+  row.classList.toggle("off-target", off);
+  row.querySelector(".off")?.remove();
+  if (off) row.insertAdjacentHTML("beforeend", `<div class="off">Far from target. Typo?</div>`);
+  row.classList.add("saved");
+  setTimeout(() => row.classList.remove("saved"), 1200);
+
+  queueChange("saveReading", { id: newId(), breweryId: brewery.id, batchId: b.id, turn, fieldKey: key, value, valueText, raw },
+    `${beerName(b)} ${batchLabel(b)}: ${field.label}${turn && b.turns > 1 ? ` (turn ${turn})` : ""}`);
+});
+
+// Leaving the sheet altogether (a tap outside it): redraw, so water targets etc. catch up
+document.getElementById("sheet").addEventListener("focusout", () => {
+  setTimeout(() => { if (!document.getElementById("sheet").contains(document.activeElement)) renderSheet(); }, 0);
+});
+
+document.getElementById("turn-tabs").addEventListener("click", (e) => {
+  const tab = e.target.closest("[data-turn]");
+  if (!tab) return;
+  sheetTurn = Number(tab.dataset.turn);
+  renderSheet();
+});
+
+document.getElementById("turn-count").addEventListener("change", (e) => {
+  const b = viewingBatch();
+  queueChange("setTurns", { batchId: b.id, turns: Number(e.target.value) }, `${beerName(b)} ${batchLabel(b)}: number of turns`);
+});
+
+function showSheet(open) {
+  document.getElementById("bv-brewday").hidden = !open;
+  document.getElementById("bv-main").hidden = open;
+  if (open) { sheetTurn = 1; renderSheet(); }
+  window.scrollTo(0, 0);
+}
+document.getElementById("bv-sheet").addEventListener("click", () => showSheet(true));
+document.getElementById("bv-sheet-back").addEventListener("click", () => showSheet(false));
 
 // ----- Logging cellar work -----
 const cellarDialog = document.getElementById("cellar-editor");

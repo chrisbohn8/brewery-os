@@ -98,7 +98,15 @@ These shape every decision, even for features that come later:
 - **Log cellar work:** date, action item (Check, Tank sample, Dry hop, Rouse, Crash, Harvest, Drain, Spund, …), gravity, pH, and temperature in the brewery's units, a **cellar change** ("FR to 62", spunded, slow crash), and notes. Actions like *Dry hop* or *Crash* offer to move the batch to the matching stage in the same step, so the tank board keeps itself current.
 - **Additions:** dry hops, spices, and fruit, with amount, timing, and **lot number**.
 - Entries can be corrected (marked "edited") or deleted, and all of it works offline.
-- **Brewhouse settings per location** (Settings → Equipment → a location): turn size, usual turns per batch, kettle-full volume, flow target, water-to-grist ratio, and grain absorption, ready for brew-day sheets.
+- **Brewhouse settings per location** (Settings → Equipment → a location): turn size, usual turns per batch, kettle-full volume, flow target, water-to-grist ratio, and grain absorption, used by the brew-day sheet.
+
+### The brew-day sheet
+- **"Brew-day sheet"** on a batch's page, in the same order as the paper sheet: mash and runoff temperatures and volumes, gravities, pH, knockout and yeast, a time log, and notes.
+- **Turns are tabs** (Turn 1, Turn 2, …). A new batch starts with its brewhouse's usual number of turns, and the count can be changed on the sheet. Yeast, knockout volume, and notes belong to the whole batch.
+- **Targets show next to each field**: fixed ones from the sheet (sparge 168 °F, pH ranges), the brewhouse's (flow, kettle full), and the beer's OG for knockout and tank-sample gravity.
+- **Water worked out from grist weight** with the brewhouse settings: mash water = grist × water-to-grist ÷ 4; total = kettle full × 31 + grist × grain absorption; sparge = total − mash.
+- **Flow meter fields** take the start and end readings and save the difference.
+- **Each value saves as soon as you leave its box**, also with no signal. Values far from their target are highlighted ("Typo?"). Corrections keep the earlier value in the database's history.
 
 ### Batch history
 - Every stage change and transfer is recorded with its date. Nothing is overwritten, so the records show where each batch has been, not just where it is.
@@ -292,7 +300,7 @@ The shared database (Phase 3) was pulled ahead of the brew log: real crews can o
 ### Up next, in order
 1. ~~Settings screen and permission levels~~ (done).
 2. ~~Keep the data safe~~: nightly backups are running and a restore has been rehearsed. **Supabase's paid plan before real records** (decided).
-3. **Brew log, step 2:** brew-day readings, cellar log, additions ([design](docs/brew-log-design.md)).
+3. **Brew log, step 2:** ~~cellar log, additions, brew-day sheet~~ (done); next the **printed sheet with QR code** and typing in a filled-in paper sheet ([design](docs/brew-log-design.md)).
 4. **Moving beer** design, ahead of packaging (Phase 5).
 
 ### ✅ Phase 0: Foundation (done)
@@ -310,8 +318,8 @@ The shared database (Phase 3) was pulled ahead of the brew log: real crews can o
 The as-brewed record for each batch, compared against its beer's targets. **Design draft:** [docs/brew-log-design.md](docs/brew-log-design.md).
 - [x] **Brewery preferences, first:** temperature (°F/°C), gravity (SG/Plato/Brix), volume (bbl/hL/gal), and time zone. **Readings are stored in one standard unit** (gravity as SG, temperature as °C, volume as US barrels) and converted for display, so changing a preference never alters old records, breweries' numbers mean the same thing, and TTB math is always in barrels. Brix readings taken after fermentation starts need an alcohol correction (using the original gravity); the app applies it.
 - [ ] **Event history per batch.** Record every stage change and transfer (date, from, to, volume) instead of overwriting. Traceability, the CIP log, and TTB reporting are all built on this. Stage and tank may become "the latest event" rather than fields that get overwritten.
-- [x] **Cellar log** with action items that move the stage, readings in the brewery's units, cellar changes, notes; **additions** with lot numbers; **brewhouse settings per location**. (Brew-day readings are stored per turn with history; their screens come next.)
-- [ ] **Brew-day actuals:** key numbers such as mash temp and pH, pre-boil gravity, OG, volume to fermenter, yeast and pitch temp. Exact fields come from the brewery's current brew sheet.
+- [x] **Cellar log** with action items that move the stage, readings in the brewery's units, cellar changes, notes; **additions** with lot numbers; **brewhouse settings per location**. 
+- [x] **Brew-day sheet:** the brewery's paper sheet as a screen, per turn, with targets, water math from grist weight, meter readings, and "far from target" highlighting. (Admins editing the sheet's fields comes later.)
 - [ ] **Fermentation log:** gravity and temperature readings over time, FG, pH.
 - [ ] **Actual ABV**, calculated from actual OG and FG, plus **target vs. actual**: is 1042 hitting House Hazy's numbers?
 - [ ] **Fermentation curve:** a simple chart of gravity and temperature over time.

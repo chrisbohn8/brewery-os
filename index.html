@@ -111,9 +111,32 @@
       <button id="bv-log" class="btn primary" data-needs="cellar_log">+ Log cellar work</button>
       <button id="bv-add" class="btn" data-needs="cellar_log">+ Addition</button>
       <button id="bv-edit" class="btn">Stage / transfer…</button>
+      <button id="bv-sheet" class="btn">Brew-day sheet</button>
     </div>
   </section>
 
+  <!-- The brew-day sheet: the brewery's fields, one tab per turn. Each value saves when you leave the box. -->
+  <div id="bv-brewday" hidden>
+  <section class="list-section">
+    <div class="section-head">
+      <h2>Brew-day sheet</h2>
+      <button id="bv-sheet-back" class="btn small">← Back to batch</button>
+    </div>
+    <div class="turn-bar">
+      <div id="turn-tabs" class="turn-tabs" role="tablist" aria-label="Turn"></div>
+      <label class="inline-label">Turns
+        <select id="turn-count" aria-label="Number of turns">
+          <option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option>
+        </select>
+      </label>
+    </div>
+    <p id="sheet-note" class="muted">Each value saves as soon as you leave its box (also with no signal).
+      Values far from their target are highlighted.</p>
+    <div id="sheet"></div>
+  </section>
+  </div>
+
+  <div id="bv-main">
   <section class="list-section">
     <h2>Cellar log</h2>
     <ul id="bv-cellar" class="plain log-list"></ul>
@@ -128,6 +151,7 @@
     <h2>History</h2>
     <ul id="bv-history" class="plain log-list"></ul>
   </section>
+  </div>
   </div>
 
   <!-- ===== Settings: one page at a time; people see what they're allowed to use ===== -->
