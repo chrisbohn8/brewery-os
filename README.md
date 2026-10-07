@@ -127,6 +127,12 @@ These shape every decision, even for features that come later:
 - **Volumes are optional.** A batch with none recorded says "volume not recorded" and everything still works.
 - The batch page shows what's in the tank, and its history lists every movement with its volume.
 
+### Packaging (moving beer, step 2)
+- **Package types are the brewery's choice** (Settings → Packages): tick them from a catalog of US, metric, one-way, and Cornelius kegs, casks, cases of cans and bottles, and single containers, or add your own (a volume, and how many per package for cases). Halves, quarters, sixtels, and cases of 12 and 16 oz cans are ticked to start.
+- **"Package…" on a batch page:** a count for each package type; the app shows the barrels as you type ("= 20 bbl · about 10 bbl left") and **what's left fills about** "20 × ½ bbl keg, 60 × ⅙ bbl keg...".
+- **Packaging never empties a tank by itself.** Each run asks "Is the tank empty now?": *not yet* keeps the rest for another run; *yes, it's spent* records what's left as loss, packages the batch, and sends the tank to cleaning. A leftover over 10% asks first.
+- Each run is one all-or-nothing step, works offline, and keeps the volume per package it was packaged with (changing a type later never changes past runs).
+
 ### Brew-day ingredients
 - The brew-day sheet starts with **Ingredients**: malt, adjuncts, water salts and acids, hops, finings, yeast, each with amount, when it went in (mash, boil 60 min, whirlpool...), the turn, and its **lot number** for traceability.
 - **"Copy from the last batch"** of the same beer fills in names, amounts, timing, and turns, with lot numbers left empty for this batch's own. The last batch is the recipe; the brewer adds lots and adjusts what changed.
@@ -426,12 +432,9 @@ Beer is tracked by **volume, not just location**: a batch has barrels in places,
 - [x] **Volumes and transfers with volumes:** a ledger of movements; each tank shows its running balance; what's left behind on a transfer is a loss.
 - [ ] **Splits and blends:** one batch in two tanks; a blend makes a new batch that lists its sources.
 - [ ] **Level checks** (sight glass): type what the glass shows; the difference is served, loss, or a correction.
-- [ ] **Package types set per brewery:**
-    - kegs: ½, ¼, and ⅙ bbl, and 50 L;
-    - cans and bottles: 12, 16, and 19.2 oz;
-    - case formats: 4×6, 6×4, 2×12.
-- [ ] **A packaging calculator** that turns counts into volume. For example, a skid of 72 cases of 16 oz 4×6 = 216 gal ≈ 7 bbl, so a 30 bbl batch still has about 23 bbl in the tank.
-- [ ] **Packaging never empties a tank by itself.** A person confirms **"this tank is spent"**; whatever is left on paper is recorded as **loss** (tank bottoms, dumped beer), which TTB asks for. A suspicious leftover (say 4 bbl) asks before closing.
+- [x] **Package types set per brewery,** from a researched catalog of kegs, casks, cases, and containers, plus their own.
+- [x] **A packaging calculator** that turns counts into volume, shows what's left, and what it would fill.
+- [x] **Packaging never empties a tank by itself.** A person confirms **"this tank is spent"**; what's left on paper is recorded as **loss**. A leftover over 10% asks before closing.
 - [ ] Packaged beer becomes finished-goods inventory (Phase 6).
 
 ### Phase 6: Inventory

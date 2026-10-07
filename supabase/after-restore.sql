@@ -15,3 +15,5 @@ revoke execute on function public.brewery_members(uuid) from anon;
 revoke execute on function public.my_permissions(uuid) from anon;
 revoke execute on function public.save_batch(uuid, uuid, text, uuid, date, numeric, text, date, uuid, date, numeric) from anon;
 revoke execute on function public.log_cellar_entry(uuid, uuid, uuid, date, text, numeric, numeric, numeric, text, text, text) from anon;
+revoke execute on function public.record_packaging(uuid, uuid, uuid, uuid, date, jsonb, boolean, text) from anon;
+revoke execute on function public.add_usual_package_types(uuid) from anon, authenticated;

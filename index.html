@@ -119,6 +119,7 @@
       <button id="bv-edit" class="btn">Stage / transfer…</button>
       <button id="bv-sheet" class="btn">Brew-day sheet</button>
       <button id="bv-print" class="btn">Print brew sheet</button>
+      <button id="bv-package" class="btn" data-needs="package">Package…</button>
     </div>
   </section>
 
@@ -173,6 +174,7 @@
     <button data-page="equipment">Equipment</button>
     <button data-page="sheet">Brew sheet</button>
     <button data-page="beers">Beers</button>
+    <button data-page="packages">Packages</button>
     <button data-page="cleaning">Cleaning</button>
     <button data-page="team">Team &amp; permissions</button>
     <button data-page="backup">Backup</button>
@@ -274,6 +276,39 @@
       <button id="add-location" class="btn" data-needs="manage_equipment">+ Add location</button>
     </div>
     <ul id="location-list"></ul>
+  </section>
+  </div>
+
+  <div class="settings-page" data-page="packages">
+  <!-- Package types: picked from the catalog, or the brewery's own -->
+  <section class="list-section">
+    <div class="section-head"><h2>Package types</h2><span id="package-type-count" class="muted"></span></div>
+    <p class="muted">Tick the kegs, casks, cases, and containers you fill. Packaging asks for a count of each, and
+      turns the counts into barrels. Unticking one never changes past packaging.</p>
+    <p id="package-types-note" class="muted" hidden>You don't have permission to change these.</p>
+    <div id="package-type-picker"></div>
+  </section>
+  <section class="list-section">
+    <h2>Add your own</h2>
+    <form id="own-package-form" class="settings-grid">
+      <label>Name <input name="name" required maxlength="60" placeholder="Like: 20 L keg, 4-pack crate"></label>
+      <label>Volume of one <input name="volume" type="number" step="any" min="0" required inputmode="decimal" placeholder="20"></label>
+      <label>Unit
+        <select name="unit">
+          <option value="gal">US gallons</option><option value="l">liters</option><option value="oz">fl oz</option>
+          <option value="ml">mL</option><option value="impgal">imperial gallons</option><option value="bbl">barrels</option>
+        </select>
+      </label>
+      <label>How many per package <input name="per" type="number" step="1" min="1" value="1" inputmode="numeric"></label>
+      <label>Kind
+        <select name="kind">
+          <option value="keg">Keg</option><option value="cask">Cask</option><option value="case">Case or pack</option>
+          <option value="single">Single container</option><option value="other">Other</option>
+        </select>
+      </label>
+      <button type="submit" class="btn">Add</button>
+    </form>
+    <p class="muted">"How many per package" is for cases: a case of 24 cans of 16 oz is 16 fl oz, 24 per package.</p>
   </section>
   </div>
 
@@ -663,6 +698,29 @@
       </label>
       <div class="actions">
         <button type="button" id="delete-addition" class="btn danger">Delete</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn cancel">Cancel</button>
+        <button type="submit" class="btn primary">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- A packaging run: how many of each package, and whether the tank is now empty -->
+  <dialog id="package-editor">
+    <form id="package-form">
+      <h2 id="package-title" tabindex="-1" autofocus>Package</h2>
+      <label>Date <input name="occurredOn" type="date" required></label>
+      <div id="package-rows" class="package-rows"></div>
+      <p id="package-summary" class="package-summary"></p>
+      <p id="package-fits" class="muted"></p>
+      <fieldset class="group">
+        <legend>Is the tank empty now?</legend>
+        <label class="choice"><input type="radio" name="spent" value="no" checked> Not yet: more to package later</label>
+        <label class="choice"><input type="radio" name="spent" value="yes"> Yes, it's spent</label>
+        <p id="package-spent-note" class="muted"></p>
+      </fieldset>
+      <label>Notes <input name="notes" maxlength="500"></label>
+      <div class="actions">
         <span class="spacer"></span>
         <button type="button" class="btn cancel">Cancel</button>
         <button type="submit" class="btn primary">Save</button>

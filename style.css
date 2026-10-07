@@ -517,3 +517,12 @@ dialog fieldset.acid p { margin: 0 0 8px; }
 .legend .key { display: inline-block; width: 18px; height: 3px; border-radius: 2px; }
 .legend .key.gravity { background: var(--fermenting); }
 .legend .key.temp { background: var(--conditioning); margin-left: 10px; }
+
+/* Packaging */
+.package-rows { display: grid; gap: 6px; margin: 8px 0; }
+.package-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 4px 0; border-bottom: 1px solid var(--border); }
+.package-row input { width: 90px; font: inherit; font-size: 16px; padding: 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--card); color: var(--text); }
+.package-summary { font-weight: 600; margin: 6px 0 2px; }
+#package-editor label.choice { display: flex; gap: 8px; align-items: center; margin: 6px 0; color: var(--text); }
+#package-editor label.choice input { width: auto; }
+#own-package-form input { font: inherit; font-size: 16px; padding: 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--card); color: var(--text); }

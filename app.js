@@ -310,7 +310,7 @@ function explain(error) {
 let serverData = null;
 async function loadAll() {
   const b = brewery.id;
-  const [locations, beers, tanks, batches, events, cleanings, settings, members, invites, permissions, memberRows, levels, cellar, additions, readings, movements] = await Promise.all([
+  const [locations, beers, tanks, batches, events, cleanings, settings, members, invites, permissions, memberRows, levels, cellar, additions, readings, movements, packageTypes, packageCounts] = await Promise.all([
     must(db.from("locations").select("*").eq("brewery_id", b).order("created_at")),
     must(db.from("beers").select("*").eq("brewery_id", b)),
     must(db.from("tanks").select("*").eq("brewery_id", b).order("created_at")),
@@ -328,6 +328,8 @@ async function loadAll() {
     // (only each field's current value; history stays in the database)
     must(db.from("batch_readings_current").select("id, batch_id, turn, field_key, value, value_text, raw, recorded_at").eq("brewery_id", b)),
     must(db.from("beer_movements").select("*").eq("brewery_id", b).order("occurred_on").order("recorded_at")),
+    must(db.from("package_types").select("*").eq("brewery_id", b).order("created_at")),
+    must(db.from("package_counts").select("*").eq("brewery_id", b)),
   ]);
   // Each member: email and level (from brewery_members) plus their personal adjustments
   const adjustments = Object.fromEntries(memberRows.map((r) => [r.user_id, r]));
@@ -384,6 +386,12 @@ async function loadAll() {
     movements: movements.map((m) => ({
       id: m.id, batchId: m.batch_id, occurredOn: m.occurred_on, kind: m.kind, fromTankId: m.from_tank_id,
       toTankId: m.to_tank_id, volumeBbl: num(m.volume_bbl), notes: m.notes, recordedAt: m.recorded_at,
+    })),
+    packageTypes: packageTypes.map((t) => ({
+      id: t.id, name: t.name, volumeBbl: num(t.volume_bbl), kind: t.kind, catalogKey: t.catalog_key, active: t.active,
+    })),
+    packageCounts: packageCounts.map((c) => ({
+      id: c.id, movementId: c.movement_id, packageTypeId: c.package_type_id, count: num(c.count), unitVolumeBbl: num(c.unit_volume_bbl),
     })),
     additions: additions.map((a) => ({
       id: a.id, batchId: a.batch_id, addedOn: a.added_on, kind: a.kind, name: a.name,
@@ -586,6 +594,7 @@ Object.assign(SEND, {
     }
   },
   setTurns: (a) => must(db.from("batches").update({ turns: a.turns }).eq("id", a.batchId)),
+  package: (a) => must(db.rpc("record_packaging", a)),
   logCellar: (a) => must(db.rpc("log_cellar_entry", a)),
   editCellar: (a) => must(db.from("cellar_entries").update(cellarRow(a)).eq("id", a.id)),
   logAddition: async (a) => {
@@ -682,6 +691,26 @@ const SHOW = {
     d.readings = d.readings.filter((r) => !(r.batchId === a.batchId && r.fieldKey === a.fieldKey && r.turn === a.turn));
     d.readings.push({ ...a, recordedAt: new Date().toISOString() });
   },
+  // A packaging run, as the database records it (see record_packaging in ..._packaging.sql)
+  package(d, a) {
+    const now = new Date().toISOString();
+    const unit = (id) => d.packageTypes.find((t) => t.id === id)?.volumeBbl || 0;
+    const total = a.p_counts.reduce((sum, c) => sum + c.count * unit(c.type), 0);
+    const move = (m) => d.movements.push({ batchId: a.p_batch_id, occurredOn: a.p_occurred_on, fromTankId: null, toTankId: null,
+      notes: "", recordedAt: now, ...m });
+    move({ id: a.p_id, kind: "package", fromTankId: a.p_tank_id, volumeBbl: total, notes: a.p_notes || "" });
+    a.p_counts.forEach((c, i) => d.packageCounts.push({ id: `${a.p_id}-${i}`, movementId: a.p_id, packageTypeId: c.type,
+      count: c.count, unitVolumeBbl: unit(c.type) }));
+    if (!a.p_spent) return;
+    const left = tankBalance(a.p_batch_id, a.p_tank_id, d);
+    if (left > 0) move({ id: `${a.p_id}-loss`, kind: "loss", fromTankId: a.p_tank_id, volumeBbl: left, notes: "tank spent" });
+    if (left < 0) move({ id: `${a.p_id}-fix`, kind: "correction", toTankId: a.p_tank_id, volumeBbl: -left, notes: "more packaged than was recorded" });
+    const batch = d.batches.find((b) => b.id === a.p_batch_id);
+    if (batch) Object.assign(batch, { stage: "packaged", tankId: null, stageStartDate: a.p_occurred_on });
+    d.events.push({ id: `waiting-${a.p_id}`, batchId: a.p_batch_id, stage: "packaged", tankId: null, effectiveDate: a.p_occurred_on, recordedAt: now });
+    const tank = d.tanks.find((t) => t.id === a.p_tank_id);
+    if (tank) tank.status = "cleaning";
+  },
   setTurns(d, a) {
     const batch = d.batches.find((b) => b.id === a.batchId);
     if (batch) batch.turns = a.turns;
@@ -700,6 +729,8 @@ function withWaitingChanges(base) {
   d.additions ??= [];
   d.readings ??= [];
   d.movements ??= [];
+  d.packageTypes ??= [];
+  d.packageCounts ??= [];
   for (const change of outbox) SHOW[change.kind](d, change.args);
   return d;
 }
@@ -939,6 +970,7 @@ function render() {
   applyPermissions();
   renderSettings();
   renderSheetPicker();
+  renderPackageTypes();
   renderTeam();
   renderTankList();
   if (viewingBatchId) renderBatchView();
@@ -1750,7 +1782,7 @@ async function loadIntoBrewery(source, description) {
         // (its volume then comes from the brew sheet or batch size), as when volumes were added.
         const movements = d.movements?.length
           ? d.movements.map((m) => ({
-              batch_id: idFor(m.batchId), occurred_on: m.occurredOn, kind: m.kind, from_tank_id: idFor(m.fromTankId),
+              id: idFor(m.id), batch_id: idFor(m.batchId), occurred_on: m.occurredOn, kind: m.kind, from_tank_id: idFor(m.fromTankId),
               to_tank_id: idFor(m.toTankId), volume_bbl: m.volumeBbl ?? null, notes: m.notes || "",
               ...(m.recordedAt && { recorded_at: m.recordedAt }),
             }))
@@ -1759,6 +1791,22 @@ async function loadIntoBrewery(source, description) {
               to_tank_id: idFor(x.tankId), notes: "recorded when volumes were added",
             }));
         if (movements.length) await must(db.from("beer_movements").insert(movements.map((m) => ({ brewery_id: b, ...m }))));
+
+        // Packaging: package types match the brewery's own by name (or are added), then each
+        // packaging run's counts, with the volume per package they were packaged with
+        if (d.packageCounts?.length) {
+          const current = await must(db.from("package_types").select("id, name").eq("brewery_id", b));
+          for (const t of d.packageTypes || []) {
+            const same = current.find((c) => c.name.toLowerCase() === t.name.toLowerCase());
+            if (same) ids.set(t.id, same.id);
+            else await must(db.from("package_types").insert({ id: idFor(t.id), brewery_id: b, name: t.name,
+              volume_bbl: t.volumeBbl, kind: t.kind || "other", catalog_key: t.catalogKey ?? null, active: !!t.active }));
+          }
+          await must(db.from("package_counts").insert(d.packageCounts.map((c) => ({
+            brewery_id: b, movement_id: idFor(c.movementId), package_type_id: idFor(c.packageTypeId),
+            count: c.count, unit_volume_bbl: c.unitVolumeBbl,
+          }))));
+        }
 
         // The brew log (backups made since it existed): cellar log, ingredients and additions,
         // and each brew-day field's current value
@@ -2670,6 +2718,169 @@ function readingsText(gravitySg, ph, tempC) {
   ].filter(Boolean).join(" · ");
 }
 
+// ----- Packaging: package types, packaging runs, and "this tank is spent" -----
+// The catalog of package types a brewery can tick (Settings → Packages). Volumes per package in
+// US barrels. A ticked type becomes the brewery's own row (renamable); its catalog key remembers
+// where it came from. From research on keg and package sizes (docs/moving-beer-design.md).
+const GAL = 1 / 31, LITER = 0.264172 / 31, IMP_GAL = 1.20095 / 31, FL_OZ = 1 / 128 / 31;
+const PACKAGE_CATALOG = [
+  { group: "US kegs", kind: "keg", items: [
+    ["keg_half", "½ bbl keg", 0.5], ["keg_quarter", "¼ bbl keg", 0.25], ["keg_slim_quarter", "Slim ¼ bbl keg", 0.25],
+    ["keg_sixth", "⅙ bbl keg", 1 / 6], ["keg_eighth", "⅛ bbl keg", 0.125]] },
+  { group: "Metric kegs", kind: "keg", items: [
+    ["keg_50l", "50 L keg", 50 * LITER], ["keg_30l", "30 L keg", 30 * LITER], ["keg_25l", "25 L keg", 25 * LITER], ["keg_20l", "20 L keg", 20 * LITER]] },
+  { group: "One-way kegs (KeyKeg, PolyKeg, Petainer...)", kind: "keg", items: [
+    ["oneway_30l", "30 L one-way keg", 30 * LITER], ["oneway_20l", "20 L one-way keg", 20 * LITER], ["oneway_10l", "10 L one-way keg", 10 * LITER]] },
+  { group: "Cornelius kegs", kind: "keg", items: [
+    ["corny_5", "5 gal Cornelius keg", 5 * GAL], ["corny_3", "3 gal Cornelius keg", 3 * GAL], ["corny_2_5", "2.5 gal Cornelius keg", 2.5 * GAL]] },
+  { group: "Casks", kind: "cask", items: [
+    ["cask_pin", "Pin (4.5 imperial gal)", 4.5 * IMP_GAL], ["cask_firkin", "Firkin (9 imperial gal)", 9 * IMP_GAL],
+    ["cask_kilderkin", "Kilderkin (18 imperial gal)", 18 * IMP_GAL]] },
+  { group: "Cans and bottles, by the case", kind: "case", items: [
+    ["case_24x12", "Case, 24 × 12 oz", 24 * 12 * FL_OZ], ["case_24x16", "Case, 24 × 16 oz", 24 * 16 * FL_OZ],
+    ["case_24x19_2", "Case, 24 × 19.2 oz", 24 * 19.2 * FL_OZ], ["case_12x22", "Case, 12 × 22 oz", 12 * 22 * FL_OZ],
+    ["case_12x750", "Case, 12 × 750 mL", 12 * 0.75 * LITER]] },
+  { group: "Single containers", kind: "single", items: [
+    ["crowler", "Crowler (32 oz)", 32 * FL_OZ], ["growler", "Growler (64 oz)", 64 * FL_OZ], ["howler", "Howler (32 oz)", 32 * FL_OZ],
+    ["minikeg_5l", "5 L mini keg", 5 * LITER]] },
+];
+
+// "15.5 gal" or "50 L": a package's size, in the units people say it in
+function packageSize(volumeBbl) {
+  return prefs().volumeUnit === "hl" ? `${+(volumeBbl / LITER).toFixed(2)} L` : `${+(volumeBbl * 31).toFixed(2)} gal`;
+}
+const activePackageTypes = () => (data.packageTypes || []).filter((t) => t.active);
+
+function renderPackageTypes() {
+  const allowed = can("manage_settings");
+  const types = data.packageTypes || [];
+  const byKey = Object.fromEntries(types.filter((t) => t.catalogKey).map((t) => [t.catalogKey, t]));
+  const own = types.filter((t) => !t.catalogKey);
+  const box = (t, key, name, volume) => `<div class="pick-row"><label class="pick">
+      <input type="checkbox" ${t?.active ? "checked" : ""} ${allowed ? "" : "disabled"} ${key ? `data-package-key="${key}"` : `data-package-id="${t.id}"`}>
+      <span>${esc(t?.name ?? name)} <span class="muted">${packageSize(t?.volumeBbl ?? volume)}${t && t.name !== name && key ? ` · usually "${esc(name)}"` : ""}</span></span></label>
+      ${allowed && t ? `<button type="button" class="link" data-rename-package="${t.id}">Rename</button>` : ""}</div>`;
+  document.getElementById("package-type-picker").innerHTML = PACKAGE_CATALOG.map((g) => `
+    <fieldset class="picker-section"><legend>${g.group}</legend>
+      ${g.items.map(([key, name, volume]) => box(byKey[key], key, name, volume)).join("")}
+    </fieldset>`).join("") + (own.length ? `
+    <fieldset class="picker-section"><legend>Your own</legend>${own.map((t) => box(t, null, t.name, t.volumeBbl)).join("")}</fieldset>` : "");
+  document.getElementById("package-type-count").textContent = `${activePackageTypes().length} in use`;
+  document.getElementById("package-types-note").hidden = allowed;
+  document.getElementById("own-package-form").hidden = !allowed;
+}
+
+document.getElementById("package-type-picker").addEventListener("change", async (e) => {
+  const input = e.target.closest("input[type=checkbox]");
+  if (!input) return;
+  const key = input.dataset.packageKey;
+  const existing = key ? data.packageTypes.find((t) => t.catalogKey === key) : data.packageTypes.find((t) => t.id === input.dataset.packageId);
+  await save(async () => {
+    if (existing) {
+      await must(db.from("package_types").update({ active: input.checked }).eq("id", existing.id).select("id"));
+    } else {
+      const group = PACKAGE_CATALOG.find((g) => g.items.some(([k]) => k === key));
+      const [, name, volume] = group.items.find(([k]) => k === key);
+      await must(db.from("package_types").insert({ brewery_id: brewery.id, name, volume_bbl: volume, kind: group.kind, catalog_key: key }));
+    }
+  });
+  await refresh().catch(() => {});
+});
+document.getElementById("package-type-picker").addEventListener("click", async (e) => {
+  const button = e.target.closest("[data-rename-package]");
+  if (!button) return;
+  const type = data.packageTypes.find((t) => t.id === button.dataset.renamePackage);
+  const name = prompt("Name for this package type:", type.name)?.trim();
+  if (!name || name === type.name) return;
+  await save(() => must(db.from("package_types").update({ name }).eq("id", type.id).select("id")));
+});
+
+const ownPackageForm = document.getElementById("own-package-form");
+const PER_UNIT = { gal: GAL, l: LITER, oz: FL_OZ, ml: LITER / 1000, impgal: IMP_GAL, bbl: 1 };
+ownPackageForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const f = ownPackageForm;
+  const volume = Number(f.volume.value) * PER_UNIT[f.unit.value] * Math.max(1, Number(f.per.value) || 1);
+  if (!(volume > 0)) return;
+  const name = f.name.value.trim();
+  if (data.packageTypes.some((t) => t.name.toLowerCase() === name.toLowerCase())) {
+    alert(`There's already a package type called "${name}".`);
+    return;
+  }
+  const ok = await save(() => must(db.from("package_types").insert({ brewery_id: brewery.id, name, volume_bbl: volume, kind: f.kind.value })));
+  if (ok) { f.reset(); f.per.value = 1; }
+});
+
+// ----- A packaging run -----
+const packageDialog = document.getElementById("package-editor");
+const packageForm = document.getElementById("package-form");
+
+function openPackageEditor() {
+  const b = viewingBatch();
+  document.getElementById("package-title").textContent = `Package ${beerName(b)} ${batchLabel(b)} from ${tankName(b.tankId)}`;
+  packageForm.reset();
+  packageForm.occurredOn.value = today();
+  const types = activePackageTypes();
+  document.getElementById("package-rows").innerHTML = types.length
+    ? types.map((t) => `<label class="package-row"><span>${esc(t.name)} <span class="muted">${packageSize(t.volumeBbl)}</span></span>
+        <input type="number" min="0" step="any" inputmode="decimal" placeholder="0" data-package-type="${t.id}" aria-label="How many ${esc(t.name)}"></label>`).join("")
+    : `<p class="muted">No package types are ticked yet (Settings → Packages).</p>`;
+  updatePackageSummary();
+  packageDialog.showModal();
+}
+document.getElementById("bv-package").addEventListener("click", openPackageEditor);
+
+// The counts typed so far, and what they add up to
+function packageCounts() {
+  return [...packageForm.querySelectorAll("[data-package-type]")]
+    .map((input) => ({ type: input.dataset.packageType, count: Number(input.value) || 0 }))
+    .filter((c) => c.count > 0);
+}
+const countsVolume = (counts) => counts.reduce((sum, c) => sum + c.count * (data.packageTypes.find((t) => t.id === c.type)?.volumeBbl || 0), 0);
+
+function updatePackageSummary() {
+  const b = viewingBatch();
+  const inTank = tankBalance(b.id, b.tankId);
+  const filled = countsVolume(packageCounts());
+  const left = inTank == null ? null : inTank - filled;
+  const tank = tankName(b.tankId);
+  document.getElementById("package-summary").textContent = filled
+    ? `= ${showUnit("volume", filled)}${left != null ? ` · about ${showUnit("volume", Math.max(0, left))} left in ${tank}` : ""}`
+    : inTank != null ? `${tank} has about ${showUnit("volume", inTank)}.` : `${tank}: volume not recorded.`;
+  // The calculator: what's left fills about this many of each package
+  const fits = left > 0 ? activePackageTypes().slice(0, 4).map((t) => `${Math.floor(left / t.volumeBbl)} × ${t.name}`) : [];
+  document.getElementById("package-fits").textContent = fits.length ? `What's left fills about: ${fits.join(", ")}.` : "";
+  const spent = packageForm.spent.value === "yes";
+  document.getElementById("package-spent-note").textContent = !spent ? "The rest stays in the tank for another run."
+    : left == null ? "The batch is packaged and the tank goes to cleaning."
+    : left > 0.0001 ? `The remaining ${showUnit("volume", left)} is recorded as loss, the batch is packaged, and the tank goes to cleaning.`
+    : left < -0.0001 ? `That's ${showUnit("volume", -left)} more than was on record; it's noted as a correction.`
+    : "The batch is packaged and the tank goes to cleaning.";
+}
+packageForm.addEventListener("input", updatePackageSummary);
+packageForm.addEventListener("change", updatePackageSummary);
+
+packageForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const b = viewingBatch();
+  const counts = packageCounts();
+  const spent = packageForm.spent.value === "yes";
+  if (!counts.length && !spent) { alert("Enter how many of each package were filled."); return; }
+  if (spent) {
+    // A big leftover is probably something not entered: ask before recording it as loss
+    const inTank = tankBalance(b.id, b.tankId);
+    const left = inTank == null ? null : inTank - countsVolume(counts);
+    if (left != null && inTank > 0 && left > inTank * 0.1 &&
+        !confirm(`${showUnit("volume", left)} is unaccounted for. Record it as loss and close ${tankName(b.tankId)}? (Cancel to go back and check the counts.)`)) return;
+  }
+  const filled = countsVolume(counts);
+  const ok = await saveOrKeep("package", {
+    p_id: newId(), p_brewery_id: brewery.id, p_batch_id: b.id, p_tank_id: b.tankId, p_occurred_on: packageForm.occurredOn.value,
+    p_counts: counts, p_spent: spent, p_notes: packageForm.notes.value.trim(),
+  }, `${beerName(b)} ${batchLabel(b)}: packaged ${showUnit("volume", filled)}${spent ? ", tank spent" : ""}`);
+  if (ok) packageDialog.close();
+});
+
 // ----- A batch's numbers: OG, gravity now, ABV, attenuation, and the fermentation chart -----
 // OG: the tank sample (taken once every turn is in the tank; the last turn's is the whole tank) if
 // recorded, otherwise the average of the turns' knockout gravities. Nothing here is stored: it's
@@ -2765,7 +2976,11 @@ function movementText(m) {
   switch (m.kind) {
     case "knockout": return `${amount} knocked out into ${to}${m.volumeBbl == null && v != null ? ` <span class="muted">(from the brew sheet or batch size)</span>` : ""}`;
     case "transfer": return `${amount} moved ${from} → ${to}`;
-    case "package": return `${amount} packaged from ${from}`;
+    case "package": {
+      const counts = (data.packageCounts || []).filter((c) => c.movementId === m.id).map((c) =>
+        `${+c.count.toFixed(2)} × ${esc(data.packageTypes.find((t) => t.id === c.packageTypeId)?.name ?? "package")}`);
+      return `${amount} packaged from ${from}${counts.length ? ` <span class="muted">(${counts.join(", ")})</span>` : ""}${note}`;
+    }
     case "served": return `${amount} served from ${from}`;
     case "loss": return `${amount} lost from ${from}${note}`;
     default: return `${amount} ${to ? "added to " + to : "taken out of " + from} as a correction${note}`;
@@ -2793,6 +3008,7 @@ function renderBatchView() {
   const inTank = isInTank(b);
   document.getElementById("bv-log").hidden = !can("cellar_log") || !inTank;
   document.getElementById("bv-add").hidden = !can("cellar_log") || !inTank;
+  document.getElementById("bv-package").hidden = !can("package") || !inTank;
 
   // Cellar log, newest first
   const canLog = can("cellar_log");

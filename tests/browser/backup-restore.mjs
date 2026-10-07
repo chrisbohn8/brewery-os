@@ -34,7 +34,7 @@ async function signIn(email) {
   return page;
 }
 const counts = (page) => page.evaluate(() => ({
-  tanks: data.tanks.length, batches: data.batches.length, events: data.events.length, movements: data.movements.length,
+  tanks: data.tanks.length, batches: data.batches.length, events: data.events.length, movements: data.movements.length, packageCounts: data.packageCounts.length,
   cellar: data.cellar.length, additions: data.additions.length, readings: data.readings.length,
   ownFields: (brewery.sheetCustomFields || []).length, sheetFields: (brewery.sheetFields || []).length,
 }));
