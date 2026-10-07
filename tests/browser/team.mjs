@@ -2,6 +2,7 @@
 // batches; the admin adjusts that one person ("just them") and then a whole level ("everyone at
 // Cellar"); the last admin can't step down; switching breweries; removing people.
 // Real Chrome against the local Supabase test copy (served by the preview server on port 8123).
+import { createServer } from "node:http";
 import { chromium } from "playwright-core";
 import { settings, floor, openBatchForm } from "./helpers.mjs";
 
@@ -14,6 +15,18 @@ const CREW = `cellar-${run}@example.test`;   // a brand-new cellar person
 const fails = [];
 const check = (ok, msg) => { console.log(ok ? "  PASS" : "  FAIL", msg); if (!ok) fails.push(msg); };
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// A stand-in for the email service: the local send-invite function "sends" here
+// (see supabase/functions/.env), so the test can read the invite email without sending one
+const sentEmails = [];
+const fakeEmail = createServer((req, res) => {
+  let body = "";
+  req.on("data", (c) => { body += c; });
+  req.on("end", () => {
+    sentEmails.push({ auth: req.headers.authorization, ...JSON.parse(body || "{}") });
+    res.writeHead(200, { "Content-Type": "application/json" }).end('{"id":"fake"}');
+  });
+}).listen(54399);
 
 const browser = await chromium.launch({ executablePath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", headless: true });
 
@@ -86,6 +99,19 @@ try {
   await admin.click("#invite-form button[type=submit]");
   await settle(admin);
   check((await admin.textContent("#invite-list")).includes(CREW), "the invite is listed");
+  await admin.waitForFunction(() => /Emailed|couldn't|aren't/.test(document.getElementById("invite-message").textContent), null, { timeout: 20000 });
+  check((await admin.textContent("#invite-message")).startsWith(`Emailed ${CREW}`), `message: "${await admin.textContent("#invite-message")}"`);
+  const email = sentEmails.find((m) => m.to?.[0] === CREW);
+  check(!!email && email.subject === "You're invited to join Example Brewing on Brewery OS", `email sent: "${email?.subject}"`);
+  check(email?.text.includes(`${ADMIN} invited you`) && email.text.includes("as Cellar") && email.text.includes(`sign in with this email address (${CREW})`),
+    "it says who invited them, the level, and which address to sign in with");
+  check(email?.reply_to === ADMIN, "replies go to the admin who invited");
+  await admin.waitForFunction(() => document.getElementById("invite-list").textContent.includes("emailed"));
+  check((await admin.textContent("#invite-list")).includes("Email again"), "the invite shows it was emailed, with 'Email again'");
+  const before = sentEmails.length;
+  await admin.click("[data-email-invite]");
+  await admin.waitForFunction(() => /moment ago/.test(document.getElementById("invite-message").textContent), null, { timeout: 20000 });
+  check(sentEmails.length === before, "a second email right away is held back (a double tap doesn't send twice)");
 
   console.log("2. The cellar person can move beer but not start batches or change setup");
   const crew = await person(CREW);
@@ -107,6 +133,13 @@ try {
   check(!(await crew.isVisible("#invite-form")), "no invite form");
   check(await crew.isDisabled('#levels-table input >> nth=0'), "can see what levels include, but not change them");
   await floor(crew);
+
+  const inviteToken = await crew.evaluate(async () => (await db.auth.getSession()).data.session.access_token);
+  const sneaky = await fetch("http://127.0.0.1:54321/functions/v1/send-invite", {
+    method: "POST", headers: { Authorization: `Bearer ${inviteToken}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ inviteId: crypto.randomUUID() }),
+  });
+  check(sneaky.status === 404, `someone who isn't an admin can't send invite emails (${sneaky.status})`);
 
   console.log("3. The admin removes packaging for just this person");
   await admin.reload();
@@ -183,6 +216,7 @@ try {
   }
 } finally {
   await browser.close();
+  fakeEmail.close();
 }
 console.log(fails.length ? `\n${fails.length} FAILED` : "\nALL PASSED");
 process.exit(fails.length ? 1 : 0);

@@ -151,7 +151,7 @@ These shape every decision, even for features that come later:
 
 ### Accounts, breweries, and team
 - Sign in by email code or link; no passwords. Sign-in emails come from `noreply@brew.chrisbohn.org`.
-- **Invite coworkers:** in the Team section, an admin enters a coworker's email and picks a role. The coworker opens the app and signs in with that email; they join the brewery automatically. (The app doesn't email the invite yet; tell them to sign in.)
+- **Invite coworkers:** in the Team section, an admin enters a coworker's email and picks a role. The coworker opens the app and signs in with that email; they join the brewery automatically. **The invite is emailed** to them (who invited them, the brewery, the level, and which address to sign in with), sent by a small server function ([supabase/functions/send-invite](supabase/functions/send-invite/index.ts)) that only a brewery's admins can use. "Email again" resends it.
 - Admins change levels and remove people from Team & permissions. A brewery always keeps at least one admin: the database refuses to remove or demote the last one.
 - Someone who belongs to more than one brewery picks which one to work in under Account; the choice is remembered.
 - Each brewery's data is kept completely separate by the database itself (row-level security), and roles control who can change things: **admin**, **brewer**, and **viewer** (read-only).
@@ -291,10 +291,9 @@ BATCH EVENT  (the batch's history: rows are only ever added)
 These are the reasons it isn't production-ready yet:
 
 1. **Setup changes need a connection.** Floor work (batches, tanks, acid) works offline; adding or deleting beers, locations, and tanks doesn't yet.
-2. **Invites aren't emailed.** The admin tells the coworker to sign in; the app doesn't send an invite email yet.
-3. **Pop-up messages** ("Are you sure?") use the browser's built-in boxes, which some apps block. They'll move onto the page.
-4. **No measurements yet:** gravity, temperature, pH, and actual ABV.
-5. **Packaging is only a stage.** It doesn't record yield, package counts, or losses.
+2. **Pop-up messages** ("Are you sure?") use the browser's built-in boxes, which some apps block. They'll move onto the page.
+3. **No actual ABV yet,** and no fermentation chart; readings are recorded but not yet compared over time.
+4. **Packaging is only a stage.** It doesn't record yield, package counts, or losses.
 
 ---
 
@@ -343,7 +342,7 @@ Turns the prototype into something a brewery can rely on.
 - [x] **Sign-in** by emailed code or link, and **roles** (admin, brewer, viewer) enforced by the database.
 - [x] **Invite coworkers** to a brewery, and let admins change roles (the last admin can't be removed).
 - [x] **A dedicated email service** for sign-in codes (Resend, from `noreply@brew.chrisbohn.org`).
-- [ ] **Email the invite** to the coworker automatically (needs a small server function).
+- [x] **Email the invite** to the coworker automatically (a small server function; needs the email service key set once).
 - [ ] **QR codes work on any phone** (now possible: every batch lives in the shared database).
 - [x] **Move existing data in** from a backup file or from the browser-only version.
 - [x] **Saving a batch is one all-or-nothing step** (batch, history, and tanks together).

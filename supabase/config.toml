@@ -460,3 +460,8 @@ enabled = true
 [remotes.production.storage.analytics]
 enabled = true
 max_namespaces = 10
+
+# Invite emails. Who may send one is checked by the database (the function reads the invite
+# with the caller's own sign-in), so the gateway's own token check isn't needed.
+[functions.send-invite]
+verify_jwt = false

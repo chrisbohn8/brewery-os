@@ -384,7 +384,7 @@ async function loadAll() {
       amount: num(a.amount), unit: a.unit, timing: a.timing, lot: a.lot, notes: a.notes, recordedAt: a.recorded_at,
     })),
     permissions,
-    invites: invites.map((i) => ({ id: i.id, email: i.email, role: i.role })),
+    invites: invites.map((i) => ({ id: i.id, email: i.email, role: i.role, emailedAt: i.emailed_at })),
   };
   data = withWaitingChanges(serverData);
   brewery.prefs = serverData.prefs;
@@ -2192,8 +2192,9 @@ function renderTeam() {
   document.getElementById("invite-heading").hidden = !invites.length;
   document.getElementById("invite-list").innerHTML = invites.map((i) => `
     <li class="item">
-      <span class="who">${esc(i.email)} <span class="muted">· ${labelFrom(ROLES, i.role)}</span></span>
-      <button class="btn small" data-cancel-invite="${i.id}">Cancel</button>
+      <span class="who">${esc(i.email)} <span class="muted">· ${labelFrom(ROLES, i.role)}${i.emailedAt ? ` · emailed ${new Date(i.emailedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}` : " · not emailed"}</span></span>
+      <span class="actions"><button class="btn small" data-email-invite="${i.id}">${i.emailedAt ? "Email again" : "Email"}</button>
+      <button class="btn small" data-cancel-invite="${i.id}">Cancel</button></span>
     </li>`).join("");
 
   // Levels table: a row per permission, a column per level (admin column always all ticked)
@@ -2234,16 +2235,45 @@ inviteForm.addEventListener("submit", async (e) => {
     inviteMessage(`${email} has already been invited.`);
     return;
   }
-  const ok = await save(() => must(db.from("invites").insert({ brewery_id: brewery.id, email, role })));
+  const id = newId();
+  const ok = await save(() => must(db.from("invites").insert({ id, brewery_id: brewery.id, email, role })));
   if (!ok) return;
   inviteForm.reset();
-  inviteMessage(`Invited ${email} as ${labelFrom(ROLES, role).toLowerCase()}. ` +
-    `Ask them to open ${location.host} and sign in with that email; they'll join ${brewery.name} automatically.`);
+  inviteMessage(`Invited ${email} as ${labelFrom(ROLES, role).toLowerCase()}. Sending the email…`);
+  await emailInvite(id, email);
 });
+
+// Email an invite (see supabase/functions/send-invite). If the email can't go out, the invite still
+// stands: the person can open the app and sign in with that address, and the message says so.
+async function emailInvite(inviteId, email) {
+  const fallback = `Ask them to open ${location.host} and sign in with ${email}; they'll join ${brewery.name} automatically.`;
+  let problem = null;
+  try {
+    const { data: result, error } = await db.functions.invoke("send-invite", { body: { inviteId } });
+    if (error) {
+      // The function's own explanation, when it gave one
+      const body = await error.context?.json?.().catch(() => null);
+      problem = body?.error || (isConnectionProblem(error) ? "No signal." : "The email couldn't be sent.");
+    } else if (!result?.sent) {
+      problem = "The email couldn't be sent.";
+    }
+  } catch (e) {
+    problem = isConnectionProblem(e) ? "No signal." : "The email couldn't be sent.";
+  }
+  inviteMessage(problem ? `${problem} The invite is saved. ${fallback}` : `Emailed ${email} an invite to join ${brewery.name}.`);
+  await refresh().catch(() => {});
+}
 
 document.getElementById("team").addEventListener("click", async (e) => {
   const member = e.target.closest("[data-member]");
   const cancel = e.target.closest("[data-cancel-invite]");
+  const resend = e.target.closest("[data-email-invite]");
+  if (resend) {
+    const invite = data.invites.find((i) => i.id === resend.dataset.emailInvite);
+    resend.disabled = true;
+    inviteMessage(`Sending the email to ${invite.email}…`);
+    await emailInvite(invite.id, invite.email);
+  }
   if (member) openMemberEditor(member.dataset.member);
   if (cancel) {
     const ok = await save(() => must(db.from("invites").delete().eq("id", cancel.dataset.cancelInvite)));
