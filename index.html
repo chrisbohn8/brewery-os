@@ -201,6 +201,14 @@
       <label>Time zone
         <select name="timeZone"></select>
       </label>
+      <fieldset class="limits">
+        <legend>Flag brew-day values far from target</legend>
+        <p class="muted">How far a value can be from its target before the brew-day sheet highlights it ("Typo?"). Leave a box empty to turn that flag off.</p>
+        <label>Gravity, within ±<span class="unit-pair"><input name="limit_gravity" type="number" step="any" min="0" inputmode="decimal"> <span id="limit-unit-gravity"></span></span></label>
+        <label>Temperature, within ±<span class="unit-pair"><input name="limit_temperature" type="number" step="any" min="0" inputmode="decimal"> <span id="limit-unit-temperature"></span></span></label>
+        <label>pH, within ±<span class="unit-pair"><input name="limit_ph" type="number" step="any" min="0" inputmode="decimal"> <span id="limit-unit-ph"></span></span></label>
+        <label>Volumes and other amounts, within ±<span class="unit-pair"><input name="limit_amount" type="number" step="any" min="0" inputmode="decimal"> <span id="limit-unit-amount"></span></span></label>
+      </fieldset>
       <button type="submit" class="btn" id="save-settings">Save settings</button>
     </form>
     <p class="muted">Changing a unit only changes how numbers are shown and typed; nothing already recorded changes.

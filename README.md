@@ -106,7 +106,7 @@ These shape every decision, even for features that come later:
 - **Targets show next to each field**: fixed ones from the sheet (sparge 168 °F, pH ranges), the brewhouse's (flow, kettle full), and the beer's OG for knockout and tank-sample gravity.
 - **Water worked out from grist weight** with the brewhouse settings: mash water = grist × water-to-grist ÷ 4; total = kettle full × 31 + grist × grain absorption; sparge = total − mash.
 - **Flow meter fields** take the start and end readings and save the difference.
-- **Each value saves as soon as you leave its box**, also with no signal. Values far from their target are highlighted ("Typo?"). Corrections keep the earlier value in the database's history.
+- **Each value saves as soon as you leave its box**, also with no signal. Values far from their target are highlighted ("Typo?"); how far is adjustable in Settings → Brewery (by default 1 °P, 3 °F, 0.15 pH, 10% for volumes), and each flag can be turned off. Corrections keep the earlier value in the database's history.
 
 ### Batch history
 - Every stage change and transfer is recorded with its date. Nothing is overwritten, so the records show where each batch has been, not just where it is.
@@ -202,7 +202,7 @@ The first runs the tests on the local copy (add `--linked` to run them on the re
 Browser tests (need Google Chrome, Node.js, and the local test copy running):
 
 ```bash
-cd tests/browser && npm ci && npm test
+cd tests/browser && npm ci && npm run setup && npm test   # setup: test breweries in the local copy (once after a reset)
 ```
 
 ### Deploying

@@ -6,7 +6,7 @@ set local role postgres;
 create extension if not exists pgtap with schema extensions;
 set search_path = public, extensions;
 
-select plan(6);
+select plan(9);
 
 insert into auth.users (id, email) values
   ('00000000-0000-0000-0000-0000000000a2', 'admin@example.test'),
@@ -31,13 +31,18 @@ select is((select temperature_unit || '/' || gravity_unit || '/' || volume_unit 
 
 select throws_ok($$ update breweries set gravity_unit = 'baume' $$, '23514', null, 'only known units are accepted');
 
+select is((select target_limits->>'gravity' from breweries), '0.004', 'a new brewery starts with the usual target limits');
+update breweries set target_limits = '{"gravity": 0.002, "temperature": null, "ph": 0.1, "amount": 0.05}';
+select is((select target_limits->>'ph' from breweries), '0.1', 'the admin can change the target limits');
+
 -- A brewer can see the preferences but not change them
 set local role postgres;
 insert into memberships (brewery_id, user_id, role) select brewery_id, '00000000-0000-0000-0000-0000000000b2', 'brewer' from ids;
 select pg_temp.act_as('00000000-0000-0000-0000-0000000000b2');
 select is((select gravity_unit from breweries), 'sg', 'a brewer can see the preferences');
 select throws_ok($$ update breweries set gravity_unit = 'plato' $$, '42501',
-  'You don''t have permission to change units or the time zone.', 'but a brewer can''t change them');
+  'You don''t have permission to change units, the time zone, or target limits.', 'but a brewer can''t change them');
+select throws_ok($$ update breweries set target_limits = '{}' $$, '42501', null, 'or the target limits');
 
 -- Someone outside the brewery sees nothing
 select pg_temp.act_as('00000000-0000-0000-0000-0000000000d2');

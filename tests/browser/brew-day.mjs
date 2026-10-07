@@ -193,6 +193,35 @@ try {
   await page.click("#bv-sheet-back");
   check(await page.isVisible("#bv-main") && await page.isHidden("#bv-brewday"), "back to the batch page");
   check(!(await page.evaluate(() => document.getElementById("sync-problems").hidden === false)), "nothing was refused");
+
+  console.log("10. The 'far from target' limits are adjustable (Settings → Brewery)");
+  const limit = (k) => page.inputValue(`#settings-form [name="limit_${k}"]`);
+  await settings(page, "brewery");
+  check([await limit("gravity"), await limit("temperature"), await limit("ph"), await limit("amount")].join(" ") === "1 3 0.15 10",
+    `defaults shown in °P / °F / pH / %: ${await limit("gravity")} ${await limit("temperature")} ${await limit("ph")} ${await limit("amount")}`);
+  await page.fill('#settings-form [name="limit_gravity"]', "0.5");
+  await page.fill('#settings-form [name="limit_temperature"]', "");
+  await page.click("#save-settings");
+  await allSent();
+  const limits = await page.evaluate(() => prefs().targetLimits);
+  check(limits.gravity === 0.002 && limits.temperature === null && limits.ph === 0.15, `saved in standard units: ${JSON.stringify(limits)}`);
+  await floor(page);
+  await page.click(`.card[data-tank="${tankId}"]`);
+  await page.waitForSelector("#batch-view:not([hidden])");
+  await page.click("#bv-sheet");
+  const targetP = await page.evaluate((og) => toShown("gravity", og), beer.targetOg);
+  await enter("tank_sample_gravity", (targetP + 0.8).toFixed(1));
+  await enter("end_sparge_temp", "190"); // no target, but check a targeted one too
+  await enter("sparge_temp", "180");
+  await allSent();
+  check((await row("tank_sample_gravity").getAttribute("class")).includes("off-target"), "0.8 °P off is flagged with a 0.5 °P limit");
+  check(!(await row("sparge_temp").getAttribute("class")).includes("off-target"), "temperature flag turned off: 180 °F sparge not flagged");
+  await settings(page, "brewery");
+  await page.fill('#settings-form [name="limit_gravity"]', "1");
+  await page.fill('#settings-form [name="limit_temperature"]', "3");
+  await page.click("#save-settings");
+  await allSent();
+  check(Math.abs((await page.evaluate(() => prefs().targetLimits.temperature)) - 5 / 3) < 1e-9, "set back to 3 °F");
   check(errors.length === 0, `no page errors (${errors.join("; ")})`);
 } catch (e) {
   fails.push("crashed: " + e.message);

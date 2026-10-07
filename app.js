@@ -106,7 +106,10 @@ function abv(og, fg) {
 // Every value is STORED in one standard unit: gravity as SG, temperature as °C, volume as
 // US barrels. Each brewery picks the units it reads and types in (Brewery settings), and
 // these helpers convert at the screen. Changing a preference never changes a record.
-const DEFAULT_PREFS = { temperatureUnit: "F", gravityUnit: "plato", volumeUnit: "bbl", timeZone: "America/Chicago" };
+const DEFAULT_PREFS = {
+  temperatureUnit: "F", gravityUnit: "plato", volumeUnit: "bbl", timeZone: "America/Chicago",
+  targetLimits: { gravity: 0.004, temperature: 1.6667, ph: 0.15, amount: 0.1 },
+};
 const UNIT_INFO = {
   gravity: {
     plato: { label: "°P", decimals: 1, step: 0.1 },
@@ -314,7 +317,7 @@ async function loadAll() {
     must(db.from("batch_status").select("*").eq("brewery_id", b)),
     must(db.from("batch_events").select("*").eq("brewery_id", b).order("effective_date").order("recorded_at")),
     must(db.from("tank_cleanings").select("*").eq("brewery_id", b).order("cleaned_on").order("recorded_at")),
-    must(db.from("breweries").select("acid_after_styles, temperature_unit, gravity_unit, volume_unit, time_zone").eq("id", b).single()),
+    must(db.from("breweries").select("acid_after_styles, temperature_unit, gravity_unit, volume_unit, time_zone, target_limits").eq("id", b).single()),
     must(db.rpc("brewery_members", { p_brewery_id: b })),
     must(db.from("invites").select("*").eq("brewery_id", b).order("created_at")), // admins only; others get none
     must(db.rpc("my_permissions", { b })),
@@ -358,7 +361,7 @@ async function loadAll() {
     acidAfterStyles: settings.acid_after_styles,
     prefs: {
       temperatureUnit: settings.temperature_unit, gravityUnit: settings.gravity_unit,
-      volumeUnit: settings.volume_unit, timeZone: settings.time_zone,
+      volumeUnit: settings.volume_unit, timeZone: settings.time_zone, targetLimits: settings.target_limits,
     },
     members: members.map((m) => ({
       userId: m.user_id, email: m.email, role: m.role,
@@ -1886,7 +1889,7 @@ const PERMISSIONS = [
   { id: "manage_beers",     label: "Beers and recipes" },
   { id: "manage_equipment", label: "Tanks and locations" },
   { id: "manage_cleaning",  label: "Acid rules" },
-  { id: "manage_settings",  label: "Units and time zone" },
+  { id: "manage_settings",  label: "Units, time zone, and target limits" },
   { id: "rename_brewery",   label: "Rename the brewery" },
   { id: "backups",          label: "Download and load backups" },
   { id: "delete_records",   label: "Delete batches, beers, tanks, and locations" },
@@ -1976,6 +1979,31 @@ const breweryNameForm = document.getElementById("brewery-name-form");
 const TIME_ZONES = (Intl.supportedValuesOf?.("timeZone") || [DEFAULT_PREFS.timeZone]);
 settingsForm.timeZone.innerHTML = TIME_ZONES.map((z) => `<option value="${z}">${z.replace(/_/g, " ")}</option>`).join("");
 
+// "Far from target" limits, shown in the brewery's units. Stored in standard units (see
+// supabase/migrations/..._target_limits.sql); a blank box means "don't flag that kind of reading".
+// Differences convert without the offsets units have: 1 °C apart = 1.8 °F apart, and
+// 0.004 SG apart is about 1 °P (or 1 °Bx) apart.
+const LIMIT_KINDS = [
+  { key: "gravity", unit: () => ({ sg: "SG", plato: "°P", brix: "°Bx" })[prefs().gravityUnit],
+    toShown: (v) => (prefs().gravityUnit === "sg" ? v : v * 250), fromShown: (v) => (prefs().gravityUnit === "sg" ? v : v / 250) },
+  { key: "temperature", unit: () => `°${prefs().temperatureUnit}`,
+    toShown: (v) => (prefs().temperatureUnit === "F" ? v * 1.8 : v), fromShown: (v) => (prefs().temperatureUnit === "F" ? v / 1.8 : v) },
+  { key: "ph", unit: () => "pH", toShown: (v) => v, fromShown: (v) => v },
+  { key: "amount", unit: () => "%", toShown: (v) => v * 100, fromShown: (v) => v / 100 },
+];
+function limitShown(kind, stored) {
+  return stored == null ? "" : String(+kind.toShown(stored).toFixed(prefs().gravityUnit === "sg" && kind.key === "gravity" ? 4 : 2));
+}
+function readLimits() {
+  const limits = { ...prefs().targetLimits };
+  for (const kind of LIMIT_KINDS) {
+    const input = settingsForm[`limit_${kind.key}`];
+    if (input.value === input.dataset.shown) continue; // unchanged: keep the exact stored value
+    limits[kind.key] = input.value === "" ? null : Math.abs(kind.fromShown(Number(input.value)));
+  }
+  return limits;
+}
+
 function renderSettings() {
   const p = prefs();
   const allowed = can("manage_settings");
@@ -1986,6 +2014,12 @@ function renderSettings() {
     settingsForm.timeZone.insertAdjacentHTML("afterbegin", `<option value="${esc(p.timeZone)}">${esc(p.timeZone)}</option>`);
   }
   settingsForm.timeZone.value = p.timeZone;
+  for (const kind of LIMIT_KINDS) {
+    const input = settingsForm[`limit_${kind.key}`];
+    input.value = limitShown(kind, p.targetLimits[kind.key]);
+    input.dataset.shown = input.value; // to tell later whether it was changed
+    document.getElementById(`limit-unit-${kind.key}`).textContent = kind.unit();
+  }
   for (const el of settingsForm.elements) el.disabled = !allowed;
   document.getElementById("save-settings").hidden = !allowed;
   document.getElementById("settings-admin-note").hidden = allowed;
@@ -2003,8 +2037,9 @@ settingsForm.addEventListener("submit", async (e) => {
       gravity_unit: settingsForm.gravityUnit.value,
       volume_unit: settingsForm.volumeUnit.value,
       time_zone: settingsForm.timeZone.value,
+      target_limits: readLimits(),
     }).eq("id", brewery.id).select("id"));
-    if (!saved.length) throw new Error("You don't have permission to change the units.");
+    if (!saved.length) throw new Error("You don't have permission to change these settings.");
   });
 });
 
@@ -2409,8 +2444,8 @@ const SHEET = [
 const SHEET_FIELDS = SHEET.flatMap((section) => section.fields);
 const UNIT_TYPES = ["temperature", "gravity", "volume"];
 
-// How far from a target counts as "far" (standard units; volumes are a share), to catch typos without nagging
-const TOLERANCE = { gravity: 0.004, temperature: 1.7, ph: 0.15, number: 0.1, volume: 0.1, meter: 0.1 };
+// Which of the brewery's "far from target" limits applies to each kind of field (Settings → Brewery)
+const LIMIT_FOR = { gravity: "gravity", temperature: "temperature", ph: "ph", volume: "amount", meter: "amount", number: "amount" };
 
 let sheetTurn = 1;
 
@@ -2459,8 +2494,10 @@ function targetText(field, target) {
 
 function isOffTarget(field, target, value) {
   if (!target || target.text || value == null) return false;
-  const tol = TOLERANCE[field.type] ?? 0;
-  const slack = (v) => (field.type === "volume" || field.type === "meter" ? Math.abs(v) * tol : tol);
+  const limit = prefs().targetLimits?.[LIMIT_FOR[field.type]];
+  if (limit == null) return false; // the brewery turned this flag off
+  // Amounts (volumes and the like) allow a share of the target; readings a fixed difference
+  const slack = (v) => (LIMIT_FOR[field.type] === "amount" ? Math.abs(v) * limit : limit);
   return (target.min != null && value < target.min - slack(target.min)) ||
          (target.max != null && value > target.max + slack(target.max));
 }
