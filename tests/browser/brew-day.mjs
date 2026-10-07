@@ -232,7 +232,7 @@ try {
   await page.waitForFunction(() => window.printed === 1);
   const sheetText = await text("#print-sheet");
   check(sheetText.includes(`D${run}`) && sheetText.includes(tankName), "header shows the batch and tank");
-  check(await page.locator("#print-sheet table").first().locator("th.box").count() === 3, "a column of boxes for each of the 3 turns");
+  check(await page.locator("#print-sheet table", { hasText: "Mash temp" }).locator("th.box").count() === 3, "a column of boxes for each of the 3 turns");
   check(await page.evaluate(() => document.querySelector("#print-sheet").classList.contains("one-column")), "3 turns: one column, so the boxes fit");
   const boxes = await page.evaluate(() => [...document.querySelectorAll("#print-sheet tr")].find((r) => r.textContent.includes("Grist weight"))
     .querySelectorAll("td.box")).then(() => page.evaluate(() => [...[...document.querySelectorAll("#print-sheet tr")]
@@ -251,6 +251,51 @@ try {
   await page.pdf({ path: SHOTS + "brew-sheet.pdf", format: "Letter", printBackground: true });
   await page.emulateMedia({ media: null });
   check(true, "PDF saved (2 turns): tests/browser/shots/brew-sheet.pdf");
+
+  console.log("13. Choosing which fields the brewery measures (Settings → Brew sheet)");
+  await settings(page, "sheet");
+  await page.screenshot({ path: SHOTS + "sheet-picker.png" });
+  const count = () => text("#sheet-field-count");
+  const usualCount = await page.evaluate(() => USUAL_FIELDS.length);
+  check((await count()).startsWith(`${usualCount} of `), `starts with the usual set: "${await count()}"`);
+  check(await page.isDisabled("#save-sheet-fields"), "nothing to save until something changes");
+  await page.check('[data-pick-field="yeast_viability"]');
+  await page.uncheck('[data-pick-field="flow_rate"]');          // never recorded on this batch
+  await page.uncheck('[data-pick-field="mash_strike_temp"]');   // recorded on this batch
+  await page.click('[data-pick-section="Cleaning sign-offs"][data-pick="all"]');
+  check((await count()).startsWith(`${usualCount - 2 + 1 + 6} of `), `count follows the ticks: "${await count()}"`);
+  await page.click("#save-sheet-fields");
+  await allSent();
+  check(await page.evaluate(() => brewery.sheetFields.includes("signoff_kettle") && !brewery.sheetFields.includes("flow_rate")), "saved");
+  await floor(page);
+  await page.click(`.card[data-tank="${tankId}"]`);
+  await page.waitForSelector("#batch-view:not([hidden])");
+  await page.click("#bv-sheet");
+  check(await page.isVisible(box("yeast_viability")) && await page.isVisible(box("signoff_kettle")), "newly ticked fields appear on the sheet");
+  check(!(await page.isVisible(box("flow_rate"))), "an unticked field with nothing recorded is gone");
+  check(await page.isVisible(box("mash_strike_temp")) && (await page.inputValue(box("mash_strike_temp"))) === "165",
+    "an unticked field this batch has a value for still shows (nothing recorded is hidden)");
+  await enter("yeast_viability", "96");
+  await allSent();
+  check((await value(batchId, "yeast_viability", null))?.value === 96, "a newly ticked field saves");
+  await settings(page, "sheet");
+  await page.click("#pick-everything");
+  await page.click("#save-sheet-fields");
+  await allSent();
+  await floor(page);
+  await page.click(`.card[data-tank="${tankId}"]`);
+  await page.waitForSelector("#batch-view:not([hidden])");
+  await page.click("#bv-print");
+  await page.waitForFunction(() => window.printed === 3);
+  await page.emulateMedia({ media: "print" });
+  await page.pdf({ path: SHOTS + "brew-sheet-everything.pdf", format: "Letter", printBackground: true });
+  await page.emulateMedia({ media: null });
+  check(true, "PDF with every field saved: tests/browser/shots/brew-sheet-everything.pdf");
+  await settings(page, "sheet");
+  await page.click("#pick-usual");
+  await page.click("#save-sheet-fields");
+  await allSent();
+  check((await count()).startsWith(`${usualCount} of `), "back to the usual set");
 
   console.log("12. Scanning the QR code opens the batch (signed in)");
   const link = await page.evaluate((id) => `${location.origin}${location.pathname}#batch=${id}`, batchId);

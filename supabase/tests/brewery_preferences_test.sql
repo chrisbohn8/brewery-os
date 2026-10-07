@@ -6,7 +6,7 @@ set local role postgres;
 create extension if not exists pgtap with schema extensions;
 set search_path = public, extensions;
 
-select plan(9);
+select plan(12);
 
 insert into auth.users (id, email) values
   ('00000000-0000-0000-0000-0000000000a2', 'admin@example.test'),
@@ -34,6 +34,9 @@ select throws_ok($$ update breweries set gravity_unit = 'baume' $$, '23514', nul
 select is((select target_limits->>'gravity' from breweries), '0.004', 'a new brewery starts with the usual target limits');
 update breweries set target_limits = '{"gravity": 0.002, "temperature": null, "ph": 0.1, "amount": 0.05}';
 select is((select target_limits->>'ph' from breweries), '0.1', 'the admin can change the target limits');
+select is((select sheet_fields from breweries), null, 'a new brewery uses the usual brew sheet fields');
+update breweries set sheet_fields = array['grist_weight', 'mash_temp', 'mash_ph'];
+select is((select cardinality(sheet_fields) from breweries), 3, 'the admin can choose the brew sheet''s fields');
 
 -- A brewer can see the preferences but not change them
 set local role postgres;
@@ -43,6 +46,8 @@ select is((select gravity_unit from breweries), 'sg', 'a brewer can see the pref
 select throws_ok($$ update breweries set gravity_unit = 'plato' $$, '42501',
   'You don''t have permission to change units, the time zone, or target limits.', 'but a brewer can''t change them');
 select throws_ok($$ update breweries set target_limits = '{}' $$, '42501', null, 'or the target limits');
+select throws_ok($$ update breweries set sheet_fields = null $$, '42501',
+  'You don''t have permission to choose the brew sheet''s fields.', 'or the brew sheet''s fields');
 
 -- Someone outside the brewery sees nothing
 select pg_temp.act_as('00000000-0000-0000-0000-0000000000d2');

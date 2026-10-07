@@ -317,7 +317,7 @@ async function loadAll() {
     must(db.from("batch_status").select("*").eq("brewery_id", b)),
     must(db.from("batch_events").select("*").eq("brewery_id", b).order("effective_date").order("recorded_at")),
     must(db.from("tank_cleanings").select("*").eq("brewery_id", b).order("cleaned_on").order("recorded_at")),
-    must(db.from("breweries").select("acid_after_styles, temperature_unit, gravity_unit, volume_unit, time_zone, target_limits").eq("id", b).single()),
+    must(db.from("breweries").select("acid_after_styles, temperature_unit, gravity_unit, volume_unit, time_zone, target_limits, sheet_fields").eq("id", b).single()),
     must(db.rpc("brewery_members", { p_brewery_id: b })),
     must(db.from("invites").select("*").eq("brewery_id", b).order("created_at")), // admins only; others get none
     must(db.rpc("my_permissions", { b })),
@@ -359,6 +359,7 @@ async function loadAll() {
     })),
     cleanings: cleanings.map((c) => ({ id: c.id, tankId: c.tank_id, cleanedOn: c.cleaned_on, note: c.note })),
     acidAfterStyles: settings.acid_after_styles,
+    sheetFields: settings.sheet_fields,
     prefs: {
       temperatureUnit: settings.temperature_unit, gravityUnit: settings.gravity_unit,
       volumeUnit: settings.volume_unit, timeZone: settings.time_zone, targetLimits: settings.target_limits,
@@ -386,6 +387,7 @@ async function loadAll() {
   };
   data = withWaitingChanges(serverData);
   brewery.prefs = serverData.prefs;
+  brewery.sheetFields = serverData.sheetFields;
   brewery.permissions = serverData.permissions;
   brewery.role = (serverData.members.find((m) => m.email === signedInEmail) || {}).role || brewery.role;
 }
@@ -879,6 +881,7 @@ function render() {
   applyUnitLabels();
   applyPermissions();
   renderSettings();
+  renderSheetPicker();
   renderTeam();
   renderTankList();
   if (viewingBatchId) renderBatchView();
@@ -1890,7 +1893,7 @@ const PERMISSIONS = [
   { id: "manage_beers",     label: "Beers and recipes" },
   { id: "manage_equipment", label: "Tanks and locations" },
   { id: "manage_cleaning",  label: "Acid rules" },
-  { id: "manage_settings",  label: "Units, time zone, and target limits" },
+  { id: "manage_settings",  label: "Units, time zone, targets, and brew sheet fields" },
   { id: "rename_brewery",   label: "Rename the brewery" },
   { id: "backups",          label: "Download and load backups" },
   { id: "delete_records",   label: "Delete batches, beers, tanks, and locations" },
@@ -1970,6 +1973,70 @@ document.getElementById("close-settings").addEventListener("click", () => showSe
 document.getElementById("settings-nav").addEventListener("click", (e) => {
   const button = e.target.closest("[data-page]");
   if (button) showSettings(true, button.dataset.page);
+});
+
+// ----- Brew sheet: which fields this brewery measures -----
+// Ticks are kept here while someone is choosing (so a background refresh doesn't undo them),
+// and saved together with "Save".
+let pickerChoice = null; // a Set of field keys while choosing; null = show what's saved
+
+function fieldMeta(f) {
+  const unit = UNIT_TYPES.includes(f.type) ? UNIT_INFO[f.type][prefs()[`${f.type}Unit`]].label
+    : f.type === "meter" ? "meter start and end" : f.type === "ph" ? "pH" : f.unit || f.type;
+  return [unit, f.hint].filter(Boolean).join(" · ");
+}
+
+function renderSheetPicker() {
+  const allowed = can("manage_settings");
+  const choice = pickerChoice ?? chosenFields();
+  document.getElementById("sheet-field-count").textContent =
+    `${CATALOG_FIELDS.filter((f) => choice.has(f.key)).length} of ${CATALOG_FIELDS.length} fields chosen`;
+  document.getElementById("sheet-field-picker").innerHTML = SHEET_CATALOG.map((section) => `
+    <fieldset class="picker-section">
+      <legend>${section.title} <span class="muted">· ${section.perTurn ? "each turn" : "whole batch"}</span></legend>
+      ${allowed ? `<div class="picker-all"><button type="button" class="link" data-pick-section="${section.title}" data-pick="all">All</button>
+        <button type="button" class="link" data-pick-section="${section.title}" data-pick="none">None</button></div>` : ""}
+      ${section.fields.map((f) => `<label class="pick">
+        <input type="checkbox" data-pick-field="${f.key}" ${choice.has(f.key) ? "checked" : ""} ${allowed ? "" : "disabled"}>
+        <span>${f.label} <span class="muted">${esc(fieldMeta(f))}</span></span></label>`).join("")}
+    </fieldset>`).join("");
+  document.getElementById("sheet-fields-actions").hidden = !allowed;
+  document.getElementById("sheet-fields-note").hidden = allowed;
+  document.getElementById("save-sheet-fields").disabled = !pickerChoice;
+}
+
+document.getElementById("sheet-field-picker").addEventListener("change", (e) => {
+  const box = e.target.closest("[data-pick-field]");
+  if (!box) return;
+  pickerChoice ??= new Set(chosenFields());
+  if (box.checked) pickerChoice.add(box.dataset.pickField); else pickerChoice.delete(box.dataset.pickField);
+  renderSheetPicker();
+});
+document.getElementById("sheet-field-picker").addEventListener("click", (e) => {
+  const button = e.target.closest("[data-pick-section]");
+  if (!button) return;
+  pickerChoice ??= new Set(chosenFields());
+  const section = SHEET_CATALOG.find((s) => s.title === button.dataset.pickSection);
+  for (const f of section.fields) {
+    if (button.dataset.pick === "all") pickerChoice.add(f.key); else pickerChoice.delete(f.key);
+  }
+  renderSheetPicker();
+});
+document.getElementById("pick-usual").addEventListener("click", () => { pickerChoice = new Set(USUAL_FIELDS); renderSheetPicker(); });
+document.getElementById("pick-everything").addEventListener("click", () => {
+  pickerChoice = new Set(CATALOG_FIELDS.map((f) => f.key));
+  renderSheetPicker();
+});
+document.getElementById("save-sheet-fields").addEventListener("click", async () => {
+  if (!pickerChoice) return;
+  // Saved in catalog (paper) order
+  const keys = CATALOG_FIELDS.map((f) => f.key).filter((k) => pickerChoice.has(k));
+  const ok = await save(async () => {
+    const saved = await must(db.from("breweries").update({ sheet_fields: keys }).eq("id", brewery.id).select("id"));
+    if (!saved.length) throw new Error("You don't have permission to choose the brew sheet's fields.");
+  });
+  if (ok) pickerChoice = null;
+  renderSheetPicker();
 });
 
 // ----- Brewery: name, units, and time zone -----
@@ -2381,69 +2448,162 @@ document.getElementById("bv-edit").addEventListener("click", () => {
 });
 
 // ----- The brew-day sheet -----
-// The brewery's sheet: sections of fields, in the same order as the paper sheet, so typing in a
-// filled-in sheet goes top to bottom. (This is the default sheet; breweries will be able to rename,
-// reorder, add, and hide fields later. Readings are stored under each field's key.)
+// Every field a brewery might measure on brew day, in paper order (so typing in a filled-in sheet
+// goes top to bottom). Each brewery picks the ones it measures (Settings → Brew sheet); fields
+// marked `usual` are picked to start with. Readings are stored under each field's key, so keys
+// never change once a brewery may have used them. A field this brewery no longer uses still shows
+// on any batch that has a value for it: nothing recorded is ever hidden.
 //
 // Field types decide how a value is typed, stored, and shown:
 //   temperature, gravity, volume  -> typed in the brewery's units, stored in standard units
 //   ph, number                    -> stored as typed (number fields can name a unit, e.g. "gal/min")
 //   meter                         -> a flow meter's start and end readings (gallons); stores the difference
 //   time                          -> a time of day ("07:05")
-//   text                          -> words
+//   text                          -> words (initials, names, notes)
 //
-// Targets come from the sheet itself (fixed), the location's brewhouse, the beer, or the water math.
+// Targets come from the catalog (fixed), the location's brewhouse, the beer, or the water math.
 // A target is { min, max } in standard units (one or both), or { text } when it's just a note.
 const F_TO_C = (f) => (f - 32) * 5 / 9;
 const exactly = (v) => ({ min: v, max: v });
-const SHEET = [
-  { title: "Mash & runoff", perTurn: true, fields: [
-    { key: "grist_weight", label: "Grist weight", type: "number", unit: "lb" },
-    { key: "flow_rate", label: "Flow rate", type: "number", unit: "gal/min", target: (c) => c.location?.flowTarget ? { text: c.location.flowTarget } : null },
-    { key: "mash_water_volume", label: "Mash water", type: "meter", target: (c) => c.water ? exactly(c.water.mashGal / 31) : null },
-    { key: "mash_strike_temp", label: "Strike temp", type: "temperature" },
-    { key: "mash_temp", label: "Mash temp", type: "temperature" },
-    { key: "vorlauf_start_temp", label: "Vorlauf start temp", type: "temperature" },
-    { key: "vorlauf_end_temp", label: "Vorlauf end temp", type: "temperature" },
-    { key: "sparge_temp", label: "Sparge temp", type: "temperature", target: () => exactly(F_TO_C(168)) },
-    { key: "end_sparge_temp", label: "End of sparge temp", type: "temperature" },
-    { key: "end_sparge_volume", label: "End of sparge volume", type: "meter", target: (c) => c.water?.totalGal ? exactly(c.water.totalGal / 31) : null },
-    { key: "kettle_full_volume", label: "Kettle full volume", type: "volume", target: (c) => c.location?.kettleFullBbl ? exactly(c.location.kettleFullBbl) : null },
+const ogTarget = (c) => (c.beer?.targetOg ? exactly(c.beer.targetOg) : null);
+const range = (min, max) => () => ({ min, max });
+
+// field(key, label, type, extras): extras can hold unit, target, usual (picked to start), hint
+const field = (key, label, type, extras = {}) => ({ key, label, type, ...extras });
+const SHEET_CATALOG = [
+  { title: "Brew day", perTurn: false, column: 1, fields: [
+    field("brewers", "Brewer(s)", "text", { usual: true }),
+    field("assistant_brewers", "Assistant brewer(s)", "text"),
+    field("recipe_version", "Recipe version", "text"),
+    field("grain_lot", "Malt lot(s)", "text", { hint: "for traceability" }),
+    field("water_source", "Water source / filter", "text"),
   ]},
-  { title: "Gravity", perTurn: true, fields: [
-    { key: "first_runnings_gravity", label: "First runnings", type: "gravity" },
-    { key: "final_runnings_gravity", label: "Final runnings", type: "gravity" },
-    { key: "kettle_full_gravity", label: "Kettle full", type: "gravity" },
-    { key: "ko_gravity", label: "Knockout", type: "gravity", target: (c) => c.beer?.targetOg ? exactly(c.beer.targetOg) : null },
-    { key: "tank_sample_gravity", label: "Tank sample", type: "gravity", target: (c) => c.beer?.targetOg ? exactly(c.beer.targetOg) : null },
+  { title: "Water treatment", perTurn: true, column: 1, fields: [
+    field("mash_gypsum", "Gypsum in mash", "number", { unit: "g" }),
+    field("mash_calcium_chloride", "Calcium chloride in mash", "number", { unit: "g" }),
+    field("mash_epsom", "Epsom salt in mash", "number", { unit: "g" }),
+    field("mash_table_salt", "Table salt in mash", "number", { unit: "g" }),
+    field("mash_chalk", "Chalk / baking soda in mash", "number", { unit: "g" }),
+    field("mash_lactic_acid", "Lactic acid in mash", "number", { unit: "mL" }),
+    field("mash_phosphoric_acid", "Phosphoric acid in mash", "number", { unit: "mL" }),
+    field("sparge_acid", "Acid in sparge water", "number", { unit: "mL" }),
+    field("sparge_water_ph", "Sparge water pH", "ph"),
+    field("kettle_salts", "Kettle salts", "text"),
   ]},
-  { title: "pH", perTurn: true, fields: [
-    { key: "first_runnings_ph", label: "First runnings", type: "ph", target: () => ({ min: 5.2, max: 5.4 }) },
-    { key: "final_runnings_ph", label: "Final runnings", type: "ph" },
-    { key: "kettle_full_ph", label: "Kettle full", type: "ph", target: () => ({ min: 5.2, max: 5.3 }) },
-    { key: "ko_ph", label: "Knockout", type: "ph", target: () => ({ min: 4.8, max: 4.9 }) },
-    { key: "tank_sample_ph", label: "Tank sample", type: "ph" },
+  { title: "Mash", perTurn: true, column: 1, fields: [
+    field("grist_weight", "Grist weight", "number", { unit: "lb", usual: true }),
+    field("rice_hulls", "Rice hulls", "number", { unit: "lb" }),
+    field("hlt_temp", "HLT temp", "temperature"),
+    field("mash_water_volume", "Mash water", "meter", { usual: true, target: (c) => (c.water ? exactly(c.water.mashGal / 31) : null) }),
+    field("mash_strike_temp", "Strike temp", "temperature", { usual: true }),
+    field("mash_temp", "Mash temp", "temperature", { usual: true }),
+    field("mash_ph", "Mash pH", "ph", { usual: true, target: range(5.2, 5.6) }),
+    field("mash_step_2_temp", "Step 2 temp", "temperature"),
+    field("mash_step_3_temp", "Step 3 temp", "temperature"),
+    field("mash_out_temp", "Mash out temp", "temperature"),
+    field("mash_enzymes", "Enzymes / mash additions", "text"),
   ]},
-  { title: "Knockout & yeast", perTurn: false, fields: [
-    { key: "ko_volume", label: "Total knockout volume", type: "volume" },
-    { key: "oxygen_rate", label: "Oxygen", type: "number", unit: "L/min", target: () => exactly(3) },
-    { key: "yeast_strain", label: "Yeast strain", type: "text" },
-    { key: "yeast_source", label: "Yeast source", type: "text" },
-    { key: "yeast_generation", label: "Generation", type: "text" },
-    { key: "yeast_amount", label: "Yeast amount", type: "text" },
+  { title: "Lauter & runoff", perTurn: true, column: 1, fields: [
+    field("vorlauf_start_temp", "Vorlauf start temp", "temperature", { usual: true }),
+    field("vorlauf_end_temp", "Vorlauf end temp", "temperature", { usual: true }),
+    field("flow_rate", "Flow rate", "number", { unit: "gal/min", usual: true,
+      target: (c) => (c.location?.flowTarget ? { text: c.location.flowTarget } : null) }),
+    field("sparge_temp", "Sparge temp", "temperature", { usual: true, target: () => exactly(F_TO_C(168)) }),
+    field("sparge_water_volume", "Sparge water", "meter", { target: (c) => (c.water?.spargeGal ? exactly(c.water.spargeGal / 31) : null) }),
+    field("end_sparge_temp", "End of sparge temp", "temperature", { usual: true }),
+    field("end_sparge_volume", "End of sparge volume", "meter", { usual: true, target: (c) => (c.water?.totalGal ? exactly(c.water.totalGal / 31) : null) }),
+    field("grain_bed_depth", "Grain bed depth", "number", { unit: "in" }),
+    field("lauter_pressure", "Lauter differential pressure", "number", { unit: "psi" }),
+    field("lauter_rakes", "Rake height / cuts", "text"),
+    field("kettle_full_volume", "Kettle full volume", "volume", { usual: true,
+      target: (c) => (c.location?.kettleFullBbl ? exactly(c.location.kettleFullBbl) : null) }),
   ]},
-  { title: "Time log", perTurn: true, fields: [
-    ["mash_start", "Mash start"], ["mash_end", "Mash end"], ["vorlauf_start", "Vorlauf start"], ["vorlauf_end", "Vorlauf end"],
-    ["runoff_start", "Runoff start"], ["first_wort", "First wort"], ["sparge_start", "Sparge start"], ["sparge_end", "Sparge end"],
-    ["runoff_end", "Runoff end"], ["boil_start", "Boil start"], ["boil_end", "Boil end"], ["whirlpool_start", "Whirlpool start"],
-    ["whirlpool_end", "Whirlpool end"], ["ko_start", "Knockout start"], ["ko_end", "Knockout end"],
-  ].map(([key, label]) => ({ key, label, type: "time" })) },
-  { title: "Notes", perTurn: false, fields: [
-    { key: "brew_notes", label: "Brew-day notes", type: "text" },
+  { title: "Boil & whirlpool", perTurn: true, column: 1, fields: [
+    field("boil_length", "Boil length", "number", { unit: "min" }),
+    field("post_boil_volume", "Post-boil volume", "volume", { usual: true }),
+    field("kettle_finings", "Kettle finings / nutrient", "text"),
+    field("whirlpool_temp", "Whirlpool / hop stand temp", "temperature"),
+    field("whirlpool_rest", "Whirlpool rest", "number", { unit: "min" }),
+    field("kettle_loss", "Left in kettle (trub)", "volume"),
+  ]},
+  { title: "Gravity", perTurn: true, column: 1, fields: [
+    field("first_runnings_gravity", "First runnings", "gravity", { usual: true }),
+    field("final_runnings_gravity", "Final runnings", "gravity", { usual: true }),
+    field("kettle_full_gravity", "Kettle full (pre-boil)", "gravity", { usual: true }),
+    field("post_boil_gravity", "Post-boil", "gravity"),
+    field("ko_gravity", "Knockout", "gravity", { usual: true, target: ogTarget }),
+    field("tank_sample_gravity", "Tank sample", "gravity", { usual: true, target: ogTarget }),
+  ]},
+  { title: "pH", perTurn: true, column: 1, fields: [
+    field("first_runnings_ph", "First runnings", "ph", { usual: true, target: range(5.2, 5.4) }),
+    field("final_runnings_ph", "Final runnings", "ph", { usual: true }),
+    field("kettle_full_ph", "Kettle full", "ph", { usual: true, target: range(5.2, 5.3) }),
+    field("post_boil_ph", "Post-boil", "ph"),
+    field("ko_ph", "Knockout", "ph", { usual: true, target: range(4.8, 4.9) }),
+    field("tank_sample_ph", "Tank sample", "ph", { usual: true }),
+  ]},
+  { title: "Knockout", perTurn: true, column: 2, fields: [
+    field("ko_temp", "Knockout temp (into tank)", "temperature", { usual: true }),
+    field("turn_ko_volume", "Volume this turn", "volume"),
+    field("cooling_water_temp", "Cooling water temp", "temperature"),
+    field("ko_oxygen_rate", "Oxygen this turn", "number", { unit: "L/min" }),
+  ]},
+  { title: "Fermenter & yeast", perTurn: false, column: 2, fields: [
+    field("ko_volume", "Total knockout volume", "volume", { usual: true }),
+    field("oxygen_rate", "Oxygen", "number", { unit: "L/min", usual: true, target: () => exactly(3) }),
+    field("dissolved_oxygen", "Dissolved oxygen", "number", { unit: "ppm" }),
+    field("ferm_set_temp", "Fermentation set temp", "temperature"),
+    field("yeast_strain", "Yeast strain", "text", { usual: true }),
+    field("yeast_source", "Yeast source (tank / brink / lot)", "text", { usual: true }),
+    field("yeast_generation", "Generation", "text", { usual: true }),
+    field("yeast_amount", "Yeast amount", "text", { usual: true }),
+    field("yeast_viability", "Viability", "number", { unit: "%" }),
+    field("yeast_cell_count", "Cell count", "number", { unit: "million/mL" }),
+    field("pitch_rate", "Pitch rate", "number", { unit: "million cells/mL/°P" }),
+    field("pitch_temp", "Pitch temp", "temperature"),
+    field("yeast_nutrient", "Yeast nutrient", "text"),
+    field("fermenter_additions", "Fermenter additions (enzymes, finings)", "text"),
+  ]},
+  { title: "Time log", perTurn: true, column: 2, fields: [
+    ["mash_start", "Mash start", true], ["mash_end", "Mash end", true], ["vorlauf_start", "Vorlauf start", true],
+    ["vorlauf_end", "Vorlauf end", true], ["runoff_start", "Runoff start", true], ["first_wort", "First wort", true],
+    ["sparge_start", "Sparge start", true], ["sparge_end", "Sparge end", true], ["runoff_end", "Runoff end", true],
+    ["boil_start", "Boil start", true], ["boil_end", "Boil end", true], ["whirlpool_start", "Whirlpool start", true],
+    ["whirlpool_end", "Whirlpool end", true], ["ko_start", "Knockout start", true], ["ko_end", "Knockout end", true],
+    ["mash_in_end", "Mash in end"], ["rest_start", "Rest start"], ["mash_out", "Mash out"],
+    ["hop_stand_start", "Hop stand start"], ["hop_stand_end", "Hop stand end"],
+  ].map(([key, label, usual]) => field(key, label, "time", { usual: !!usual })) },
+  { title: "Cleaning sign-offs", perTurn: false, column: 2, hint: "initials", fields: [
+    field("signoff_mash_tun", "Mash tun cleaned", "text"),
+    field("signoff_kettle", "Kettle cleaned", "text"),
+    field("signoff_heat_exchanger", "Heat exchanger cleaned / sanitized", "text"),
+    field("signoff_wort_line", "Wort line sanitized", "text"),
+    field("signoff_oxygen_stone", "Oxygen stone sanitized", "text"),
+    field("signoff_fermenter", "Fermenter CIP'd / sanitized", "text"),
+  ]},
+  { title: "Notes", perTurn: false, column: 2, fields: [
+    field("brew_notes", "Brew-day notes", "text", { usual: true }),
+    field("deviations", "Problems / changes from plan", "text"),
+    field("wort_sensory", "Wort taste / smell", "text"),
   ]},
 ];
-const SHEET_FIELDS = SHEET.flatMap((section) => section.fields);
+const CATALOG_FIELDS = SHEET_CATALOG.flatMap((section) => section.fields);
+const USUAL_FIELDS = CATALOG_FIELDS.filter((f) => f.usual).map((f) => f.key);
 const UNIT_TYPES = ["temperature", "gravity", "volume"];
+
+// The fields this brewery measures (null = the usual set)
+function chosenFields() {
+  return new Set(brewery?.sheetFields ?? USUAL_FIELDS);
+}
+
+// The sheet for one batch: the brewery's fields, plus any other field this batch has a value for
+function sheetFor(batch) {
+  const chosen = chosenFields();
+  const recorded = new Set(data.readings.filter((r) => r.batchId === batch.id).map((r) => r.fieldKey));
+  return SHEET_CATALOG
+    .map((section) => ({ ...section, fields: section.fields.filter((f) => chosen.has(f.key) || recorded.has(f.key)) }))
+    .filter((section) => section.fields.length);
+}
 
 // Which of the brewery's "far from target" limits applies to each kind of field (Settings → Brewery)
 const LIMIT_FOR = { gravity: "gravity", temperature: "temperature", ph: "ph", volume: "amount", meter: "amount", number: "amount" };
@@ -2524,15 +2684,16 @@ function renderSheet() {
     ? "Each value saves as soon as you leave its box (also with no signal). Values far from their target are highlighted."
     : "Your permission level can see the sheet but not fill it in.";
 
-  sheet.innerHTML = SHEET.map((section) => {
+  sheet.innerHTML = sheetFor(b).map((section) => {
     const turn = section.perTurn ? sheetTurn : null;
     const c = sheetContext(b, turn);
     const per = section.perTurn ? (b.turns > 1 ? `turn ${sheetTurn}` : "") : (b.turns > 1 ? "whole batch" : "");
-    const water = section.title === "Mash & runoff" && c.water
+    const water = section.fields.some((f) => f.key === "mash_water_volume") && c.water
       ? `<p class="muted water">Water for this turn: mash ${Math.round(c.water.mashGal)} gal${c.water.totalGal
           ? ` · sparge ${Math.round(c.water.spargeGal)} gal · total ${Math.round(c.water.totalGal)} gal` : ""} (from the grist weight and the brewhouse settings)</p>`
       : "";
-    return `<div class="sheet-section"><h3>${section.title}${per ? ` <span class="per">· ${per}</span>` : ""}</h3>
+    const notes = [per, section.hint].filter(Boolean).join(" · ");
+    return `<div class="sheet-section"><h3>${section.title}${notes ? ` <span class="per">· ${notes}</span>` : ""}</h3>
       ${section.fields.map((f) => fieldHtml(f, b, turn, c, editable)).join("")}${water}</div>`;
   }).join("");
   // Boxes in the brewery's units
@@ -2576,7 +2737,7 @@ document.getElementById("sheet").addEventListener("change", (e) => {
   if (!input || !b || !can("start_batch")) return;
   const key = input.dataset.field;
   const turn = input.dataset.turn ? Number(input.dataset.turn) : null;
-  const field = SHEET_FIELDS.find((f) => f.key === key);
+  const field = CATALOG_FIELDS.find((f) => f.key === key);
   const row = input.closest(".field");
   const current = reading(b.id, key, turn);
   let value = null, valueText = null, raw = null;
@@ -2648,6 +2809,7 @@ document.getElementById("bv-sheet-back").addEventListener("click", () => showShe
 function printTarget(field, b) {
   const loc = brewLocation(b);
   if (field.key === "mash_water_volume" && loc?.waterGristQtLb) return `grist × ${loc.waterGristQtLb} ÷ 4 gal`;
+  if (field.key === "sparge_water_volume" && loc?.waterGristQtLb && loc.kettleFullBbl) return "total − mash water";
   if (field.key === "end_sparge_volume" && loc?.waterGristQtLb && loc.kettleFullBbl) {
     return `${loc.kettleFullBbl} × 31 + grist × ${loc.absorptionGalLb || 0} gal`;
   }
@@ -2703,7 +2865,7 @@ function renderPrintSheet(b) {
     ["Turns", String(b.turns)],
     ["Target OG / FG", beer?.targetOg ? `${showUnit("gravity", beer.targetOg)} / ${beer.targetFg ? showUnit("gravity", beer.targetFg) : "—"}` : ""],
   ];
-  const sections = (titles) => SHEET.filter((s) => titles.includes(s.title)).map((s) => printSection(s, b)).join("");
+  const sections = (column) => sheetFor(b).filter((s) => s.column === column).map((s) => printSection(s, b)).join("");
   const sheet = document.getElementById("print-sheet");
   sheet.className = b.turns > 2 ? "one-column" : "";
   sheet.innerHTML = `
@@ -2711,14 +2873,14 @@ function renderPrintSheet(b) {
       <div>
         <div class="muted">${esc(brewery.name)} · Brew-day sheet</div>
         <h1>${esc(beerName(b))} ${esc(batchLabel(b))}</h1>
-        <dl>${facts.map(([k, v]) => `<div><dt>${k}</dt><dd>${v || "&nbsp;"}</dd></div>`).join("")}
-          <div class="wide"><dt>Brewer(s)</dt><dd>&nbsp;</dd></div></dl>
+        <dl>${facts.map(([k, v]) => `<div><dt>${k}</dt><dd>${v || "&nbsp;"}</dd></div>`).join("")}</dl>
       </div>
       <div class="qr"><div id="print-qr"></div><div class="muted">Scan to type in the numbers</div></div>
     </header>
+    <footer class="print-foot">${esc(beerName(b))} ${esc(batchLabel(b))} · ${esc(brewery.name)} brew-day sheet</footer>
     <div class="print-columns">
-      <div>${sections(["Mash & runoff", "Gravity", "pH"])}</div>
-      <div>${sections(["Time log", "Knockout & yeast", "Notes"])}</div>
+      <div>${sections(1)}</div>
+      <div>${sections(2)}</div>
     </div>`;
   // The QR code (if the code library loaded; with no signal the link is printed instead)
   const qr = document.getElementById("print-qr");

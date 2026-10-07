@@ -160,6 +160,7 @@
   <nav id="settings-nav" class="settings-nav" aria-label="Settings pages">
     <button data-page="brewery">Brewery</button>
     <button data-page="equipment">Equipment</button>
+    <button data-page="sheet">Brew sheet</button>
     <button data-page="beers">Beers</button>
     <button data-page="cleaning">Cleaning</button>
     <button data-page="team">Team &amp; permissions</button>
@@ -214,6 +215,24 @@
     </form>
     <p class="muted">Changing a unit only changes how numbers are shown and typed; nothing already recorded changes.
       <span id="settings-admin-note" hidden>You don't have permission to change these.</span></p>
+  </section>
+  </div>
+
+  <div class="settings-page" data-page="sheet">
+  <!-- Which brew-day fields this brewery measures, from the app's catalog -->
+  <section class="list-section">
+    <div class="section-head"><h2>Brew sheet fields</h2><span id="sheet-field-count" class="muted"></span></div>
+    <p class="muted">Tick everything your brewery measures on brew day. The brew-day screen and the printed
+      sheet show only these, in this order. Unticking a field never removes anything already recorded:
+      a batch always shows every field it has a value for.</p>
+    <div id="sheet-fields-actions" class="actions wrap">
+      <button type="button" id="pick-usual" class="btn small">Usual set</button>
+      <button type="button" id="pick-everything" class="btn small">Everything</button>
+      <span class="spacer"></span>
+      <button type="button" id="save-sheet-fields" class="btn primary">Save</button>
+    </div>
+    <p id="sheet-fields-note" class="muted" hidden>You don't have permission to change these.</p>
+    <div id="sheet-field-picker"></div>
   </section>
   </div>
 
