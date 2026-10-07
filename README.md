@@ -275,6 +275,7 @@ The shared database (Phase 3) was pulled ahead of the brew log: real crews can o
 
 ### Phase 2: Brew log and history
 The as-brewed record for each batch, compared against its beer's targets.
+- [ ] **Brewery preferences, first:** temperature (°F/°C), gravity (SG/Plato/Brix), volume (bbl/hL/gal), and time zone. **Readings are stored in one standard unit** (gravity as SG, temperature as °C, volume as US barrels) and converted for display, so changing a preference never alters old records, breweries' numbers mean the same thing, and TTB math is always in barrels. Brix readings taken after fermentation starts need an alcohol correction (using the original gravity); the app applies it.
 - [ ] **Event history per batch.** Record every stage change and transfer (date, from, to, volume) instead of overwriting. Traceability, the CIP log, and TTB reporting are all built on this. Stage and tank may become "the latest event" rather than fields that get overwritten.
 - [ ] **Brew-day actuals:** key numbers such as mash temp and pH, pre-boil gravity, OG, volume to fermenter, yeast and pitch temp. Exact fields come from the brewery's current brew sheet.
 - [ ] **Fermentation log:** gravity and temperature readings over time, FG, pH.
@@ -337,7 +338,15 @@ The payoff for keeping accurate volumes at every step.
 
 ### Phase 11: Ready for other breweries
 Multi-tenancy itself arrives in Phase 3. This phase is about letting a new brewery sign up on its own.
-- [ ] **Self-serve onboarding:** set up locations, tanks, and beers in a few minutes.
+- [ ] **Guided admin onboarding:** a step-by-step setup that covers:
+    - units and time zone;
+    - TTB permit number, state, and filing frequency;
+    - batch numbering (next number or format) and the brewery's own stage list;
+    - default acid rule for new tanks, and acid-after styles;
+    - package types (keg and can sizes) and optional "too long in a stage" alerts;
+    - adding locations, tanks (or importing a list), and beers, and inviting the crew.
+
+  Each step can be skipped and changed later in settings.
 - [ ] **Billing.**
 - [ ] Possibly a big-screen "cellar TV" view of the dashboard.
 
