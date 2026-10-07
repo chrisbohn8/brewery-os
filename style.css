@@ -473,6 +473,7 @@ dialog fieldset.acid p { margin: 0 0 8px; }
   .print-table td.box, .print-table th.box { width: 0.75in; text-align: center; }
   .print-table tr.tall td { height: 0.4in; }
   .print-table tr.tall td.box { text-align: left; }
+  .print-table.ingredients td.lot, .print-table.ingredients th.lot { width: 2in; }
   .print-table.whole-batch td.box, .print-table.whole-batch th.box { width: 1.6in; text-align: left; }
   .print-table tr.notes td { height: 1.6in; vertical-align: top; padding-top: 3px; }
   .print-head dd { white-space: nowrap; }
@@ -496,3 +497,6 @@ dialog fieldset.acid p { margin: 0 0 8px; }
 .pick-row .link { margin: 0; flex: none; font-size: 0.85rem; }
 #field-target label.choice { display: flex; gap: 8px; align-items: center; margin: 6px 0; color: var(--text); }
 #field-target label.choice input { width: auto; }
+
+#sheet-ingredients { margin-top: 12px; }
+#sheet-ingredients .actions { margin-top: 8px; }

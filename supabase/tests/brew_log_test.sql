@@ -7,7 +7,7 @@ set local role postgres;
 create extension if not exists pgtap with schema extensions;
 set search_path = public, extensions;
 
-select plan(20);
+select plan(22);
 
 insert into auth.users (id, email) values
   ('00000000-0000-0000-0000-0000000000a5', 'head@example.test'),    -- admin
@@ -94,6 +94,9 @@ select is((select count(*) from batch_readings)::int + (select count(*) from cel
   'another brewery sees none of it');
 
 select has_column('public', 'batch_status', 'turns', 'the batch list includes how many turns each batch has');
+
+select has_column('public', 'batch_additions', 'brew_day', 'additions can be marked as brew-day ingredients');
+select col_has_check('public', 'batch_additions', 'turn', 'and say which turn');
 
 select * from finish();
 rollback;

@@ -115,6 +115,11 @@ These shape every decision, even for features that come later:
 - A tab left open keeps running the version it opened with. Every 10 minutes, and when you come back to the app, it checks whether a newer version has been published and, if so, shows **"A new version of the app is ready. Reload"**. It never reloads by itself, since someone might be typing.
 - Reloading always gets the newest version (the offline copy checks with the server each time).
 
+### Brew-day ingredients
+- The brew-day sheet starts with **Ingredients**: malt, adjuncts, water salts and acids, hops, finings, yeast, each with amount, when it went in (mash, boil 60 min, whirlpool...), the turn, and its **lot number** for traceability.
+- **"Copy from the last batch"** of the same beer fills in names, amounts, timing, and turns, with lot numbers left empty for this batch's own. The last batch is the recipe; the brewer adds lots and adjusts what changed.
+- They're kept in the same list as cellar additions (dry hops, fruit), so a batch has one record of everything that went into it. The batch page shows them all, brew-day ones tagged.
+
 ### The printed brew sheet
 - **"Print brew sheet"** on a batch's page (or "Print" on its brew-day sheet) prints one Letter page to fill in by hand on the brew deck: the same fields in the same order, **a box per turn**, targets alongside (water written as the formula, since grist isn't weighed yet), and a line for the brewers.
 - Values already entered are printed in their boxes, so a sheet can be reprinted mid-brew.
@@ -330,6 +335,7 @@ The as-brewed record for each batch, compared against its beer's targets. **Desi
 - [x] **Brewery preferences, first:** temperature (°F/°C), gravity (SG/Plato/Brix), volume (bbl/hL/gal), and time zone. **Readings are stored in one standard unit** (gravity as SG, temperature as °C, volume as US barrels) and converted for display, so changing a preference never alters old records, breweries' numbers mean the same thing, and TTB math is always in barrels. Brix readings taken after fermentation starts need an alcohol correction (using the original gravity); the app applies it.
 - [ ] **Event history per batch.** Record every stage change and transfer (date, from, to, volume) instead of overwriting. Traceability, the CIP log, and TTB reporting are all built on this. Stage and tank may become "the latest event" rather than fields that get overwritten.
 - [x] **Cellar log** with action items that move the stage, readings in the brewery's units, cellar changes, notes; **additions** with lot numbers; **brewhouse settings per location**. 
+- [x] **Brew-day ingredients with lot numbers,** copied from the last batch of the beer.
 - [x] **Brew sheet field catalog:** each brewery ticks the fields it measures (Settings → Brew sheet). Breweries can also add their own fields. Fields can be renamed and given the brewery's own targets. Still to come: choosing fields during onboarding, and different fields or targets per location.
 - [x] **Brew-day sheet:** the brewery's paper sheet as a screen, per turn, with targets, water math from grist weight, meter readings, and "far from target" highlighting. (Admins editing the sheet's fields comes later.)
 - [ ] **Fermentation log:** gravity and temperature readings over time, FG, pH.

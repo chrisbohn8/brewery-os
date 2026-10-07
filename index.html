@@ -138,6 +138,7 @@
     </div>
     <p id="sheet-note" class="muted">Each value saves as soon as you leave its box (also with no signal).
       Values far from their target are highlighted.</p>
+    <div id="sheet-ingredients" class="sheet-section"></div>
     <div id="sheet"></div>
   </section>
   </div>
@@ -149,7 +150,7 @@
   </section>
 
   <section class="list-section">
-    <h2>Additions</h2>
+    <h2>Ingredients &amp; additions</h2>
     <ul id="bv-additions" class="plain log-list"></ul>
   </section>
 
@@ -607,7 +608,12 @@
         </label>
         <label>Kind
           <select name="kind">
+            <option value="malt">Malt / grain</option>
+            <option value="adjunct">Adjunct / sugar</option>
+            <option value="salt">Water salt / acid</option>
             <option value="hop">Hops</option>
+            <option value="finings">Finings / nutrient</option>
+            <option value="yeast">Yeast</option>
             <option value="spice">Spice</option>
             <option value="fruit">Fruit</option>
             <option value="other">Other</option>
@@ -633,14 +639,15 @@
       <div class="two-col">
         <label>Timing
           <input name="timing" list="addition-timings" placeholder="Primary">
-          <datalist id="addition-timings">
-            <option value="KO in FV"><option value="Primary"><option value="Regular"><option value="Secondary">
-          </datalist>
+          <datalist id="addition-timings"></datalist>
         </label>
         <label>Lot number
           <input name="lot">
         </label>
       </div>
+      <label id="addition-turn-field">Turn
+        <select name="turn"></select>
+      </label>
       <label>Notes
         <input name="notes">
       </label>

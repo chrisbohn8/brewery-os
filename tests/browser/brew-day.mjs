@@ -355,6 +355,71 @@ try {
   }
   check(await page.evaluate(() => Object.keys(brewery.sheetFieldSettings).length === 0), "'Back to usual' undoes both");
 
+  console.log("16. Brew-day ingredients with lot numbers, and copying them to the next batch");
+  await floor(page);
+  await page.click(`.card[data-tank="${tankId}"]`);
+  await page.waitForSelector("#batch-view:not([hidden])");
+  await page.click("#bv-sheet");
+  async function addIngredient({ kind, name, amount, unit, timing, lot, turn }) {
+    await page.click("#add-ingredient");
+    await page.waitForSelector("#addition-editor[open]");
+    await page.selectOption('#addition-form [name="kind"]', kind);
+    await page.fill('#addition-form [name="name"]', name);
+    await page.fill('#addition-form [name="amount"]', amount);
+    await page.selectOption('#addition-form [name="unit"]', unit);
+    await page.fill('#addition-form [name="timing"]', timing);
+    await page.fill('#addition-form [name="lot"]', lot);
+    await page.selectOption('#addition-form [name="turn"]', turn);
+    await page.click("#addition-form button[type=submit]");
+    await allSent();
+  }
+  await addIngredient({ kind: "hop", name: `Citra ${run}`, amount: "5", unit: "lb", timing: "Whirlpool", lot: "H9", turn: "" });
+  await addIngredient({ kind: "malt", name: `Pale malt ${run}`, amount: "900", unit: "lb", timing: "Mash", lot: "PM-1", turn: "1" });
+  const ing = await text("#sheet-ingredients");
+  check(ing.indexOf(`Pale malt ${run}`) < ing.indexOf(`Citra ${run}`), `listed, malt before hops: "${ing.slice(0, 140)}"`);
+  check(ing.includes("900 lb · Mash · lot PM-1") && ing.includes("whole batch"), "amount, when, lot, and whole-batch tag shown");
+  const saved = await page.evaluate((id) => data.additions.filter((a) => a.batchId === id && a.brewDay), batchId);
+  check(saved.length === 2 && saved.some((a) => a.turn === 1 && a.kind === "malt") && saved.some((a) => a.turn === null), "saved as brew-day ingredients, with turns");
+  await page.click("#bv-sheet-back");
+  check((await text("#bv-additions")).includes("brew day"), "the batch page lists them too, tagged brew day");
+  await page.click("#bv-print");
+  await page.waitForFunction(() => window.printed >= 4);
+  const printedIng = await text("#print-sheet .ingredients");
+  check(printedIng.includes(`Pale malt ${run}`) && printedIng.includes("PM-1") && printedIng.includes("Lot"), "the printed sheet has the ingredients with a Lot column");
+  await page.emulateMedia({ media: "print" });
+  await page.pdf({ path: SHOTS + "brew-sheet-ingredients.pdf", format: "Letter", printBackground: true });
+  await page.emulateMedia({ media: null });
+  await page.click("#bv-sheet");
+  await page.screenshot({ path: SHOTS + "sheet-ingredients.png" });
+  await page.click("#bv-sheet-back");
+
+  const tank2 = `BE-${run}`;
+  await settings(page, "equipment");
+  await page.click("#add-tank");
+  await page.fill('#tank-form [name="name"]', tank2);
+  await page.selectOption('#tank-form [name="locationId"]', locationId);
+  await page.click("#tank-form button[type=submit]");
+  await page.waitForFunction((n) => data.tanks.some((t) => t.name === n), tank2);
+  await floor(page);
+  const tank2Id = await page.evaluate((n) => data.tanks.find((t) => t.name === n).id, tank2);
+  await page.click(`.card[data-tank="${tank2Id}"]`);
+  await page.waitForSelector("#batch-editor[open]");
+  await page.fill('#batch-form [name="batchId"]', `E${run}`);
+  await page.selectOption('#batch-form [name="beerId"]', beer.id);
+  await page.click("#batch-form button[type=submit]");
+  await allSent();
+  const batch2 = await page.evaluate((n) => data.batches.find((b) => b.batchNumber === n).id, `E${run}`);
+  await page.click(`.card[data-tank="${tank2Id}"]`);
+  await page.waitForSelector("#batch-view:not([hidden])");
+  await page.click("#bv-sheet");
+  check((await text("#copy-ingredients")).includes(`#D${run}`), `offers to copy: "${await text("#copy-ingredients")}"`);
+  await page.click("#copy-ingredients");
+  await allSent();
+  const copied = await page.evaluate((id) => data.additions.filter((a) => a.batchId === id && a.brewDay), batch2);
+  check(copied.length === 2 && copied.every((a) => a.lot === "") && copied.some((a) => a.name === `Pale malt ${run}` && a.amount === 900 && a.turn === 1),
+    `copied names, amounts, and turns, with empty lots (${copied.length})`);
+  check(!(await page.isVisible("#copy-ingredients")), "the copy button goes away once there are ingredients");
+
   console.log("12. Scanning the QR code opens the batch (signed in)");
   const link = await page.evaluate((id) => `${location.origin}${location.pathname}#batch=${id}`, batchId);
   await page.goto(APP);

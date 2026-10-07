@@ -383,6 +383,7 @@ async function loadAll() {
     additions: additions.map((a) => ({
       id: a.id, batchId: a.batch_id, addedOn: a.added_on, kind: a.kind, name: a.name,
       amount: num(a.amount), unit: a.unit, timing: a.timing, lot: a.lot, notes: a.notes, recordedAt: a.recorded_at,
+      brewDay: a.brew_day, turn: a.turn,
     })),
     permissions,
     invites: invites.map((i) => ({ id: i.id, email: i.email, role: i.role, emailedAt: i.emailed_at })),
@@ -566,7 +567,7 @@ const cellarRow = (a) => ({
 });
 const additionRow = (a) => ({
   added_on: a.addedOn, kind: a.kind, name: a.name, amount: a.amount, unit: a.unit,
-  timing: a.timing, lot: a.lot, notes: a.notes,
+  timing: a.timing, lot: a.lot, notes: a.notes, brew_day: !!a.brewDay, turn: a.turn ?? null,
 });
 Object.assign(SEND, {
   saveReading: async (a) => {
@@ -2571,10 +2572,10 @@ function renderBatchView() {
     .sort((x, y) => y.addedOn.localeCompare(x.addedOn) || (y.recordedAt || "").localeCompare(x.recordedAt || ""));
   document.getElementById("bv-additions").innerHTML = adds.map((a) => `
     <li class="item"><button class="entry ${canLog ? "" : "static"}" data-addition="${a.id}">
-      <span class="when">${formatDate(a.addedOn)} · ${esc(a.name)}</span>
+      <span class="when">${formatDate(a.addedOn)} · ${esc(a.name)}</span>${a.brewDay ? ` <span class="tag">brew day${a.turn && b.turns > 1 ? `, turn ${a.turn}` : ""}</span>` : ""}
       <div class="readings">${[a.amount != null ? `${a.amount} ${a.unit}` : "", a.timing, a.lot ? "lot " + a.lot : ""].filter(Boolean).map(esc).join(" · ")}</div>
       ${a.notes ? `<div class="muted">${esc(a.notes)}</div>` : ""}
-    </button></li>`).join("") || `<li class="item muted">No additions yet.</li>`;
+    </button></li>`).join("") || `<li class="item muted">Nothing added yet.</li>`;
 
   renderSheet();
 
@@ -2846,6 +2847,7 @@ function renderSheet() {
 
   const editable = can("start_batch");
   sheetTurn = Math.min(sheetTurn, b.turns);
+  renderIngredients(b);
   const turnCount = document.getElementById("turn-count");
   turnCount.value = String(b.turns);
   turnCount.disabled = !editable;
@@ -2875,6 +2877,65 @@ function renderSheet() {
     fillUnitInput(input, input.dataset.unit, reading(b.id, input.dataset.field, turn)?.value ?? null);
   });
   applyUnitLabels();
+}
+
+// Brew-day ingredients: the grain bill, hops, salts... for this turn (and the whole batch), with lots
+const KIND_ORDER = ["malt", "adjunct", "salt", "hop", "finings", "yeast", "spice", "fruit", "other"];
+function brewDayIngredients(b, turn) {
+  return data.additions
+    .filter((a) => a.batchId === b.id && a.brewDay && (turn === undefined || a.turn == null || a.turn === turn))
+    .sort((x, y) => KIND_ORDER.indexOf(x.kind) - KIND_ORDER.indexOf(y.kind) || (x.recordedAt || "").localeCompare(y.recordedAt || ""));
+}
+
+// The most recent other batch of the same beer that has brew-day ingredients (to copy them from)
+function lastBatchWithIngredients(b) {
+  // Newest brew date first; for batches brewed the same day, the one whose ingredients were recorded last
+  const lastRecorded = (x) => data.additions.filter((a) => a.batchId === x.id && a.brewDay)
+    .reduce((latest, a) => ((a.recordedAt || "") > latest ? a.recordedAt : latest), "");
+  return data.batches
+    .filter((x) => x.id !== b.id && x.beerId === b.beerId && data.additions.some((a) => a.batchId === x.id && a.brewDay))
+    .sort((x, y) => (y.brewDate || "").localeCompare(x.brewDate || "") || lastRecorded(y).localeCompare(lastRecorded(x)))[0];
+}
+
+function renderIngredients(b) {
+  const canAdd = can("cellar_log");
+  const turn = b.turns > 1 ? sheetTurn : undefined;
+  const list = brewDayIngredients(b, turn);
+  const source = !brewDayIngredients(b).length && canAdd ? lastBatchWithIngredients(b) : null;
+  document.getElementById("sheet-ingredients").innerHTML = `
+    <h3>Ingredients <span class="per">· with lot numbers${b.turns > 1 ? ` · turn ${sheetTurn} and whole batch` : ""}</span></h3>
+    <ul class="plain log-list">${list.map((a) => `
+      <li class="item"><button class="entry ${canAdd ? "" : "static"}" data-addition="${a.id}">
+        <span class="when">${esc(a.name)}</span>${a.turn == null && b.turns > 1 ? ` <span class="tag">whole batch</span>` : ""}
+        <div class="readings">${[a.amount != null ? `${a.amount} ${a.unit}` : "", a.timing, a.lot ? "lot " + a.lot : "no lot yet"].filter(Boolean).map(esc).join(" · ")}</div>
+      </button></li>`).join("") || `<li class="item muted">None yet.</li>`}</ul>
+    ${canAdd ? `<div class="actions wrap">
+      <button type="button" class="btn small" id="add-ingredient">+ Ingredient</button>
+      ${source ? `<button type="button" class="btn small" id="copy-ingredients" data-from="${source.id}">Copy from ${esc(batchLabel(source))} (last ${esc(beerName(source))})</button>` : ""}
+    </div>` : ""}`;
+}
+
+document.getElementById("sheet-ingredients").addEventListener("click", (e) => {
+  const b = viewingBatch();
+  if (e.target.closest("#add-ingredient")) openAdditionEditor(null, { brewDay: true, turn: b.turns > 1 ? sheetTurn : null });
+  const row = e.target.closest("[data-addition]");
+  if (row && can("cellar_log")) openAdditionEditor(data.additions.find((a) => a.id === row.dataset.addition));
+  const copy = e.target.closest("#copy-ingredients");
+  if (copy) copyIngredients(b, data.batches.find((x) => x.id === copy.dataset.from));
+});
+
+// Copy the grain bill, hops, and the rest from an earlier batch: names, amounts, and timing, but
+// not lot numbers (those are this batch's own). Each is kept on the phone first, like any change.
+function copyIngredients(b, source) {
+  const items = brewDayIngredients(source);
+  if (!confirm(`Copy ${items.length} ingredients from ${beerName(source)} ${batchLabel(source)}? Lot numbers start empty.`)) return;
+  for (const a of items) {
+    queueChange("logAddition", {
+      id: newId(), breweryId: brewery.id, batchId: b.id, addedOn: b.brewDate || today(), kind: a.kind, name: a.name,
+      amount: a.amount, unit: a.unit, timing: a.timing, lot: "", notes: "", brewDay: true,
+      turn: a.turn != null && a.turn <= b.turns ? a.turn : null,
+    }, `${beerName(b)} ${batchLabel(b)}: ${a.name}`);
+  }
 }
 
 function fieldHtml(f, b, turn, c, editable) {
@@ -3024,6 +3085,18 @@ function printSection(section, b) {
   return `<table class="print-table${section.perTurn ? "" : " whole-batch"}">${head}${rows.join("")}</table>`;
 }
 
+// Ingredients on paper: what's known so far, plus empty rows to write in, each with a Lot box
+function printIngredients(b) {
+  const items = brewDayIngredients(b);
+  const turns = b.turns > 1;
+  const blank = Math.max(4, 10 - items.length);
+  const row = (a) => `<tr><td>${a ? esc(a.name) : ""}</td><td class="box">${a?.amount != null ? `${a.amount} ${esc(a.unit)}` : ""}</td>
+    <td class="box">${a ? esc(a.timing) : ""}</td>${turns ? `<td class="box">${a ? a.turn ?? "all" : ""}</td>` : ""}<td class="lot">${a ? esc(a.lot) : ""}</td></tr>`;
+  return `<table class="print-table ingredients"><tr><th>Ingredients</th><th class="box">Amount</th><th class="box">When</th>
+    ${turns ? `<th class="box">Turn</th>` : ""}<th class="lot">Lot</th></tr>
+    ${items.map(row).join("")}${Array.from({ length: blank }, () => row(null)).join("")}</table>`;
+}
+
 function renderPrintSheet(b) {
   const beer = findBeer(b.beerId);
   const tank = findTank(b.tankId);
@@ -3052,6 +3125,7 @@ function renderPrintSheet(b) {
       <div class="qr"><div id="print-qr"></div><div class="muted">Scan to type in the numbers</div></div>
     </header>
     <footer class="print-foot">${esc(beerName(b))} ${esc(batchLabel(b))} · ${esc(brewery.name)} brew-day sheet</footer>
+    ${printIngredients(b)}
     <div class="print-columns">
       <div>${sections(1)}</div>
       <div>${sections(2)}</div>
@@ -3160,18 +3234,34 @@ document.getElementById("delete-cellar").addEventListener("click", async () => {
 const additionDialog = document.getElementById("addition-editor");
 const additionForm = document.getElementById("addition-form");
 let editingAddition = null;
+let additionBrewDay = false; // adding a brew-day ingredient (from the brew-day sheet)
 
-function openAdditionEditor(addition) {
+// Suggested "when" for each kind of addition
+const BREW_DAY_TIMINGS = ["Mash", "Sparge", "First wort", "Boil 60 min", "Boil 30 min", "Boil 15 min", "Boil 5 min",
+  "Flameout", "Whirlpool", "Knockout", "In fermenter"];
+const CELLAR_TIMINGS = ["KO in FV", "Primary", "Regular", "Secondary", "Dry hop"];
+
+// addition: one to change, or null for a new one; brewDay: start a brew-day ingredient for this turn
+function openAdditionEditor(addition, { brewDay = false, turn = null } = {}) {
   editingAddition = addition;
-  document.getElementById("addition-title").textContent = addition ? "Addition" : "New addition";
+  additionBrewDay = addition ? !!addition.brewDay : brewDay;
+  const b = viewingBatch();
+  document.getElementById("addition-title").textContent = addition ? (additionBrewDay ? "Ingredient" : "Addition")
+    : (additionBrewDay ? "New brew-day ingredient" : "New addition");
+  document.getElementById("addition-timings").innerHTML = (additionBrewDay ? BREW_DAY_TIMINGS : CELLAR_TIMINGS)
+    .map((t) => `<option value="${t}">`).join("");
+  additionForm.turn.innerHTML = `<option value="">Whole batch</option>` +
+    Array.from({ length: b.turns }, (_, i) => `<option value="${i + 1}">Turn ${i + 1}</option>`).join("");
+  additionForm.turn.value = String(addition ? addition.turn ?? "" : turn ?? "");
+  document.getElementById("addition-turn-field").hidden = !additionBrewDay || b.turns < 2;
   // Suggest names used before
   const names = [...new Set(data.additions.map((a) => a.name))].sort();
   document.getElementById("addition-names").innerHTML = names.map((n) => `<option value="${esc(n)}">`).join("");
-  additionForm.addedOn.value = addition?.addedOn ?? today();
-  additionForm.kind.value = addition?.kind ?? "hop";
+  additionForm.addedOn.value = addition?.addedOn ?? (additionBrewDay ? b.brewDate || today() : today());
+  additionForm.kind.value = addition?.kind ?? (additionBrewDay ? "malt" : "hop");
   additionForm.name.value = addition?.name ?? "";
   additionForm.amount.value = addition?.amount ?? "";
-  additionForm.unit.value = addition?.unit ?? "oz";
+  additionForm.unit.value = addition?.unit ?? (additionBrewDay ? "lb" : "oz");
   additionForm.timing.value = addition?.timing ?? "";
   additionForm.lot.value = addition?.lot ?? "";
   additionForm.notes.value = addition?.notes ?? "";
@@ -3191,6 +3281,7 @@ additionForm.addEventListener("submit", async (e) => {
     addedOn: additionForm.addedOn.value, kind: additionForm.kind.value, name: additionForm.name.value.trim(),
     amount: additionForm.amount.value === "" ? null : Number(additionForm.amount.value), unit: additionForm.unit.value,
     timing: additionForm.timing.value.trim(), lot: additionForm.lot.value.trim(), notes: additionForm.notes.value.trim(),
+    brewDay: additionBrewDay, turn: additionBrewDay && additionForm.turn.value ? Number(additionForm.turn.value) : null,
   };
   const label = `${beerName(b)} #${b.batchNumber}: ${fields.name} on ${formatDate(fields.addedOn)}`;
   const ok = editingAddition
