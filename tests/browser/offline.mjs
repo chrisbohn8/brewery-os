@@ -2,7 +2,7 @@
 // Serves the app on its own port (8124) so the server can be stopped to simulate "no signal".
 import { spawn } from "node:child_process";
 import { chromium } from "playwright-core";
-import { settings, floor } from "./helpers.mjs";
+import { settings, floor, openBatchForm } from "./helpers.mjs";
 
 const PORT = 8124;
 const APP = `http://localhost:${PORT}/`;
@@ -69,8 +69,7 @@ try {
   const b2 = await banner();
   check(!!b2 && b2.startsWith("Offline · showing data from"), `banner appears: "${b2}"`);
   // Try to save: tap a full tank, change nothing, press Save
-  await page.click(".card >> nth=0");
-  await page.waitForSelector("dialog[open]");
+  await openBatchForm(page, ".card >> nth=0");
   await page.click("dialog[open] button[type=submit]");
   await wait(500);
   const b2b = await banner();

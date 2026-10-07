@@ -307,7 +307,7 @@ function explain(error) {
 let serverData = null;
 async function loadAll() {
   const b = brewery.id;
-  const [locations, beers, tanks, batches, events, cleanings, settings, members, invites, permissions, memberRows, levels] = await Promise.all([
+  const [locations, beers, tanks, batches, events, cleanings, settings, members, invites, permissions, memberRows, levels, cellar, additions] = await Promise.all([
     must(db.from("locations").select("*").eq("brewery_id", b).order("created_at")),
     must(db.from("beers").select("*").eq("brewery_id", b)),
     must(db.from("tanks").select("*").eq("brewery_id", b).order("created_at")),
@@ -320,11 +320,18 @@ async function loadAll() {
     must(db.rpc("my_permissions", { b })),
     must(db.from("memberships").select("user_id, role, grants, revokes").eq("brewery_id", b)),
     must(db.from("role_levels").select("level, permissions").eq("brewery_id", b)),
+    must(db.from("cellar_entries").select("*").eq("brewery_id", b).order("occurred_on").order("recorded_at")),
+    must(db.from("batch_additions").select("*").eq("brewery_id", b).order("added_on").order("recorded_at")),
   ]);
   // Each member: email and level (from brewery_members) plus their personal adjustments
   const adjustments = Object.fromEntries(memberRows.map((r) => [r.user_id, r]));
   serverData = {
-    locations: locations.map((l) => ({ id: l.id, name: l.name })),
+    locations: locations.map((l) => ({
+      id: l.id, name: l.name,
+      // Brewhouse settings (used by brew-day sheets at this location)
+      turnSizeBbl: num(l.turn_size_bbl), usualTurns: l.usual_turns, kettleFullBbl: num(l.kettle_full_bbl),
+      flowTarget: l.flow_target, waterGristQtLb: num(l.water_grist_qt_lb), absorptionGalLb: num(l.grain_absorption_gal_lb),
+    })),
     beers: beers.map((x) => ({
       id: x.id, code: x.code, name: x.name, style: x.style,
       targetOg: x.target_og === null ? null : Number(x.target_og),
@@ -355,6 +362,15 @@ async function loadAll() {
       grants: adjustments[m.user_id]?.grants || [], revokes: adjustments[m.user_id]?.revokes || [],
     })),
     levels: Object.fromEntries(levels.map((l) => [l.level, l.permissions])),
+    cellar: cellar.map((c) => ({
+      id: c.id, batchId: c.batch_id, occurredOn: c.occurred_on, action: c.action,
+      gravitySg: num(c.gravity_sg), ph: num(c.ph), tempC: num(c.temp_c),
+      cellarChange: c.cellar_change, notes: c.notes, edited: !!c.updated_at, recordedAt: c.recorded_at,
+    })),
+    additions: additions.map((a) => ({
+      id: a.id, batchId: a.batch_id, addedOn: a.added_on, kind: a.kind, name: a.name,
+      amount: num(a.amount), unit: a.unit, timing: a.timing, lot: a.lot, notes: a.notes, recordedAt: a.recorded_at,
+    })),
     permissions,
     invites: invites.map((i) => ({ id: i.id, email: i.email, role: i.role })),
   };
@@ -362,6 +378,11 @@ async function loadAll() {
   brewery.prefs = serverData.prefs;
   brewery.permissions = serverData.permissions;
   brewery.role = (serverData.members.find((m) => m.email === signedInEmail) || {}).role || brewery.role;
+}
+
+// A number from the database (which sends some numbers as text), or null
+function num(v) {
+  return v === null || v === undefined ? null : Number(v);
 }
 
 // After any change: reload from the database and redraw, so the page always shows what's really saved.
@@ -522,6 +543,28 @@ const SEND = {
   },
 };
 
+// Cellar entries and additions (new ones, and corrections)
+const cellarRow = (a) => ({
+  occurred_on: a.occurredOn, action: a.action, gravity_sg: a.gravitySg, ph: a.ph, temp_c: a.tempC,
+  cellar_change: a.cellarChange, notes: a.notes,
+});
+const additionRow = (a) => ({
+  added_on: a.addedOn, kind: a.kind, name: a.name, amount: a.amount, unit: a.unit,
+  timing: a.timing, lot: a.lot, notes: a.notes,
+});
+Object.assign(SEND, {
+  logCellar: (a) => must(db.rpc("log_cellar_entry", a)),
+  editCellar: (a) => must(db.from("cellar_entries").update(cellarRow(a)).eq("id", a.id)),
+  logAddition: async (a) => {
+    try {
+      await must(db.from("batch_additions").insert({ id: a.id, brewery_id: a.breweryId, batch_id: a.batchId, ...additionRow(a) }));
+    } catch (e) {
+      if (e.code !== "23505") throw e; // already there: it was sent before the connection dropped
+    }
+  },
+  editAddition: (a) => must(db.from("batch_additions").update(additionRow(a)).eq("id", a.id)),
+});
+
 // How each kind of change looks on screen before it's sent (mirrors what the database will do)
 const SHOW = {
   saveBatch(d, a) {
@@ -555,11 +598,38 @@ const SHOW = {
   logAcid(d, a) {
     d.cleanings.push({ id: a.id, tankId: a.tankId, cleanedOn: a.cleanedOn, note: a.note });
   },
+  logCellar(d, a) {
+    d.cellar.push({
+      id: a.p_id, batchId: a.p_batch_id, occurredOn: a.p_occurred_on, action: a.p_action, gravitySg: a.p_gravity_sg,
+      ph: a.p_ph, tempC: a.p_temp_c, cellarChange: a.p_cellar_change, notes: a.p_notes, edited: false,
+      recordedAt: new Date().toISOString(),
+    });
+    const batch = d.batches.find((b) => b.id === a.p_batch_id);
+    if (a.p_new_stage && batch && batch.stage !== a.p_new_stage) {
+      batch.stage = a.p_new_stage;
+      batch.stageStartDate = a.p_occurred_on;
+      d.events.push({ id: `waiting-${a.p_id}`, batchId: batch.id, effectiveDate: a.p_occurred_on, stage: a.p_new_stage, tankId: batch.tankId });
+    }
+  },
+  editCellar(d, a) {
+    const entry = d.cellar.find((c) => c.id === a.id);
+    if (entry) Object.assign(entry, { ...a, edited: true });
+  },
+  logAddition(d, a) {
+    d.additions.push({ ...a, recordedAt: new Date().toISOString() });
+  },
+  editAddition(d, a) {
+    const addition = d.additions.find((x) => x.id === a.id);
+    if (addition) Object.assign(addition, a);
+  },
 };
 
 // What the screen shows: the database's data with the waiting changes on top
 function withWaitingChanges(base) {
   const d = structuredClone(base);
+  // (an offline copy saved by an older version may not have these yet)
+  d.cellar ??= [];
+  d.additions ??= [];
   for (const change of outbox) SHOW[change.kind](d, change.args);
   return d;
 }
@@ -761,6 +831,7 @@ function render() {
   renderSettings();
   renderTeam();
   renderTankList();
+  if (viewingBatchId) renderBatchView();
 
   // A brand-new brewery: show ways to get started
   document.getElementById("empty-state").hidden = !isEmptyBrewery();
@@ -1298,6 +1369,17 @@ const locationDialog = document.getElementById("location-editor");
 const locationForm = document.getElementById("location-form");
 let editingLocation = null; // the location open in the form, or null when adding a new one
 
+function fillBrewhouse(location) {
+  const l = location || {};
+  fillUnitInput(locationForm.turnSize, "volume", l.turnSizeBbl ?? null);
+  locationForm.usualTurns.value = l.usualTurns ?? 1;
+  fillUnitInput(locationForm.kettleFull, "volume", l.kettleFullBbl ?? null);
+  locationForm.flowTarget.value = l.flowTarget ?? "";
+  locationForm.waterGrist.value = l.waterGristQtLb ?? "";
+  locationForm.absorption.value = l.absorptionGalLb ?? "";
+  for (const el of locationForm.querySelectorAll("fieldset input")) el.disabled = !can("manage_equipment");
+}
+
 function openLocationEditor(location) {
   editingLocation = location;
   document.getElementById("location-title").textContent = location ? `Edit ${location.name}` : "Add location";
@@ -1305,6 +1387,7 @@ function openLocationEditor(location) {
   locationForm.name.disabled = !can("manage_equipment");
   locationForm.querySelector("button[type=submit]").hidden = !can("manage_equipment");
   locationForm.name.value = location ? location.name : "";
+  fillBrewhouse(location);
   locationDialog.showModal();
 }
 
@@ -1317,9 +1400,18 @@ locationForm.addEventListener("submit", async (e) => {
   }
   const addingFromTankForm = tankDialog.open && !editingLocation;
   const newLocationId = newId();
+  const fields = {
+    name,
+    turn_size_bbl: readUnitInput(locationForm.turnSize, "volume"),
+    usual_turns: Number(locationForm.usualTurns.value) || 1,
+    kettle_full_bbl: readUnitInput(locationForm.kettleFull, "volume"),
+    flow_target: locationForm.flowTarget.value.trim(),
+    water_grist_qt_lb: locationForm.waterGrist.value ? Number(locationForm.waterGrist.value) : null,
+    grain_absorption_gal_lb: locationForm.absorption.value ? Number(locationForm.absorption.value) : null,
+  };
   const ok = await save(() => editingLocation
-    ? must(db.from("locations").update({ name }).eq("id", editingLocation.id))
-    : must(db.from("locations").insert({ id: newLocationId, brewery_id: brewery.id, name })));
+    ? must(db.from("locations").update(fields).eq("id", editingLocation.id))
+    : must(db.from("locations").insert({ id: newLocationId, brewery_id: brewery.id, ...fields })));
   if (!ok) return;
   // If you added this location from inside the tank form, select it there
   if (addingFromTankForm) fillLocationDropdown(newLocationId);
@@ -1797,12 +1889,22 @@ function applyPermissions() {
 const SETTINGS_PAGES = ["brewery", "equipment", "beers", "cleaning", "team", "backup", "account"];
 let settingsPage = "brewery";
 
+// Three views: the tank board ("floor"), one batch's page, and Settings
+let currentView = "floor";
+function showView(view) {
+  currentView = view;
+  document.getElementById("floor-view").hidden = view !== "floor";
+  document.getElementById("batch-view").hidden = view !== "batch";
+  document.getElementById("settings-view").hidden = view !== "settings";
+  document.getElementById("open-settings").hidden = view === "settings";
+  document.getElementById("close-settings").hidden = view === "floor";
+  document.getElementById("view-title").textContent = { settings: "Settings", batch: "Batch" }[view] || "Tanks";
+  if (view !== "batch") viewingBatchId = null;
+  window.scrollTo(0, 0);
+}
+
 function showSettings(open, page = settingsPage) {
-  document.getElementById("floor-view").hidden = open;
-  document.getElementById("settings-view").hidden = !open;
-  document.getElementById("open-settings").hidden = open;
-  document.getElementById("close-settings").hidden = !open;
-  document.getElementById("view-title").textContent = open ? "Settings" : "Tanks";
+  showView(open ? "settings" : "floor");
   if (open) {
     settingsPage = page;
     document.querySelectorAll("#settings-nav button").forEach((b) => {
@@ -1811,7 +1913,6 @@ function showSettings(open, page = settingsPage) {
     });
     document.querySelectorAll(".settings-page").forEach((p) => { p.hidden = p.dataset.page !== page; });
   }
-  window.scrollTo(0, 0);
 }
 document.getElementById("open-settings").addEventListener("click", () => showSettings(true));
 document.getElementById("close-settings").addEventListener("click", () => showSettings(false));
@@ -2100,6 +2201,220 @@ document.getElementById("remove-member").addEventListener("click", async () => {
   if (yourself) await start();
 });
 
+// ----- The batch page: cellar log, additions, history -----
+// Cellar action items. Some also move the batch to a stage (offered as a checkbox when logging).
+const CELLAR_ACTIONS = [
+  { id: "Check" },
+  { id: "Tank sample" },
+  { id: "Dry hop", stage: "dry-hopping" },
+  { id: "Rouse" },
+  { id: "Crash", stage: "conditioning" },
+  { id: "Harvest" },
+  { id: "Drain" },
+  { id: "Spund" },
+  { id: "Carbonate", stage: "carbonating" },
+  { id: "Ready", stage: "ready" },
+  { id: "Other" },
+];
+
+let viewingBatchId = null;
+
+function openBatchView(batchId) {
+  viewingBatchId = batchId;
+  showView("batch");
+  viewingBatchId = batchId; // (showView clears it when leaving the page)
+  renderBatchView();
+}
+
+function viewingBatch() {
+  return data.batches.find((b) => b.id === viewingBatchId);
+}
+
+// "Oct 5"; readings as "°P 4.2 · pH 4.5 · 64.0 °F"
+function readingsText(gravitySg, ph, tempC) {
+  return [
+    gravitySg != null ? showUnit("gravity", gravitySg) : "",
+    ph != null ? `pH ${ph}` : "",
+    tempC != null ? showUnit("temperature", tempC) : "",
+  ].filter(Boolean).join(" · ");
+}
+
+function renderBatchView() {
+  const b = viewingBatch();
+  if (!b) { showView("floor"); return; }
+  const tank = findTank(b.tankId);
+  const days = daysSince(b.stageStartDate);
+
+  document.getElementById("bv-title").textContent = `${beerName(b)} ${b.batchNumber ? "#" + b.batchNumber : ""}`;
+  const badge = document.getElementById("bv-stage");
+  badge.textContent = stageLabel(b.stage);
+  badge.style.setProperty("--stage-color", `var(--${b.stage})`);
+  document.getElementById("bv-meta").textContent = [
+    isInTank(b) && tank ? `${tank.name}${locationName(tank) ? " · " + locationName(tank) : ""}` : "Packaged",
+    `${days} ${days === 1 ? "day" : "days"} in ${stageLabel(b.stage).toLowerCase()}`,
+    b.sizeBbl ? showUnit("volume", b.sizeBbl) : "",
+    `brewed ${formatDate(b.brewDate)}`,
+  ].filter(Boolean).join(" · ");
+  const inTank = isInTank(b);
+  document.getElementById("bv-log").hidden = !can("cellar_log") || !inTank;
+  document.getElementById("bv-add").hidden = !can("cellar_log") || !inTank;
+
+  // Cellar log, newest first
+  const canLog = can("cellar_log");
+  const entries = data.cellar.filter((c) => c.batchId === b.id)
+    .sort((x, y) => y.occurredOn.localeCompare(x.occurredOn) || (y.recordedAt || "").localeCompare(x.recordedAt || ""));
+  document.getElementById("bv-cellar").innerHTML = entries.map((c) => `
+    <li class="item"><button class="entry ${canLog ? "" : "static"}" data-cellar="${c.id}">
+      <span class="when">${formatDate(c.occurredOn)}${c.action ? " · " + esc(c.action) : ""}</span>
+      ${c.edited ? `<span class="tag">edited</span>` : ""}
+      <div class="readings">${esc(readingsText(c.gravitySg, c.ph, c.tempC))}</div>
+      ${c.cellarChange ? `<div>${esc(c.cellarChange)}</div>` : ""}
+      ${c.notes ? `<div class="muted">${esc(c.notes)}</div>` : ""}
+    </button></li>`).join("") || `<li class="item muted">Nothing logged yet.</li>`;
+
+  // Additions, newest first
+  const adds = data.additions.filter((a) => a.batchId === b.id)
+    .sort((x, y) => y.addedOn.localeCompare(x.addedOn) || (y.recordedAt || "").localeCompare(x.recordedAt || ""));
+  document.getElementById("bv-additions").innerHTML = adds.map((a) => `
+    <li class="item"><button class="entry ${canLog ? "" : "static"}" data-addition="${a.id}">
+      <span class="when">${formatDate(a.addedOn)} · ${esc(a.name)}</span>
+      <div class="readings">${[a.amount != null ? `${a.amount} ${a.unit}` : "", a.timing, a.lot ? "lot " + a.lot : ""].filter(Boolean).map(esc).join(" · ")}</div>
+      ${a.notes ? `<div class="muted">${esc(a.notes)}</div>` : ""}
+    </button></li>`).join("") || `<li class="item muted">No additions yet.</li>`;
+
+  // History: stage changes and transfers, oldest first
+  const history = data.events.filter((e) => e.batchId === b.id);
+  document.getElementById("bv-history").innerHTML = history.map((e) => `
+    <li class="item"><span class="when">${formatDate(e.effectiveDate)}</span> · ${stageLabel(e.stage)}${e.tankId ? " in " + esc(tankName(e.tankId)) : ""}</li>`).join("");
+}
+
+document.getElementById("bv-edit").addEventListener("click", () => {
+  const b = viewingBatch();
+  if (b) openBatchEditor(b, isInTank(b) ? b.tankId : null);
+});
+
+// ----- Logging cellar work -----
+const cellarDialog = document.getElementById("cellar-editor");
+const cellarForm = document.getElementById("cellar-form");
+let editingCellar = null; // the entry being corrected, or null for a new one
+cellarForm.action.innerHTML = CELLAR_ACTIONS.map((a) => `<option value="${a.id}">${a.id}</option>`).join("");
+
+// Offer "also move the batch to <stage>" when the action implies a stage it isn't in yet
+function updateStageOffer() {
+  const b = viewingBatch();
+  const action = CELLAR_ACTIONS.find((a) => a.id === cellarForm.action.value);
+  const offer = !editingCellar && b && action?.stage && b.stage !== action.stage && can("move_beer");
+  document.getElementById("cellar-stage-field").hidden = !offer;
+  if (offer) {
+    document.getElementById("cellar-stage-text").textContent = `Also move the batch to ${stageLabel(action.stage)}`;
+    cellarForm.changeStage.checked = true;
+  }
+}
+cellarForm.action.addEventListener("change", updateStageOffer);
+
+function openCellarEditor(entry) {
+  editingCellar = entry;
+  document.getElementById("cellar-title").textContent = entry ? "Cellar log entry" : "Log cellar work";
+  cellarForm.occurredOn.value = entry?.occurredOn ?? today();
+  cellarForm.action.value = entry?.action || "Check";
+  fillUnitInput(cellarForm.gravity, "gravity", entry?.gravitySg ?? null);
+  cellarForm.ph.value = entry?.ph ?? "";
+  fillUnitInput(cellarForm.temp, "temperature", entry?.tempC ?? null);
+  cellarForm.cellarChange.value = entry?.cellarChange ?? "";
+  cellarForm.notes.value = entry?.notes ?? "";
+  document.getElementById("delete-cellar").hidden = !entry;
+  updateStageOffer();
+  cellarDialog.showModal();
+}
+document.getElementById("bv-log").addEventListener("click", () => openCellarEditor(null));
+document.getElementById("bv-cellar").addEventListener("click", (e) => {
+  const row = e.target.closest("[data-cellar]");
+  if (row && can("cellar_log")) openCellarEditor(data.cellar.find((c) => c.id === row.dataset.cellar));
+});
+
+cellarForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const b = viewingBatch();
+  const fields = {
+    occurredOn: cellarForm.occurredOn.value,
+    action: cellarForm.action.value,
+    gravitySg: readUnitInput(cellarForm.gravity, "gravity"),
+    ph: cellarForm.ph.value === "" ? null : Number(cellarForm.ph.value),
+    tempC: readUnitInput(cellarForm.temp, "temperature"),
+    cellarChange: cellarForm.cellarChange.value.trim(),
+    notes: cellarForm.notes.value.trim(),
+  };
+  const label = `${beerName(b)} #${b.batchNumber}: ${fields.action} on ${formatDate(fields.occurredOn)}`;
+  let ok;
+  if (editingCellar) {
+    ok = await saveOrKeep("editCellar", { id: editingCellar.id, ...fields }, label);
+  } else {
+    const action = CELLAR_ACTIONS.find((a) => a.id === fields.action);
+    const newStage = !document.getElementById("cellar-stage-field").hidden && cellarForm.changeStage.checked ? action.stage : null;
+    ok = await saveOrKeep("logCellar", {
+      p_id: newId(), p_brewery_id: brewery.id, p_batch_id: b.id, p_occurred_on: fields.occurredOn,
+      p_action: fields.action, p_gravity_sg: fields.gravitySg, p_ph: fields.ph, p_temp_c: fields.tempC,
+      p_cellar_change: fields.cellarChange, p_notes: fields.notes, p_new_stage: newStage,
+    }, label);
+  }
+  if (ok) cellarDialog.close();
+});
+
+document.getElementById("delete-cellar").addEventListener("click", async () => {
+  if (!confirm("Delete this cellar log entry?")) return;
+  const ok = await save(() => must(db.from("cellar_entries").delete().eq("id", editingCellar.id)));
+  if (ok) cellarDialog.close();
+});
+
+// ----- Additions -----
+const additionDialog = document.getElementById("addition-editor");
+const additionForm = document.getElementById("addition-form");
+let editingAddition = null;
+
+function openAdditionEditor(addition) {
+  editingAddition = addition;
+  document.getElementById("addition-title").textContent = addition ? "Addition" : "New addition";
+  // Suggest names used before
+  const names = [...new Set(data.additions.map((a) => a.name))].sort();
+  document.getElementById("addition-names").innerHTML = names.map((n) => `<option value="${esc(n)}">`).join("");
+  additionForm.addedOn.value = addition?.addedOn ?? today();
+  additionForm.kind.value = addition?.kind ?? "hop";
+  additionForm.name.value = addition?.name ?? "";
+  additionForm.amount.value = addition?.amount ?? "";
+  additionForm.unit.value = addition?.unit ?? "oz";
+  additionForm.timing.value = addition?.timing ?? "";
+  additionForm.lot.value = addition?.lot ?? "";
+  additionForm.notes.value = addition?.notes ?? "";
+  document.getElementById("delete-addition").hidden = !addition;
+  additionDialog.showModal();
+}
+document.getElementById("bv-add").addEventListener("click", () => openAdditionEditor(null));
+document.getElementById("bv-additions").addEventListener("click", (e) => {
+  const row = e.target.closest("[data-addition]");
+  if (row && can("cellar_log")) openAdditionEditor(data.additions.find((a) => a.id === row.dataset.addition));
+});
+
+additionForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const b = viewingBatch();
+  const fields = {
+    addedOn: additionForm.addedOn.value, kind: additionForm.kind.value, name: additionForm.name.value.trim(),
+    amount: additionForm.amount.value === "" ? null : Number(additionForm.amount.value), unit: additionForm.unit.value,
+    timing: additionForm.timing.value.trim(), lot: additionForm.lot.value.trim(), notes: additionForm.notes.value.trim(),
+  };
+  const label = `${beerName(b)} #${b.batchNumber}: ${fields.name} on ${formatDate(fields.addedOn)}`;
+  const ok = editingAddition
+    ? await saveOrKeep("editAddition", { id: editingAddition.id, ...fields }, label)
+    : await saveOrKeep("logAddition", { id: newId(), breweryId: brewery.id, batchId: b.id, ...fields }, label);
+  if (ok) additionDialog.close();
+});
+
+document.getElementById("delete-addition").addEventListener("click", async () => {
+  if (!confirm(`Delete this addition (${editingAddition.name})?`)) return;
+  const ok = await save(() => must(db.from("batch_additions").delete().eq("id", editingAddition.id)));
+  if (ok) additionDialog.close();
+});
+
 // ---------- 13. Wiring up taps and clicks ----------
 // Tapping a tank card opens its batch (or a blank "new batch" form if it's empty)
 // ...unless it's being cleaned or worked on, then it opens the tank so you can mark it ready
@@ -2108,7 +2423,7 @@ tanksArea.addEventListener("click", (e) => {
   if (!card) return;
   const tank = findTank(card.dataset.tank);
   const batch = batchInTank(tank.id);
-  if (batch) openBatchEditor(batch, tank.id);                         // anyone can look; the form says what they can change
+  if (batch) openBatchView(batch.id);                                 // the batch's page: cellar log, additions, history
   else if (tank.status === "empty" && can("start_batch")) openBatchEditor(null, tank.id);
   else openTankEditor(tank);                                          // status, acid log, settings (as permitted)
 });
@@ -2117,7 +2432,7 @@ tanksArea.addEventListener("click", (e) => {
 packagedList.addEventListener("click", (e) => {
   const row = e.target.closest(".row");
   if (!row) return;
-  openBatchEditor(data.batches.find((b) => b.id === row.dataset.batch), null);
+  openBatchView(row.dataset.batch);
 });
 
 // Tapping a beer opens it

@@ -99,6 +99,37 @@
   </section>
   </div>
 
+  <!-- ===== One batch: its cellar log, additions, and history (tap a full tank) ===== -->
+  <div id="batch-view" hidden>
+  <section class="list-section batch-head">
+    <div class="tank-row">
+      <h2 id="bv-title" tabindex="-1" autofocus>Batch</h2>
+      <span id="bv-stage" class="badge"></span>
+    </div>
+    <p id="bv-meta" class="muted"></p>
+    <div class="actions wrap">
+      <button id="bv-log" class="btn primary" data-needs="cellar_log">+ Log cellar work</button>
+      <button id="bv-add" class="btn" data-needs="cellar_log">+ Addition</button>
+      <button id="bv-edit" class="btn">Stage / transfer…</button>
+    </div>
+  </section>
+
+  <section class="list-section">
+    <h2>Cellar log</h2>
+    <ul id="bv-cellar" class="plain log-list"></ul>
+  </section>
+
+  <section class="list-section">
+    <h2>Additions</h2>
+    <ul id="bv-additions" class="plain log-list"></ul>
+  </section>
+
+  <section class="list-section">
+    <h2>History</h2>
+    <ul id="bv-history" class="plain log-list"></ul>
+  </section>
+  </div>
+
   <!-- ===== Settings: one page at a time; people see what they're allowed to use ===== -->
   <div id="settings-view" hidden>
   <nav id="settings-nav" class="settings-nav" aria-label="Settings pages">
@@ -258,13 +289,13 @@
   <!-- Pop-up form for a batch. Opens when you tap a tank card. -->
   <dialog id="batch-editor">
     <form id="batch-form">
-      <h2 id="batch-title">Batch</h2>
+      <h2 id="batch-title" tabindex="-1" autofocus>Batch</h2>
 
       <div class="two-col">
         <label>Batch #
           <input name="batchId" required inputmode="numeric" placeholder="1043">
         </label>
-        <label>Size (<span class="volume-unit">bbl</span>)
+        <label><span>Size (<span class="volume-unit">bbl</span>)</span>
           <input name="sizeBbl" type="number" min="0" step="0.5" placeholder="15" data-unit="volume">
         </label>
       </div>
@@ -303,13 +334,13 @@
   <!-- Pop-up form for the tank itself. Tanks rarely change: set them up once. -->
   <dialog id="tank-editor">
     <form id="tank-form">
-      <h2 id="tank-title">Tank</h2>
+      <h2 id="tank-title" tabindex="-1" autofocus>Tank</h2>
 
       <div class="two-col">
         <label>Tank name
           <input name="name" required placeholder="FV-5">
         </label>
-        <label>Capacity (<span class="volume-unit">bbl</span>)
+        <label><span>Capacity (<span class="volume-unit">bbl</span>)</span>
           <input name="capacityBbl" type="number" min="0" step="0.5" placeholder="15" data-unit="volume">
         </label>
       </div>
@@ -358,7 +389,7 @@
   <!-- Pop-up form for logging an acid cycle (opens on top of the tank form) -->
   <dialog id="acid-editor">
     <form id="acid-form">
-      <h2 id="acid-title">Acid cycle</h2>
+      <h2 id="acid-title" tabindex="-1" autofocus>Acid cycle</h2>
 
       <label>Date
         <input name="cleanedOn" type="date" required>
@@ -379,7 +410,7 @@
   <!-- Pop-up form for a beer: the product itself, not one particular brew of it -->
   <dialog id="beer-editor">
     <form id="beer-form">
-      <h2 id="beer-title">Beer</h2>
+      <h2 id="beer-title" tabindex="-1" autofocus>Beer</h2>
 
       <label>Name
         <input name="name" required placeholder="House Hazy">
@@ -391,10 +422,10 @@
       </label>
 
       <div class="two-col">
-        <label>Target OG (<span class="gravity-unit">°P</span>)
+        <label><span>Target OG (<span class="gravity-unit">°P</span>)</span>
           <input name="targetOg" type="number" data-unit="gravity" data-example="1.066">
         </label>
-        <label>Target FG (<span class="gravity-unit">°P</span>)
+        <label><span>Target FG (<span class="gravity-unit">°P</span>)</span>
           <input name="targetFg" type="number" data-unit="gravity" data-example="1.016">
         </label>
       </div>
@@ -412,11 +443,40 @@
   <!-- Pop-up form for a location -->
   <dialog id="location-editor">
     <form id="location-form">
-      <h2 id="location-title">Location</h2>
+      <h2 id="location-title" tabindex="-1" autofocus>Location</h2>
 
       <label>Name
         <input name="name" required placeholder="Downtown">
       </label>
+
+      <fieldset class="group">
+        <legend>Brewhouse</legend>
+        <p class="muted">Used for brew-day sheets at this location (targets and water volumes). Leave blank what doesn't apply.</p>
+        <div class="two-col">
+          <label><span>Turn size (<span class="volume-unit">bbl</span>)</span>
+            <input name="turnSize" type="number" min="0" data-unit="volume" data-example="15">
+          </label>
+          <label>Usual turns per batch
+            <input name="usualTurns" type="number" min="1" max="6" step="1" placeholder="1">
+          </label>
+        </div>
+        <div class="two-col">
+          <label><span>Kettle full (<span class="volume-unit">bbl</span>)</span>
+            <input name="kettleFull" type="number" min="0" data-unit="volume" data-example="16">
+          </label>
+          <label>Flow target
+            <input name="flowTarget" placeholder="6.6 - 5.5 - 6.2">
+          </label>
+        </div>
+        <div class="two-col">
+          <label>Water to grist (qt/lb)
+            <input name="waterGrist" type="number" min="0" step="any" placeholder="1.25">
+          </label>
+          <label>Grain absorption (gal/lb)
+            <input name="absorption" type="number" min="0" step="any" placeholder="0.125">
+          </label>
+        </div>
+      </fieldset>
 
       <div class="actions">
         <button type="button" id="delete-location" class="btn danger">Delete</button>
@@ -427,10 +487,108 @@
     </form>
   </dialog>
 
+  <!-- A cellar log entry: what was done, readings, cellar change, notes -->
+  <dialog id="cellar-editor">
+    <form id="cellar-form">
+      <h2 id="cellar-title" tabindex="-1" autofocus>Log cellar work</h2>
+      <div class="two-col">
+        <label>Date
+          <input name="occurredOn" type="date" required>
+        </label>
+        <label>Action
+          <select name="action"></select>
+        </label>
+      </div>
+      <label id="cellar-stage-field" class="check-label" hidden>
+        <input type="checkbox" name="changeStage" checked>
+        <span id="cellar-stage-text">Also move the batch to …</span>
+      </label>
+      <div class="three-col">
+        <label><span>Gravity (<span class="gravity-unit">°P</span>)</span>
+          <input name="gravity" type="number" min="0" data-unit="gravity" data-example="1.012" inputmode="decimal">
+        </label>
+        <label>pH
+          <input name="ph" type="number" min="0" max="14" step="any" placeholder="4.5" inputmode="decimal">
+        </label>
+        <label><span>Temp (<span class="temperature-unit">°F</span>)</span>
+          <input name="temp" type="number" data-unit="temperature" data-example="18" inputmode="decimal">
+        </label>
+      </div>
+      <label>Cellar change
+        <input name="cellarChange" placeholder="FR to 62, spunded, slow crash…">
+      </label>
+      <label>Notes
+        <input name="notes">
+      </label>
+      <div class="actions">
+        <button type="button" id="delete-cellar" class="btn danger">Delete</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn cancel">Cancel</button>
+        <button type="submit" class="btn primary">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- An addition: dry hops, spices, fruit -->
+  <dialog id="addition-editor">
+    <form id="addition-form">
+      <h2 id="addition-title" tabindex="-1" autofocus>Addition</h2>
+      <div class="two-col">
+        <label>Date
+          <input name="addedOn" type="date" required>
+        </label>
+        <label>Kind
+          <select name="kind">
+            <option value="hop">Hops</option>
+            <option value="spice">Spice</option>
+            <option value="fruit">Fruit</option>
+            <option value="other">Other</option>
+          </select>
+        </label>
+      </div>
+      <label>What
+        <input name="name" required list="addition-names" placeholder="Citra">
+        <datalist id="addition-names"></datalist>
+      </label>
+      <div class="two-col">
+        <label>Amount
+          <input name="amount" type="number" min="0" step="any" inputmode="decimal">
+        </label>
+        <label>Unit
+          <select name="unit">
+            <option value="oz">oz</option><option value="lb">lb</option><option value="g">g</option>
+            <option value="kg">kg</option><option value="ml">ml</option><option value="l">L</option>
+            <option value="gal">gal</option><option value="each">each</option>
+          </select>
+        </label>
+      </div>
+      <div class="two-col">
+        <label>Timing
+          <input name="timing" list="addition-timings" placeholder="Primary">
+          <datalist id="addition-timings">
+            <option value="KO in FV"><option value="Primary"><option value="Regular"><option value="Secondary">
+          </datalist>
+        </label>
+        <label>Lot number
+          <input name="lot">
+        </label>
+      </div>
+      <label>Notes
+        <input name="notes">
+      </label>
+      <div class="actions">
+        <button type="button" id="delete-addition" class="btn danger">Delete</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn cancel">Cancel</button>
+        <button type="submit" class="btn primary">Save</button>
+      </div>
+    </form>
+  </dialog>
+
   <!-- One person's level and permissions (admins) -->
   <dialog id="member-editor">
     <form id="member-form" method="dialog">
-      <h2 id="member-title">Member</h2>
+      <h2 id="member-title" tabindex="-1" autofocus>Member</h2>
       <label>Level
         <select name="role"></select>
       </label>
@@ -448,7 +606,7 @@
   <!-- Asked when an admin changes one person's permission -->
   <dialog id="scope-editor">
     <form method="dialog">
-      <h2 id="scope-title">Apply this change to…</h2>
+      <h2 id="scope-title" tabindex="-1" autofocus>Apply this change to…</h2>
       <p id="scope-text" class="muted"></p>
       <div class="actions wrap">
         <button value="person" class="btn primary" id="scope-person">Just this person</button>

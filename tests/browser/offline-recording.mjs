@@ -5,7 +5,7 @@
 import { spawn } from "node:child_process";
 import { mkdir } from "node:fs/promises";
 import { chromium } from "playwright-core";
-import { settings, floor } from "./helpers.mjs";
+import { settings, floor, openBatchForm } from "./helpers.mjs";
 
 const PORT = 8125;
 const APP = `http://localhost:${PORT}/`;
@@ -46,8 +46,7 @@ const waiting = () => page.evaluate(() => outbox.length);
 
 // Fill and save the batch form for a tank card
 async function batchForm(tankName, { number, toTank, stage }) {
-  await page.click(`.card[data-tank="${await tankIdByName(tankName)}"]`);
-  await page.waitForSelector("#batch-editor[open]");
+  await openBatchForm(page, `.card[data-tank="${await tankIdByName(tankName)}"]`);
   if (number) {
     await page.fill('#batch-form [name="batchId"]', number);
     const beer = await page.evaluate(() => data.beers[0].id);
@@ -115,6 +114,7 @@ try {
   await batchForm(A, { toTank: B });
   check((await cardText(B)).includes(`#X${run}`), `${B} shows the transferred batch right away`);
   check((await cardText(A)).includes("Cleaning"), `${A} shows Cleaning right away`);
+  await floor(page);
   await page.click(`.card[data-tank="${await tankIdByName(A)}"]`); // a cleaning tank opens its settings
   await page.waitForSelector("#tank-editor[open]");
   await page.click("#log-acid");

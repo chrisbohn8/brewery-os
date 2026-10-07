@@ -93,6 +93,13 @@ These shape every decision, even for features that come later:
 - Add beers from the Beers list or right from the batch form ("+ New beer…").
 - A beer that has batches can't be deleted.
 
+### The batch page and cellar log
+- **Tap a full tank** to open its batch's page: stage, days in stage, tank and location, and three lists: **cellar log**, **additions**, and **history** (stage changes and transfers). "Stage / transfer…" opens the batch form.
+- **Log cellar work:** date, action item (Check, Tank sample, Dry hop, Rouse, Crash, Harvest, Drain, Spund, …), gravity, pH, and temperature in the brewery's units, a **cellar change** ("FR to 62", spunded, slow crash), and notes. Actions like *Dry hop* or *Crash* offer to move the batch to the matching stage in the same step, so the tank board keeps itself current.
+- **Additions:** dry hops, spices, and fruit, with amount, timing, and **lot number**.
+- Entries can be corrected (marked "edited") or deleted, and all of it works offline.
+- **Brewhouse settings per location** (Settings → Equipment → a location): turn size, usual turns per batch, kettle-full volume, flow target, water-to-grist ratio, and grain absorption, ready for brew-day sheets.
+
 ### Batch history
 - Every stage change and transfer is recorded with its date. Nothing is overwritten, so the records show where each batch has been, not just where it is.
 - A transfer keeps the "days in stage" counter; a stage change restarts it.
@@ -303,6 +310,7 @@ The shared database (Phase 3) was pulled ahead of the brew log: real crews can o
 The as-brewed record for each batch, compared against its beer's targets. **Design draft:** [docs/brew-log-design.md](docs/brew-log-design.md).
 - [x] **Brewery preferences, first:** temperature (°F/°C), gravity (SG/Plato/Brix), volume (bbl/hL/gal), and time zone. **Readings are stored in one standard unit** (gravity as SG, temperature as °C, volume as US barrels) and converted for display, so changing a preference never alters old records, breweries' numbers mean the same thing, and TTB math is always in barrels. Brix readings taken after fermentation starts need an alcohol correction (using the original gravity); the app applies it.
 - [ ] **Event history per batch.** Record every stage change and transfer (date, from, to, volume) instead of overwriting. Traceability, the CIP log, and TTB reporting are all built on this. Stage and tank may become "the latest event" rather than fields that get overwritten.
+- [x] **Cellar log** with action items that move the stage, readings in the brewery's units, cellar changes, notes; **additions** with lot numbers; **brewhouse settings per location**. (Brew-day readings are stored per turn with history; their screens come next.)
 - [ ] **Brew-day actuals:** key numbers such as mash temp and pH, pre-boil gravity, OG, volume to fermenter, yeast and pitch temp. Exact fields come from the brewery's current brew sheet.
 - [ ] **Fermentation log:** gravity and temperature readings over time, FG, pH.
 - [ ] **Actual ABV**, calculated from actual OG and FG, plus **target vs. actual**: is 1042 hitting House Hazy's numbers?

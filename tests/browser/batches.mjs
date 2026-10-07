@@ -1,6 +1,6 @@
 // End-to-end walk through Brewery OS on the local Supabase stack.
 import { chromium } from "playwright-core";
-import { settings, floor } from "./helpers.mjs";
+import { settings, floor, openBatchForm } from "./helpers.mjs";
 
 const APP = "http://localhost:8123/";
 const MAIL = "http://127.0.0.1:54324/api/v1";
@@ -63,8 +63,7 @@ await shot("tanks");
 const emptyTankIds = () => page.$$eval("#tanks .card", (cs) =>
   cs.filter((c) => c.querySelector(".beer.none") && /start a batch/i.test(c.textContent)).map((c) => c.dataset.tank));
 const openTank = async (id) => {
-  await page.click(`#tanks .card[data-tank="${id}"]`);
-  await page.waitForSelector("#batch-editor[open]");
+  await openBatchForm(page, `#tanks .card[data-tank="${id}"]`);
 };
 const saveForm = async () => {
   await page.click('#batch-form button[type="submit"]');

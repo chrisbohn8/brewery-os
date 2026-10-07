@@ -1,6 +1,6 @@
 // End-to-end test of acid tracking on the local Supabase stack.
 import { chromium } from "playwright-core";
-import { settings, floor } from "./helpers.mjs";
+import { settings, floor, openBatchForm } from "./helpers.mjs";
 
 const APP = "http://localhost:8123/";
 const MAIL = "http://127.0.0.1:54324/api/v1";
@@ -83,8 +83,7 @@ async function addBeer(name, style) {
 const card = (id) => `#tanks .card[data-tank="${id}"]`;
 const cardText = (id) => page.textContent(card(id));
 async function startBatch(tankId, number, beerId) {
-  await page.click(card(tankId));
-  await page.waitForSelector("#batch-editor[open]");
+  await openBatchForm(page, card(tankId));
   await page.fill('#batch-form input[name="batchId"]', number);
   await page.selectOption('#batch-form select[name="beerId"]', beerId);
   await page.click('#batch-form button[type="submit"]');
@@ -95,16 +94,14 @@ async function startBatch(tankId, number, beerId) {
   return !open;
 }
 async function editBatchIn(tankId, changes) {
-  await page.click(card(tankId));
-  await page.waitForSelector("#batch-editor[open]");
+  await openBatchForm(page, card(tankId));
   for (const [field, value] of Object.entries(changes)) await page.selectOption(`#batch-form select[name="${field}"]`, value);
   await page.click('#batch-form button[type="submit"]');
   await closed("batch-editor"); await settle();
 }
 async function openTankForm(tankId) {
   // Empty tanks open the batch form; go to the tank form through "Tank settings"
-  await page.click(card(tankId));
-  await page.waitForSelector("#batch-editor[open], #tank-editor[open]");
+  await openBatchForm(page, card(tankId)); // (lands on the batch form, or the tank form for a cleaning tank)
   if (await page.isVisible("#batch-editor[open]")) await page.click("#open-tank-settings");
   await page.waitForSelector("#tank-editor[open]");
 }
@@ -182,7 +179,7 @@ check((await cardText(X)).includes("Acid due"), "and X is due again");
 
 // ---- Clean up the test style ----
 await settings(page, "cleaning");
-await page.click(`#acid-style-list [data-remove-style]`);
+await page.click(`#acid-style-list li:has-text("${STYLE}") [data-remove-style]`); // this run's style, not a leftover
 await settle();
 check(!(await page.textContent("#acid-style-list")).includes(STYLE), "style can be removed from the list");
 await shot("end");

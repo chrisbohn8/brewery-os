@@ -317,6 +317,23 @@ ul.plain .item .controls { display: flex; gap: 6px; align-items: center; flex-sh
 .tag.removed { border-color: var(--maintenance); color: var(--maintenance); }
 .list-section .row.static { cursor: default; }
 
+/* ---- The batch page ---- */
+.batch-head .tank-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.batch-head h2 { font-size: 1.4rem; margin: 0; }
+.batch-head .badge { background: var(--stage-color, var(--empty)); }
+ul.plain.log-list .item { display: block; } /* (beats the side-by-side layout of other lists) */
+.log-list .entry { all: unset; box-sizing: border-box; display: block; width: 100%; cursor: pointer; }
+.log-list .entry.static { cursor: default; }
+.log-list .when { font-weight: 600; }
+.log-list .readings { color: var(--muted); font-size: 0.9rem; }
+.three-col { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+.three-col input { min-width: 0; width: 100%; }
+.check-label { display: flex !important; align-items: center; gap: 10px; color: var(--text) !important; font-size: 1rem !important; }
+.check-label input { width: 22px; height: 22px; }
+dialog fieldset.group { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px 4px; margin: 0 0 12px; }
+dialog fieldset.group legend { font-weight: 600; padding: 0 4px; }
+dialog fieldset.group p { margin: 0 0 8px; }
+
 /* ---- Edit pop-up ---- */
 dialog {
   border: none;

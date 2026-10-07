@@ -3,7 +3,7 @@
 // Cellar"); the last admin can't step down; switching breweries; removing people.
 // Real Chrome against the local Supabase test copy (served by the preview server on port 8123).
 import { chromium } from "playwright-core";
-import { settings, floor } from "./helpers.mjs";
+import { settings, floor, openBatchForm } from "./helpers.mjs";
 
 const APP = "http://localhost:8123/";
 const MAIL = "http://127.0.0.1:54324/api/v1";
@@ -73,8 +73,7 @@ try {
     await admin.waitForFunction((n) => data.tanks.some((x) => x.name === n), t);
   }
   await floor(admin);
-  await admin.click(`.card[data-tank="${await tankIdOf(admin, T1)}"]`);
-  await admin.waitForSelector("#batch-editor[open]");
+  await openBatchForm(admin, `.card[data-tank="${await tankIdOf(admin, T1)}"]`);
   await admin.fill('#batch-form [name="batchId"]', `P${run}`);
   await admin.selectOption('#batch-form [name="beerId"]', await admin.evaluate(() => data.beers[0].id));
   await admin.click("#batch-form button[type=submit]");
@@ -95,8 +94,7 @@ try {
   check(await crew.evaluate(() => brewery.role) === "cellar", "as Cellar");
   check(!(await crew.textContent(`.card[data-tank="${await tankIdOf(crew, T2)}"]`)).includes("Tap to start a batch"),
     "empty tanks don't offer to start a batch");
-  await crew.click(`.card[data-tank="${await tankIdOf(crew, T1)}"]`);
-  await crew.waitForSelector("#batch-editor[open]");
+  await openBatchForm(crew, `.card[data-tank="${await tankIdOf(crew, T1)}"]`);
   check(await crew.isDisabled('#batch-form [name="batchId"]'), "the batch number is locked");
   check(!(await crew.isDisabled('#batch-form [name="tankId"]')), "the tank can be changed");
   await crew.selectOption('#batch-form [name="tankId"]', await tankIdOf(crew, T2));
@@ -120,8 +118,7 @@ try {
   await crew.reload();
   await crew.waitForSelector("#app-screen:not([hidden])");
   check(!(await perms(crew)).includes("package"), "the cellar person can no longer package");
-  await crew.click(`.card[data-tank="${await tankIdOf(crew, T2)}"]`);
-  await crew.waitForSelector("#batch-editor[open]");
+  await openBatchForm(crew, `.card[data-tank="${await tankIdOf(crew, T2)}"]`);
   check(await crew.evaluate(() => batchForm.stage.querySelector('[value="packaged"]').disabled), "'Packaged' is greyed out for them");
   await crew.keyboard.press("Escape");
 
