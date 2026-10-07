@@ -438,6 +438,9 @@ project_id = "itxshxihltidwgwtzdcj"
 site_url = "https://brew.chrisbohn.org/"
 additional_redirect_urls = ["https://brew.chrisbohn.org/**"]
 
+[remotes.production.auth.rate_limit]
+email_sent = 30          # sign-in emails per hour (Resend allows far more)
+
 [remotes.production.auth.email]
 enable_confirmations = true
 max_frequency = "1m0s"   # at most one sign-in email per minute per address
@@ -450,6 +453,9 @@ verify_enabled = true
 [remotes.production.db.pooler]
 default_pool_size = 15
 max_client_conn = 200
+
+[remotes.production.storage.image_transformation]
+enabled = true
 
 [remotes.production.storage.analytics]
 enabled = true
