@@ -1512,6 +1512,9 @@ function showScreen(id) {
 const signinForm = document.getElementById("signin-form");
 const codeForm = document.getElementById("code-form");
 
+// The real project's codes are 8 digits; the local test copy's are 6 (supabase/config.toml)
+codeForm.code.placeholder = ON_THIS_COMPUTER ? "123456" : "12345678";
+
 // Show a problem on the sign-in screen itself (or clear it with no text)
 function signinMessage(text) {
   const el = document.getElementById("signin-message");
@@ -1558,7 +1561,7 @@ codeForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   const { error } = await db.auth.verifyOtp({
     email: signinForm.email.value.trim(),
-    token: codeForm.code.value.trim(),
+    token: codeForm.code.value.replace(/\D/g, ""), // digits only: a pasted "1234 5678" still works
     type: "email",
   });
   if (error) signinMessage(explainSigninError(error));
