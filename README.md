@@ -127,6 +127,10 @@ These shape every decision, even for features that come later:
 - **Volumes are optional.** A batch with none recorded says "volume not recorded" and everything still works.
 - The batch page shows what's in the tank, and its history lists every movement with its volume.
 
+### Level checks (moving beer, step 3)
+- **"Check level"** on a batch page: type what the **sight glass** shows. The app compares it with what's on record and records a drop as **served** (a serving tank pouring to the taproom; the default for serving tanks), **loss**, or a **correction**; a rise is a correction.
+- If a volume wasn't recorded along the way, the reading simply **sets** the tank's volume from then on. Readings are checkpoints: later movements count from the latest one.
+
 ### Packaging (moving beer, step 2)
 - **Package types are the brewery's choice** (Settings → Packages): tick them from a catalog of US, metric, one-way, and Cornelius kegs, casks, cases of cans and bottles, and single containers, or add your own (a volume, and how many per package for cases). Halves, quarters, sixtels, and cases of 12 and 16 oz cans are ticked to start.
 - **"Package…" on a batch page:** a count for each package type; the app shows the barrels as you type ("= 20 bbl · about 10 bbl left") and **what's left fills about** "20 × ½ bbl keg, 60 × ⅙ bbl keg...".
@@ -431,7 +435,7 @@ These make the app trustworthy and quick on the floor. They aren't a separate ph
 Beer is tracked by **volume, not just location**: a batch has barrels in places, and every move records how much moved. This is the foundation for inventory and TTB. **Design draft:** [docs/moving-beer-design.md](docs/moving-beer-design.md) (a ledger of movements; a tank's contents are worked out from it).
 - [x] **Volumes and transfers with volumes:** a ledger of movements; each tank shows its running balance; what's left behind on a transfer is a loss.
 - [ ] **Splits and blends:** one batch in two tanks; a blend makes a new batch that lists its sources.
-- [ ] **Level checks** (sight glass): type what the glass shows; the difference is served, loss, or a correction.
+- [x] **Level checks** (sight glass): type what the glass shows; the difference is served, loss, or a correction; with no volume on record, the reading sets it.
 - [x] **Package types set per brewery,** from a researched catalog of kegs, casks, cases, and containers, plus their own.
 - [x] **A packaging calculator** that turns counts into volume, shows what's left, and what it would fill.
 - [x] **Packaging never empties a tank by itself.** A person confirms **"this tank is spent"**; what's left on paper is recorded as **loss**. A leftover over 10% asks before closing.

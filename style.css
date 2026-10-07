@@ -526,3 +526,5 @@ dialog fieldset.acid p { margin: 0 0 8px; }
 #package-editor label.choice { display: flex; gap: 8px; align-items: center; margin: 6px 0; color: var(--text); }
 #package-editor label.choice input { width: auto; }
 #own-package-form input { font: inherit; font-size: 16px; padding: 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--card); color: var(--text); }
+#level-editor label.choice { display: flex; gap: 8px; align-items: center; margin: 6px 0; color: var(--text); }
+#level-editor label.choice input { width: auto; }

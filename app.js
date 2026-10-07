@@ -595,6 +595,7 @@ Object.assign(SEND, {
   },
   setTurns: (a) => must(db.from("batches").update({ turns: a.turns }).eq("id", a.batchId)),
   package: (a) => must(db.rpc("record_packaging", a)),
+  levelCheck: (a) => must(db.rpc("record_level_check", a)),
   logCellar: (a) => must(db.rpc("log_cellar_entry", a)),
   editCellar: (a) => must(db.from("cellar_entries").update(cellarRow(a)).eq("id", a.id)),
   logAddition: async (a) => {
@@ -711,6 +712,19 @@ const SHOW = {
     const tank = d.tanks.find((t) => t.id === a.p_tank_id);
     if (tank) tank.status = "cleaning";
   },
+  // A level check, as the database records it (see record_level_check in ..._level_checks.sql)
+  levelCheck(d, a) {
+    const expected = tankBalance(a.p_batch_id, a.p_tank_id, d);
+    const at = new Date().toISOString();
+    const move = (m) => d.movements.push({ batchId: a.p_batch_id, occurredOn: a.p_occurred_on, fromTankId: null, toTankId: null,
+      notes: "", recordedAt: at, ...m });
+    if (expected != null && expected > a.p_reading_bbl) {
+      move({ id: `${a.p_id}-diff`, kind: a.p_reason, fromTankId: a.p_tank_id, volumeBbl: expected - a.p_reading_bbl, notes: a.p_notes || "" });
+    } else if (expected != null && expected < a.p_reading_bbl) {
+      move({ id: `${a.p_id}-diff`, kind: "correction", toTankId: a.p_tank_id, volumeBbl: a.p_reading_bbl - expected, notes: "level check" });
+    }
+    move({ id: a.p_id, kind: "level", toTankId: a.p_tank_id, volumeBbl: a.p_reading_bbl, notes: a.p_notes || "", recordedAt: at + "~" });
+  },
   setTurns(d, a) {
     const batch = d.batches.find((b) => b.id === a.batchId);
     if (batch) batch.turns = a.turns;
@@ -820,17 +834,21 @@ document.getElementById("sync-problems-ok").addEventListener("click", () => {
 
 // ---------- 5. Looking things up ----------
 // ----- Volumes: worked out from the movement ledger (docs/moving-beer-design.md) -----
-// How much of a batch is in a tank now, in barrels, or null if a volume along the way wasn't
-// recorded. A knockout with no volume counts as the brew sheet's knockout volume, or the batch size.
+// How much of a batch is in a tank now, in barrels: its movements in the order they happened.
+// A level check (the sight glass) resets the count to its reading; anything else adds or takes
+// away. Null if a volume along the way wasn't recorded (and no level check came after it). A
+// knockout with no volume counts as the brew sheet's knockout volume, or the batch size.
 // (Mirrors tank_balance() in the database.)
 function tankBalance(batchId, tankId, d = data) {
+  const moves = (d.movements || [])
+    .filter((m) => m.batchId === batchId && (m.toTankId === tankId || m.fromTankId === tankId))
+    .sort((x, y) => x.occurredOn.localeCompare(y.occurredOn) || (x.recordedAt || "~").localeCompare(y.recordedAt || "~"));
   let total = 0;
-  for (const m of d.movements || []) {
-    if (m.batchId !== batchId || (m.toTankId !== tankId && m.fromTankId !== tankId)) continue;
-    let v = m.volumeBbl;
-    if (v == null && m.kind === "knockout") v = knockoutVolume(batchId, d);
-    if (v == null) return null;
-    total += m.toTankId === tankId ? v : -v;
+  for (const m of moves) {
+    if (m.kind === "level") { total = m.volumeBbl; continue; }
+    if (total == null) continue;
+    const v = m.volumeBbl ?? (m.kind === "knockout" ? knockoutVolume(batchId, d) : null);
+    total = v == null ? null : total + (m.toTankId === tankId ? v : -v);
   }
   return total;
 }
@@ -2881,6 +2899,49 @@ packageForm.addEventListener("submit", async (e) => {
   if (ok) packageDialog.close();
 });
 
+// ----- Level checks: what the sight glass shows -----
+const levelDialog = document.getElementById("level-editor");
+const levelForm = document.getElementById("level-form");
+
+function openLevelEditor() {
+  const b = viewingBatch();
+  const tank = findTank(b.tankId);
+  document.getElementById("level-title").textContent = `Check the level in ${tank.name}`;
+  levelForm.reset();
+  levelForm.occurredOn.value = today();
+  // A serving tank's drop is usually what was poured
+  levelForm.reason.value = tank.type === "serving" ? "served" : "loss";
+  updateLevelNote();
+  levelDialog.showModal();
+}
+document.getElementById("bv-level").addEventListener("click", openLevelEditor);
+
+function updateLevelNote() {
+  const b = viewingBatch();
+  const expected = tankBalance(b.id, b.tankId);
+  const reading = levelForm.reading.value === "" ? null : fromShown("volume", levelForm.reading.value);
+  const drop = expected != null && reading != null && reading < expected - 1e-9;
+  document.getElementById("level-reason").hidden = !drop;
+  document.getElementById("level-note").textContent =
+    expected == null ? "The volume wasn't recorded along the way, so this reading sets it from here on."
+    : reading == null ? `On record: ${showUnit("volume", expected)}.`
+    : drop ? `On record: ${showUnit("volume", expected)}. The ${showUnit("volume", expected - reading)} difference is recorded as:`
+    : reading > expected + 1e-9 ? `On record: ${showUnit("volume", expected)}. The extra ${showUnit("volume", reading - expected)} is noted as a correction.`
+    : `On record: ${showUnit("volume", expected)}. That matches.`;
+}
+levelForm.addEventListener("input", updateLevelNote);
+
+levelForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const b = viewingBatch();
+  const reading = fromShown("volume", levelForm.reading.value);
+  const ok = await saveOrKeep("levelCheck", {
+    p_id: newId(), p_brewery_id: brewery.id, p_batch_id: b.id, p_tank_id: b.tankId, p_occurred_on: levelForm.occurredOn.value,
+    p_reading_bbl: reading, p_reason: levelForm.reason.value, p_notes: levelForm.notes.value.trim(),
+  }, `${tankName(b.tankId)}: level check (${showUnit("volume", reading)})`);
+  if (ok) levelDialog.close();
+});
+
 // ----- A batch's numbers: OG, gravity now, ABV, attenuation, and the fermentation chart -----
 // OG: the tank sample (taken once every turn is in the tank; the last turn's is the whole tank) if
 // recorded, otherwise the average of the turns' knockout gravities. Nothing here is stored: it's
@@ -2981,7 +3042,8 @@ function movementText(m) {
         `${+c.count.toFixed(2)} × ${esc(data.packageTypes.find((t) => t.id === c.packageTypeId)?.name ?? "package")}`);
       return `${amount} packaged from ${from}${counts.length ? ` <span class="muted">(${counts.join(", ")})</span>` : ""}${note}`;
     }
-    case "served": return `${amount} served from ${from}`;
+    case "served": return `${amount} served from ${from}${note}`;
+    case "level": return `Level check: ${amount} in ${to}${note}`;
     case "loss": return `${amount} lost from ${from}${note}`;
     default: return `${amount} ${to ? "added to " + to : "taken out of " + from} as a correction${note}`;
   }
@@ -3009,6 +3071,7 @@ function renderBatchView() {
   document.getElementById("bv-log").hidden = !can("cellar_log") || !inTank;
   document.getElementById("bv-add").hidden = !can("cellar_log") || !inTank;
   document.getElementById("bv-package").hidden = !can("package") || !inTank;
+  document.getElementById("bv-level").hidden = !can("move_beer") || !inTank;
 
   // Cellar log, newest first
   const canLog = can("cellar_log");

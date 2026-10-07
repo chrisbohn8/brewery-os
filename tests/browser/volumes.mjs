@@ -123,6 +123,29 @@ try {
   await page.evaluate(([id, b]) => db.from("batch_readings").insert({ brewery_id: b, batch_id: id, field_key: "ko_volume", value: 15.5 }), [second, await page.evaluate(() => brewery.id)]);
   await page.evaluate(() => refresh());
   check((await card(FV2)).includes("15.5 bbl"), `after the knockout volume is entered: "${await card(FV2)}"`);
+
+  console.log("5. Level checks: the sight glass shows a bit less (served), then a bit more (a correction)");
+  await page.click(`.card[data-tank="${await tankId(FV2)}"]`);
+  await page.waitForSelector("#batch-view:not([hidden])");
+  await page.click("#bv-level");
+  await page.waitForSelector("#level-editor[open]");
+  check((await text("#level-note")) === "On record: 15.5 bbl.", `before typing: "${await text("#level-note")}"`);
+  await page.fill('#level-form [name="reading"]', "15");
+  check(await page.isVisible("#level-reason") && (await text("#level-note")).includes("0.5 bbl difference"), `a drop asks what it was: "${await text("#level-note")}"`);
+  await page.check('#level-form [name="reason"][value="served"]');
+  await page.screenshot({ path: SHOTS + "level-check.png" });
+  await page.click("#level-form button[type=submit]");
+  await allSent();
+  check((await text("#bv-meta")).includes("15 bbl in the tank"), `the tank now shows the reading: "${await text("#bv-meta")}"`);
+  const hist = await text("#bv-history");
+  check(hist.includes(`0.5 bbl served from ${FV2}`) && hist.includes(`Level check: 15 bbl in ${FV2}`), `history: "${hist.slice(-120)}"`);
+  await page.click("#bv-level");
+  await page.waitForSelector("#level-editor[open]");
+  await page.fill('#level-form [name="reading"]', "15.25");
+  check(await page.isHidden("#level-reason") && (await text("#level-note")).includes("noted as a correction"), "a rise is a correction (no question asked)");
+  await page.click("#level-form button[type=submit]");
+  await allSent();
+  check(await page.evaluate((id) => tankBalance(id, viewingBatch().tankId), second) === 15.25, "the tank holds 15.25 bbl");
   await page.screenshot({ path: SHOTS + "volumes.png" });
   check(errors.length === 0, `no page errors (${errors.join("; ")})`);
 } catch (e) {

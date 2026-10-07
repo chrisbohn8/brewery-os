@@ -7,7 +7,7 @@ set local role postgres;
 create extension if not exists pgtap with schema extensions;
 set search_path = public, extensions;
 
-select plan(16);
+select plan(22);
 
 insert into auth.users (id, email) values
   ('00000000-0000-0000-0000-0000000000a7', 'admin@example.test'),
@@ -78,6 +78,25 @@ select is(pg_temp.in_tank('a7000000-0000-0000-0000-000000000001', 'a7000000-0000
 select throws_ok($$ select pg_temp.save('conditioning', 'a7000000-0000-0000-0000-000000000002', '2026-10-22', -1,
                                          'a7000000-0000-0000-0000-0000000000bb', null) $$,
   'P0001', 'A volume can''t be negative.', 'negative volumes are refused');
+
+-- 8. Level checks (the sight glass): batch "bb" is in FV-1 with no volume recorded anywhere
+create function pg_temp.check_level(run uuid, reading numeric, reason text) returns void language sql as $$
+  select public.record_level_check(run, (select b from ids), 'a7000000-0000-0000-0000-0000000000bb',
+                                   'a7000000-0000-0000-0000-000000000001', '2026-10-23', reading, reason, '');
+$$;
+select pg_temp.check_level('a7000000-0000-0000-0000-0000000000c1', 20, 'served');
+select is(pg_temp.in_tank('a7000000-0000-0000-0000-000000000001', 'a7000000-0000-0000-0000-0000000000bb'), 20::numeric,
+  'with nothing recorded, a level check sets the volume');
+select pg_temp.check_level('a7000000-0000-0000-0000-0000000000c2', 18.5, 'served');
+select is((select volume_bbl from beer_movements where kind = 'served'), 1.5, 'a drop on a later check is recorded as served');
+select is(pg_temp.in_tank('a7000000-0000-0000-0000-000000000001', 'a7000000-0000-0000-0000-0000000000bb'), 18.5, 'and the tank shows the reading');
+select pg_temp.check_level('a7000000-0000-0000-0000-0000000000c2', 18.5, 'served');
+select is((select count(*) from beer_movements where kind in ('served', 'level'))::int, 3, 'repeating a check adds nothing');
+select pg_temp.check_level('a7000000-0000-0000-0000-0000000000c3', 19, 'loss');
+select is((select volume_bbl from beer_movements where kind = 'correction' and notes = 'level check'), 0.5,
+  'a rise is recorded as a correction');
+select throws_ok($$ select pg_temp.check_level('a7000000-0000-0000-0000-0000000000c4', 5, 'evaporated') $$,
+  'P0001', null, 'the difference has to be served, loss, or a correction');
 
 -- 8. Another brewery sees none of it
 select pg_temp.act_as('00000000-0000-0000-0000-0000000000d7');

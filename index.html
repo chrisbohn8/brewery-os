@@ -120,6 +120,7 @@
       <button id="bv-sheet" class="btn">Brew-day sheet</button>
       <button id="bv-print" class="btn">Print brew sheet</button>
       <button id="bv-package" class="btn" data-needs="package">Package…</button>
+      <button id="bv-level" class="btn" data-needs="move_beer">Check level</button>
     </div>
   </section>
 
@@ -698,6 +699,31 @@
       </label>
       <div class="actions">
         <button type="button" id="delete-addition" class="btn danger">Delete</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn cancel">Cancel</button>
+        <button type="submit" class="btn primary">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- A level check: what the sight glass shows, and what any drop was -->
+  <dialog id="level-editor">
+    <form id="level-form">
+      <h2 id="level-title" tabindex="-1" autofocus>Check the level</h2>
+      <div class="two-col">
+        <label>Date <input name="occurredOn" type="date" required></label>
+        <label><span>Sight glass shows (<span class="volume-unit">bbl</span>)</span>
+          <input name="reading" type="number" min="0" step="any" inputmode="decimal" required data-unit="volume"></label>
+      </div>
+      <p id="level-note" class="muted"></p>
+      <fieldset id="level-reason" class="group" hidden>
+        <legend>The difference was</legend>
+        <label class="choice"><input type="radio" name="reason" value="served"> Served (poured from this tank)</label>
+        <label class="choice"><input type="radio" name="reason" value="loss"> Loss (bottoms, a dump, a spill)</label>
+        <label class="choice"><input type="radio" name="reason" value="correction"> A correction (the earlier numbers were off)</label>
+      </fieldset>
+      <label>Notes <input name="notes" maxlength="500"></label>
+      <div class="actions">
         <span class="spacer"></span>
         <button type="button" class="btn cancel">Cancel</button>
         <button type="submit" class="btn primary">Save</button>

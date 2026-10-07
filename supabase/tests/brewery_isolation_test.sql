@@ -11,7 +11,7 @@ set local role postgres;
 create extension if not exists pgtap with schema extensions;
 set search_path = public, extensions;
 
-select plan(24);
+select plan(25);
 
 -- ---------- Setup: three pretend people ----------
 insert into auth.users (id, email) values
@@ -121,7 +121,7 @@ set local role postgres;
 select ok(not has_function_privilege('anon', p.oid, 'execute'), 'signed-out visitors cannot run ' || p.proname)
   from pg_proc p join pg_namespace n on n.oid = p.pronamespace
  where n.nspname = 'public'
-   and p.proname in ('create_brewery', 'accept_invites', 'brewery_members', 'my_permissions', 'save_batch', 'log_cellar_entry', 'record_packaging')
+   and p.proname in ('create_brewery', 'accept_invites', 'brewery_members', 'my_permissions', 'save_batch', 'log_cellar_entry', 'record_packaging', 'record_level_check')
  order by p.proname;
 
 select * from finish();
