@@ -1,6 +1,13 @@
 # Inventory: design (draft for review)
 
-Status: **proposal, not built yet.** Comments welcome before building. Same principles as the rest of the app: sensible defaults, flexibility, and the brewery chooses.
+Status: **reviewed; decisions recorded below.** Based also on a real brewery's inventory workbook (no names here). Same principles as the rest of the app: sensible defaults, flexibility, and the brewery chooses.
+
+## What the workbook taught us
+
+- **Stock lives in places, not just locations.** Each location has a **storage** area (the main cooler) and a **taproom**. A master sheet adds them up by beer and package size (½, ¼, ⅙ bbl and cases), with a total in barrels.
+- **Counting is the habit.** Each place is counted by hand, beer by beer, size by size. The app should fit that, not demand that every keg leaving be logged.
+- **Pars drive restocking.** The front of house sets a par for each beer at each taproom (in barrels); "over / under" is what's there minus par, and anything under means "bring more up". There's also a brewery-wide par per beer (barrels and cases), and a case request at the taproom.
+- **"On deck"** is, for each taproom, the beers sitting in storage that aren't on tap there yet, with how much there is and which storage it's in.
 
 ## Why it matters
 
@@ -32,12 +39,26 @@ Append-only, works offline, and every number traces back to something a person r
 | **Dumped / destroyed** | out of date, off flavor | destroyed (needs records) |
 | **Returned** | kegs or cases coming back with beer in them | returned to the brewery (comes back in) |
 
-**Where it is:** each location has its own stock (packaging at one location puts it there). **Moving stock between locations** is a simple "move 10 halves from location A to location B".
+**Where it is: stock places.** Each location has one or more **places** where stock sits, each a **storage** place or a **taproom** (to start: one storage place per location; add a taproom, or more, as needed). Packaging puts stock in the location's storage place (or a chosen one). **Moving stock between places** ("bring 3 halves up to the taproom", "send 10 halves to the other location") is a move, not a removal.
+
+**Counting a place (the main way to keep stock right).** A **count sheet** for a place looks like the workbook's tabs: each beer with a box per package size, filled in with what the app expects. The crew types what's actually there; the app records the differences. For a taproom, a drop is usually **poured** (consumed on the premises); for storage, the brewery picks what a drop means (sold, or "not sure, check"). So a brewery that only counts once a week still gets correct stock, and one that logs every removal gets the detail.
+
+**By batch, or not (the brewery chooses).** Stock always remembers which batch it came from (packaging runs know), but by default the screens show **beer and package size only**, like the workbook. Removals and count differences take from the **oldest batch first**. A brewery that wants batch detail turns it on and sees (and can choose) batches everywhere.
+
+**Which removal kinds** show up is the brewery's choice too (Settings), starting with all of them.
 
 **What you see:**
 - **An Inventory screen:** for each beer, what's on hand by package type ("Amber Ale: 22 × ½ bbl, 8 × ⅙ bbl, 41 cases of 16 oz"), with the batches behind it and their age (oldest first).
 - **Quick removal:** pick the beer and package type, then type a count. The oldest batch goes first unless you choose one.
 - **A count check:** like a level check for tanks. Count what's actually in the cooler, and the app records the difference.
+
+## Pars, restocking, and "on deck"
+
+- **Pars** per beer per place (barrels, or a count of a package size like cases), set by whoever runs that place, plus an optional **brewery-wide par** per beer.
+- **Over / under** for each taproom: what's there minus par, highlighted when under.
+- **Restock list:** for each taproom, what to bring up to reach par, and which storage place has it. It turns into moves with one tap once it's been brought up.
+- **On deck:** for each taproom, the beers in storage that aren't there yet, with how much and where.
+- **Brewery-wide view:** each beer's total (barrels and cases) against its par, with what's in tanks still to be packaged.
 
 ## 2. Raw materials
 
@@ -52,18 +73,18 @@ Append-only, works offline, and every number traces back to something a person r
 
 For breweries that number their kegs: register kegs (number, size, maybe a QR sticker), and record that a keg was **filled** (with which batch), **delivered** (to which account), and **returned** (empty). Then you can see which kegs are full, empty, or out at accounts, and for how long. Breweries that don't number kegs skip this entirely; finished-goods counts work either way.
 
-## Suggested build order
+## Build order (after review)
 
-1. **Finished goods:** on hand (from packaging), removals by kind, moves between locations, count checks.
-2. **Raw materials:** receipts, use from brew-day ingredients, on hand, low stock, lot traceability.
-3. **Keg tracking**, for breweries that want it.
+1. **Finished goods:** stock places, on hand (from packaging), **count sheets**, moves between places, removals by kind.
+2. **Pars, restocking, and "on deck".**
+3. **Raw materials:** receipts in the units bought (55 lb sacks, 44 lb boxes, kg...), use from brew-day ingredients, on hand by lot, low stock, lot traceability.
+4. **Keg tracking**, for breweries that want it.
 
-## Questions for you
+## Decisions from the review
 
-1. **Where finished goods go:** does each location have its own cooler and stock, and do kegs or cases move between locations?
-2. **Removals:** which kinds do you use (distributor, self-distribution to accounts, taproom, events, donations, dumps)? And does the taproom pour from kegs, tanks, or both?
-3. **Kegs:** do you number or track individual kegs today (or keg deposits)? Or is a count by size enough?
-4. **Raw materials:** do you track malt, hops, and yeast on hand today? By lot? What units do you buy in (55 lb sacks, 44 lb boxes of hops, kg)?
-5. **Accounts:** do you want customers (bars, stores, distributors) as records, so removals and kegs can be "to Corner Bar"? Or is a note enough for now?
-
-Until we hear otherwise: stock per location, all the removal kinds above, counts by size (no numbered kegs), raw materials by lot, and accounts as a simple name on a removal.
+1. **Places:** each location has its own stock (storage and taproom), and beer moves between them and between locations.
+2. **Removals:** all the kinds above, used; the taproom pours from kegs and sometimes tanks (tanks are covered by level checks).
+3. **Counting by size** is the default; batch detail is an option the brewery turns on. Start basic; let the admin choose what fits.
+4. **Raw materials:** tracked by lot, bought in sacks, boxes, and kg.
+5. **Accounts** (customers) come later; a name typed on a removal for now.
+6. **TTB note for Phase 7:** whether moving beer to a taproom counts as "removed" depends on whether the taproom is inside the brewery's bonded premises. Each taproom place will say which; checked against the form in Phase 7.
