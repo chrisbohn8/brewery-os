@@ -436,15 +436,18 @@ Recipe *building* is well served by dedicated tools, so this stays light. The br
 
 ### Phase 11: Ready for other breweries
 Multi-tenancy itself arrives in Phase 3. This phase is about letting a new brewery sign up on its own.
-- [ ] **Guided admin onboarding:** a step-by-step setup that covers:
-    - units and time zone;
-    - TTB permit number, state, and filing frequency;
-    - batch numbering (next number or format) and the brewery's own stage list;
-    - default acid rule for new tanks, and acid-after styles;
-    - package types (keg and can sizes) and optional "too long in a stage" alerts;
-    - adding locations, tanks (or importing a list), and beers, and inviting the crew.
+- [ ] **Onboarding: the brewer's own tanks on screen in the first 15 minutes.** Ask only what's needed to see value; ask the rest when it first matters. Guess defaults (units from the country, time zone from the phone), enter things in bulk, import what the brewery already has.
+    1. Sign in with an emailed code, then name the brewery.
+    2. **Your cellar:** locations and tanks in bulk ("FV1 to FV8, 30 bbl fermenters").
+    3. **What's in the tanks right now:** tap each tank, pick or type a beer, roughly how many days in.
+    4. **Your brew sheet:** tick the fields you measure, or upload a photo or spreadsheet of your current sheet and have the matching fields ticked. Print it.
+    5. **Invite the crew.**
+    6. A **setup checklist** in Settings for the rest, each item asked when it becomes relevant: TTB permit, state, and filing frequency (at the first TTB report); package types (at the first packaging); acid rules (at the first cleaning); batch numbering and stage list; "too long in a stage" alerts.
 
-  Each step can be skipped and changed later in settings.
+  Every step can be skipped and changed later. For the first breweries, also a hands-on setup call.
+- [ ] **Free trial, decided:** every brewery gets **at least one free TTB report**. The trial runs until the first TTB report is ready to file, with a minimum of 90 days, so it always covers one full reporting period (monthly or quarterly). The brewery files that first report before being asked to pay. No payment details to start.
+    - **One trial per TTB permit number** (each brewery premises has its own Brewer's Notice). The permit is asked for at the first TTB report, which needs it anyway. A permit that already had a trial goes straight to paid, with an offer to pick up the earlier brewery's data. No IP tracking or name matching.
+    - **After the trial nothing is deleted or locked away:** the brewery goes read-only, and export is always free.
 - [ ] **Billing.**
 - [ ] Possibly a big-screen "cellar TV" view of the dashboard.
 
