@@ -1,6 +1,6 @@
 # Moving beer and packaging: design (draft for review)
 
-Status: **proposal, not built yet.** Comments welcome before building.
+Status: **reviewed; decisions recorded below. Building in the order at the end.** The guiding rule from the review: **flexibility.** Every brewery measures, packages, and blends a little differently, so the app offers choices with sensible defaults instead of one fixed way.
 
 ## Why this comes next
 
@@ -34,7 +34,7 @@ Like a bank account: instead of storing "BT1 has 28 bbl", we record every moveme
 | **Loss** | a tank | — | tank bottoms, dumped beer, a spill |
 | **Correction** | a tank | — | the sight glass says 2 bbl more than the app |
 
-Each movement has a date, the batch, the volume (or "unknown"), who recorded it, and notes. A tank's contents are the sum of what went in minus what came out, **per batch**, so a blend tank shows "BT2: 18 bbl #142 + 12 bbl #143".
+Each movement has a date, the batch, the volume (or "unknown"), who recorded it, and notes. A **level check** (below) is also a movement: the difference between what the app expected and what the sight glass shows. A tank's contents are the sum of what went in minus what came out, **per batch**, so a blend tank shows "BT2: 18 bbl #142 + 12 bbl #143".
 
 ### Volumes the app can work out for you
 
@@ -42,17 +42,39 @@ Each movement has a date, the batch, the volume (or "unknown"), who recorded it,
 - **"Move all of it"** is the default for a transfer: the volume is whatever's in the tank. You can type a different number (a split, or a measured loss on the way).
 - **Packaging** turns counts into volume using package sizes.
 
+### Three ways to record a volume (use whichever fits)
+
+1. **"All of it"**: the app's own running balance (the default for transfers).
+2. **Type a number**, from a flow meter, a measured transfer, or an estimate.
+3. **Check the level**: on any tank, type what the **sight glass** shows. The app compares it with what it expected and records the difference, labelled by what it was:
+    - **served** (a serving tank pouring to the taproom),
+    - **loss** (bottoms, a dump, a spill),
+    - **correction** (the earlier numbers were off).
+
+All volumes are typed in the brewery's own unit (bbl, gal, or hL) and stored in barrels, like every other volume in the app.
+
 ### When volumes are unknown
 
 If a batch was knocked out without a volume, its tank shows the batch with **"volume not recorded"**, and transfers default to "all of it". Nothing breaks; the TTB report will list what's missing instead of making it up.
 
 ## Packaging
 
-**Package types** are set per brewery (Settings), with sensible ones ticked to start:
+**Package types are the brewery's choice** (Settings → Packages): tick the ones you use from a catalog, rename them, and add your own. Like the brew sheet fields, a type you stop using never disappears from past packaging runs.
 
-- **kegs:** ½ bbl (15.5 gal), ¼ bbl (7.75 gal), ⅙ bbl (5.17 gal), 50 L;
-- **cans and bottles by the case:** 24 × 12 oz (2.25 gal), 24 × 16 oz (3 gal), 24 × 19.2 oz (3.6 gal);
-- **your own:** a name and a volume (a crowler, a 1 L bottle, a 20 L keg...).
+The catalog:
+
+| Group | Package types (volume) |
+| --- | --- |
+| US kegs | ½ bbl (15.5 gal), ¼ bbl / pony (7.75 gal), slim ¼ (7.75 gal), ⅙ bbl / sixtel (5.17 gal), ⅛ bbl (3.88 gal) |
+| Metric kegs | 50 L, 30 L, 25 L, 20 L |
+| One-way kegs (KeyKeg, PolyKeg, Petainer...) | 30 L, 20 L, 10 L |
+| Cornelius kegs | 5 gal, 3 gal, 2.5 gal |
+| Casks | pin (4.5 imperial gal, 20.5 L), firkin (9 imperial gal, 40.9 L), kilderkin (18 imperial gal, 81.8 L) |
+| Cans and bottles, by the case | 24 × 12 oz (2.25 gal), 24 × 16 oz (3 gal), 24 × 19.2 oz (3.6 gal), 12 × 22 oz (2.06 gal), 12 × 750 mL (9 L) |
+| Single containers | crowler (32 oz), growler (64 oz), howler (32 oz), 5 L mini keg |
+| **Your own** | a name and a volume in gal, L, oz, or mL, optionally "× how many per case" |
+
+Ticked to start: ½ bbl, ¼ bbl, ⅙ bbl, and cases of 12 oz and 16 oz cans.
 
 A **packaging run** is: date, tank, batch, and a count per package type. The app shows the volume as you type ("40 halves + 12 sixtels = 22.3 bbl") and **what's left in the tank** ("about 7.7 bbl left").
 
@@ -65,6 +87,20 @@ After a packaging run, the app asks: **"Is BT1 empty now?"**
 - **"Not yet"**: the rest stays in the tank (packaging over several days, or cans next week).
 - **"Yes, it's spent"**: whatever is left on paper is recorded as **loss** (tank bottoms, foam, line loss), the batch moves to Packaged when no tank holds it any more, and the tank goes to Cleaning.
 - **A suspicious leftover** (more than about 10% of what was in the tank, say 4 bbl out of 30) asks first: "4.1 bbl unaccounted for. Record it as loss, or was something not entered?"
+
+## Blends
+
+Rare for most breweries, but it has to work. **A blend makes a new batch.** Blending #142 and #143 into BT2 creates batch "#142/143" (the brewer can rename it) whose history lists what went in: "18 bbl #142 + 12 bbl #143". From then on it's one batch: one stage, packaged as one, one line on the tank board.
+
+Why a new batch rather than tracking each share inside the tank: packaging a blend would otherwise have to split every keg between batches by proportion, which is confusing on screen and easy to get wrong. A new batch with its sources listed keeps the traceability (which batches, which lots) without the arithmetic. TTB treats blending as moving beer between tanks, which the ledger already records.
+
+## Serving tanks
+
+A brewpub pouring straight from a tank records a **level check** now and then (each morning, or at the end of the week): the drop since the last check is recorded as **served**. Later (Phase 8), the point-of-sale system can fill this in automatically.
+
+## Losses
+
+Not every brewery measures losses, so the app never demands them. They come from two places: a **level check** labelled "loss", and **"this tank is spent"**, which records what's left on paper as loss (it has to go somewhere for the numbers to add up, and TTB asks for losses). A brewery that wants more detail can label losses (bottoms, dumped, spill, lab samples).
 
 ## How this changes what you see
 
@@ -99,15 +135,13 @@ The exact line mapping gets checked against the form when Phase 7 is built. The 
 
 1. **The ledger**, volumes on tank cards and the batch page, transfers with volumes (splits included), and moving existing data over.
 2. **Package types** (Settings) and **packaging runs** with the calculator, plus **"this tank is spent"** with loss.
-3. **Blends** (more than one batch in a tank).
-4. **Serving tanks** drawn down from the taproom (by hand now; from the point-of-sale system in Phase 8).
+3. **Level checks** (sight glass) with served / loss / correction, which also covers serving tanks.
+4. **Blends** as a new batch made from others.
 
-## Questions for you
+## Decisions from the review
 
-1. **Package types:** which do you use? Halves and sixtels, and which cans or bottles (12 or 16 oz? 4-packs or 6-packs? cases of 24)? Crowlers?
-2. **Measuring volume:** how do you know how much is in a tank, and how much moved? Sight glass, flow meter, or "it's the batch size minus a bit"?
-3. **Blends:** do you ever put two different batches in one tank (other than turns of the same batch)?
-4. **Serving tanks:** does the taproom pour straight from any tank?
-5. **Losses:** do you write down tank bottoms or dumped beer today? Roughly how much does a typical tank leave behind?
-
-Until we hear otherwise, the defaults are: the package types listed above, "move all of it" for transfers, blends allowed, and a loss warning above 10%.
+1. **Package types:** a catalog the brewery ticks and renames, plus its own; nothing fixed. (The catalog above came from researching keg and package sizes.)
+2. **Measuring:** flexible. "All of it", a typed number, or a sight glass level check.
+3. **Blends:** must be possible, though rare. A blend makes a new batch that lists its sources.
+4. **Serving tanks:** yes, sometimes. Level checks record what was served.
+5. **Losses:** never required, always possible. "Tank spent" records the remainder as loss.
