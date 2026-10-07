@@ -528,3 +528,12 @@ dialog fieldset.acid p { margin: 0 0 8px; }
 #own-package-form input { font: inherit; font-size: 16px; padding: 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--card); color: var(--text); }
 #level-editor label.choice { display: flex; gap: 8px; align-items: center; margin: 6px 0; color: var(--text); }
 #level-editor label.choice input { width: auto; }
+
+/* Splits and blends */
+.family { font-size: 0.9rem; margin: -6px 0 10px; }
+.link.inline { display: inline; margin: 0; font-size: inherit; }
+.source-row { border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px; margin: 8px 0; }
+.source-row label.choice { display: flex; gap: 8px; align-items: center; color: var(--text); font-size: 0.9rem; }
+.source-row label.choice input { width: 22px; height: 22px; flex: none; margin: 0; }
+#blend-add { font: inherit; font-size: 16px; padding: 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--card); color: var(--text); width: 100%; }
+#blend-editor h3 { margin: 14px 0 4px; font-size: 1rem; }

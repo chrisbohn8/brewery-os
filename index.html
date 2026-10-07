@@ -112,6 +112,7 @@
       <span id="bv-stage" class="badge"></span>
     </div>
     <p id="bv-meta" class="muted"></p>
+    <div id="bv-family" class="family"></div>
     <div id="bv-numbers" class="numbers"></div>
     <div class="actions wrap">
       <button id="bv-log" class="btn primary" data-needs="cellar_log">+ Log cellar work</button>
@@ -121,6 +122,7 @@
       <button id="bv-print" class="btn">Print brew sheet</button>
       <button id="bv-package" class="btn" data-needs="package">Package…</button>
       <button id="bv-level" class="btn" data-needs="move_beer">Check level</button>
+      <button id="bv-blend" class="btn" data-needs="start_batch">Split / blend…</button>
     </div>
   </section>
 
@@ -699,6 +701,32 @@
       </label>
       <div class="actions">
         <button type="button" id="delete-addition" class="btn danger">Delete</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn cancel">Cancel</button>
+        <button type="submit" class="btn primary">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- A split or blend: a new batch made from part or all of other batches -->
+  <dialog id="blend-editor">
+    <form id="blend-form">
+      <h2 id="blend-title" tabindex="-1" autofocus>New batch</h2>
+      <p class="muted">The new batch is its own batch (its own stage, additions, and packaging), and remembers what it was made from.</p>
+      <div id="blend-sources"></div>
+      <select id="blend-add" aria-label="Blend in another batch"></select>
+      <h3>The new batch</h3>
+      <div class="two-col">
+        <label>Batch # <input name="batchNumber" required></label>
+        <label>Beer <select name="beerId"></select></label>
+      </div>
+      <div class="two-col">
+        <label>Tank <select name="tankId"></select></label>
+        <label>Stage <select name="stage"></select></label>
+      </div>
+      <label>Date <input name="occurredOn" type="date" required></label>
+      <p id="blend-summary" class="package-summary"></p>
+      <div class="actions">
         <span class="spacer"></span>
         <button type="button" class="btn cancel">Cancel</button>
         <button type="submit" class="btn primary">Save</button>

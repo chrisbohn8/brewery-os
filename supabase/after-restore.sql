@@ -18,3 +18,4 @@ revoke execute on function public.log_cellar_entry(uuid, uuid, uuid, date, text,
 revoke execute on function public.record_packaging(uuid, uuid, uuid, uuid, date, jsonb, boolean, text) from anon;
 revoke execute on function public.add_usual_package_types(uuid) from anon, authenticated;
 revoke execute on function public.record_level_check(uuid, uuid, uuid, uuid, date, numeric, text, text) from anon;
+revoke execute on function public.make_batch_from(uuid, uuid, text, uuid, uuid, text, date, jsonb, text) from anon;

@@ -88,6 +88,10 @@ After a packaging run, the app asks: **"Is BT1 empty now?"**
 - **"Yes, it's spent"**: whatever is left on paper is recorded as **loss** (tank bottoms, foam, line loss), the batch moves to Packaged when no tank holds it any more, and the tank goes to Cleaning.
 - **A suspicious leftover** (more than about 10% of what was in the tank, say 4 bbl out of 30) asks first: "4.1 bbl unaccounted for. Record it as loss, or was something not entered?"
 
+## Splits (decided: a split makes a new batch too)
+
+Splitting #142 into BT1 and BT2 keeps #142 in one tank and makes **#142-2** in the other, "split from #142". Same mechanism as a blend, so each part has its own stage, additions, and packaging (useful when the halves become variants), and a tank always holds one batch. A source that's all used becomes **"Used in another batch"**.
+
 ## Blends
 
 Rare for most breweries, but it has to work. **A blend makes a new batch.** Blending #142 and #143 into BT2 creates batch "#142/143" (the brewer can rename it) whose history lists what went in: "18 bbl #142 + 12 bbl #143". From then on it's one batch: one stage, packaged as one, one line on the tank board.

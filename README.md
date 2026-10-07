@@ -127,6 +127,12 @@ These shape every decision, even for features that come later:
 - **Volumes are optional.** A batch with none recorded says "volume not recorded" and everything still works.
 - The batch page shows what's in the tank, and its history lists every movement with its volume.
 
+### Splits and blends (moving beer, step 4)
+- **"Split / blend…"** on a batch page makes a **new batch** from part or all of this one, and optionally other batches (a blend). Each part is its own batch, with its own stage, additions, and packaging, so a tank always holds one batch.
+- A source keeps what's left in its tank, unless it's **all used**: then what's left is a loss, the source becomes **"Used in another batch"** (out of its tank, not packaged), and its tank goes to cleaning. A blend can go into one of its sources' own tanks if that source is all used.
+- The new batch shows **what it was made from** ("Made from 12 bbl of #142") and the sources show where their beer went, each a link. Its OG is worked out from its sources, by volume. Suggested numbers: "142-2" for a split, "142/143" for a blend.
+- It's a transfer, not new beer: TTB counts beer produced only from knockouts.
+
 ### Level checks (moving beer, step 3)
 - **"Check level"** on a batch page: type what the **sight glass** shows. The app compares it with what's on record and records a drop as **served** (a serving tank pouring to the taproom; the default for serving tanks), **loss**, or a **correction**; a rise is a correction.
 - If a volume wasn't recorded along the way, the reading simply **sets** the tank's volume from then on. Readings are checkpoints: later movements count from the latest one.
@@ -434,7 +440,7 @@ These make the app trustworthy and quick on the floor. They aren't a separate ph
 ### Phase 5: Moving beer and packaging
 Beer is tracked by **volume, not just location**: a batch has barrels in places, and every move records how much moved. This is the foundation for inventory and TTB. **Design draft:** [docs/moving-beer-design.md](docs/moving-beer-design.md) (a ledger of movements; a tank's contents are worked out from it).
 - [x] **Volumes and transfers with volumes:** a ledger of movements; each tank shows its running balance; what's left behind on a transfer is a loss.
-- [ ] **Splits and blends:** one batch in two tanks; a blend makes a new batch that lists its sources.
+- [x] **Splits and blends:** both make a new batch from part or all of others (decided: each part is its own batch); sources that are all used become "Used in another batch".
 - [x] **Level checks** (sight glass): type what the glass shows; the difference is served, loss, or a correction; with no volume on record, the reading sets it.
 - [x] **Package types set per brewery,** from a researched catalog of kegs, casks, cases, and containers, plus their own.
 - [x] **A packaging calculator** that turns counts into volume, shows what's left, and what it would fill.

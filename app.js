@@ -23,6 +23,7 @@ const STAGES = [
   { id: "carbonating",  label: "Carbonating" },
   { id: "ready",        label: "Ready" },
   { id: "packaged",     label: "Packaged" }, // packaged = out of the tank
+  { id: "used",         label: "Used in another batch" }, // all of it went into a split or blend (also out of the tank)
 ];
 
 const TANK_TYPES = [
@@ -386,6 +387,7 @@ async function loadAll() {
     movements: movements.map((m) => ({
       id: m.id, batchId: m.batch_id, occurredOn: m.occurred_on, kind: m.kind, fromTankId: m.from_tank_id,
       toTankId: m.to_tank_id, volumeBbl: num(m.volume_bbl), notes: m.notes, recordedAt: m.recorded_at,
+      sourceBatchId: m.source_batch_id,
     })),
     packageTypes: packageTypes.map((t) => ({
       id: t.id, name: t.name, volumeBbl: num(t.volume_bbl), kind: t.kind, catalogKey: t.catalog_key, active: t.active,
@@ -596,6 +598,7 @@ Object.assign(SEND, {
   setTurns: (a) => must(db.from("batches").update({ turns: a.turns }).eq("id", a.batchId)),
   package: (a) => must(db.rpc("record_packaging", a)),
   levelCheck: (a) => must(db.rpc("record_level_check", a)),
+  makeBatch: (a) => must(db.rpc("make_batch_from", a)),
   logCellar: (a) => must(db.rpc("log_cellar_entry", a)),
   editCellar: (a) => must(db.from("cellar_entries").update(cellarRow(a)).eq("id", a.id)),
   logAddition: async (a) => {
@@ -724,6 +727,34 @@ const SHOW = {
       move({ id: `${a.p_id}-diff`, kind: "correction", toTankId: a.p_tank_id, volumeBbl: a.p_reading_bbl - expected, notes: "level check" });
     }
     move({ id: a.p_id, kind: "level", toTankId: a.p_tank_id, volumeBbl: a.p_reading_bbl, notes: a.p_notes || "", recordedAt: at + "~" });
+  },
+  // A split or blend, as the database records it (see make_batch_from in ..._batches_from_batches.sql)
+  makeBatch(d, a) {
+    if (d.batches.some((b) => b.id === a.p_id)) return;
+    const at = new Date().toISOString();
+    const sources = a.p_sources.map((s) => d.batches.find((b) => b.id === s.batch)).filter(Boolean);
+    const firstBrew = sources.map((b) => b.brewDate).filter(Boolean).sort()[0] || a.p_occurred_on;
+    d.batches.push({ id: a.p_id, batchNumber: a.p_batch_number, beerId: a.p_beer_id, brewDate: firstBrew, sizeBbl: null, turns: 1,
+      stage: a.p_stage, tankId: a.p_tank_id, stageStartDate: a.p_occurred_on });
+    const move = (m) => d.movements.push({ id: `waiting-${a.p_id}-m${d.movements.length}`, occurredOn: a.p_occurred_on,
+      fromTankId: null, toTankId: null, volumeBbl: null, notes: "", sourceBatchId: null, recordedAt: at + d.movements.length, ...m });
+    const tank = (id) => d.tanks.find((t) => t.id === id);
+    for (const s of a.p_sources) {
+      const src = d.batches.find((b) => b.id === s.batch);
+      if (!src) continue;
+      const balance = tankBalance(src.id, src.tankId, d);
+      const moved = s.volume ?? balance;
+      move({ batchId: src.id, kind: "to_batch", fromTankId: src.tankId, volumeBbl: moved, sourceBatchId: a.p_id, notes: `into #${a.p_batch_number}` });
+      move({ batchId: a.p_id, kind: "from_batch", toTankId: a.p_tank_id, volumeBbl: moved, sourceBatchId: src.id, notes: `from #${src.batchNumber}` });
+      if (!s.used_up) continue;
+      if (balance != null && moved != null && balance > moved) move({ batchId: src.id, kind: "loss", fromTankId: src.tankId, volumeBbl: balance - moved, notes: "left in the tank" });
+      if (balance != null && moved != null && balance < moved) move({ batchId: src.id, kind: "correction", toTankId: src.tankId, volumeBbl: moved - balance, notes: "more moved out than was recorded" });
+      d.events.push({ id: `waiting-${a.p_id}-${src.id}`, batchId: src.id, stage: "used", tankId: null, effectiveDate: a.p_occurred_on, recordedAt: at });
+      if (src.tankId !== a.p_tank_id && tank(src.tankId)) tank(src.tankId).status = "cleaning";
+      Object.assign(src, { stage: "used", tankId: null, stageStartDate: a.p_occurred_on });
+    }
+    d.events.push({ id: `waiting-${a.p_id}`, batchId: a.p_id, stage: a.p_stage, tankId: a.p_tank_id, effectiveDate: a.p_occurred_on, recordedAt: at + "~" });
+    if (tank(a.p_tank_id)) tank(a.p_tank_id).status = "empty";
   },
   setTurns(d, a) {
     const batch = d.batches.find((b) => b.id === a.batchId);
@@ -862,7 +893,7 @@ function volumeText(v) {
 }
 
 function isInTank(batch) {
-  return batch.stage !== "packaged";
+  return batch.stage !== "packaged" && batch.stage !== "used";
 }
 
 // The batch currently in a tank (or undefined if the tank is empty)
@@ -1014,7 +1045,7 @@ function render() {
     <li>
       <button class="row" data-batch="${b.id}">
         <span><strong>${esc(beerName(b))}</strong> <span class="muted">${batchLabel(b)}</span></span>
-        <span class="muted">Packaged ${formatDate(b.stageStartDate)}</span>
+        <span class="muted">${stageLabel(b.stage)} ${formatDate(b.stageStartDate)}</span>
       </button>
     </li>`).join("");
 
@@ -1110,7 +1141,7 @@ const NEW_BEER = "__new";
 let beerChoiceBeforeNew = ""; // so we can put the dropdown back if you cancel adding a beer
 
 // Fill the Stage dropdown from the STAGES list above
-batchForm.stage.innerHTML = STAGES.map((s) => `<option value="${s.id}">${s.label}</option>`).join("");
+batchForm.stage.innerHTML = STAGES.filter((s) => s.id !== "used").map((s) => `<option value="${s.id}">${s.label}</option>`).join("");
 
 function fillBeerDropdown(selectedId) {
   batchForm.beerId.innerHTML =
@@ -1800,7 +1831,7 @@ async function loadIntoBrewery(source, description) {
         // (its volume then comes from the brew sheet or batch size), as when volumes were added.
         const movements = d.movements?.length
           ? d.movements.map((m) => ({
-              id: idFor(m.id), batch_id: idFor(m.batchId), occurred_on: m.occurredOn, kind: m.kind, from_tank_id: idFor(m.fromTankId),
+              id: idFor(m.id), batch_id: idFor(m.batchId), source_batch_id: idFor(m.sourceBatchId), occurred_on: m.occurredOn, kind: m.kind, from_tank_id: idFor(m.fromTankId),
               to_tank_id: idFor(m.toTankId), volume_bbl: m.volumeBbl ?? null, notes: m.notes || "",
               ...(m.recordedAt && { recorded_at: m.recordedAt }),
             }))
@@ -2899,6 +2930,151 @@ packageForm.addEventListener("submit", async (e) => {
   if (ok) packageDialog.close();
 });
 
+// ----- Splits and blends: a new batch made from part or all of other batches -----
+// (docs/moving-beer-design.md, option A: each part is its own batch, so a tank holds one batch.)
+// The batches a batch was made from, and the batches made from it, with how much moved
+function madeFrom(batchId) {
+  return data.movements.filter((m) => m.batchId === batchId && m.kind === "from_batch" && m.sourceBatchId);
+}
+function wentInto(batchId) {
+  return data.movements.filter((m) => m.batchId === batchId && m.kind === "to_batch" && m.sourceBatchId);
+}
+const batchLink = (id) => {
+  const b = data.batches.find((x) => x.id === id);
+  return b ? `<button type="button" class="link inline" data-open-batch="${b.id}">${esc(batchLabel(b))}</button>` : "another batch";
+};
+const amountOf = (m) => (m.volumeBbl != null ? `${showUnit("volume", m.volumeBbl)} of ` : "");
+
+function renderFamily(b) {
+  const from = madeFrom(b.id), into = wentInto(b.id);
+  document.getElementById("bv-family").innerHTML = [
+    from.length ? `Made from ${from.map((m) => `${amountOf(m)}${batchLink(m.sourceBatchId)}`).join(" + ")}` : "",
+    into.length ? `${b.stage === "used" ? "All used in" : "Part went into"} ${into.map((m) => `${batchLink(m.sourceBatchId)}${m.volumeBbl != null ? ` (${showUnit("volume", m.volumeBbl)})` : ""}`).join(", ")}` : "",
+  ].filter(Boolean).map((t) => `<div>${t}</div>`).join("");
+}
+document.getElementById("batch-view").addEventListener("click", (e) => {
+  const link = e.target.closest("[data-open-batch]");
+  if (link) openBatchView(link.dataset.openBatch);
+});
+
+const blendDialog = document.getElementById("blend-editor");
+const blendForm = document.getElementById("blend-form");
+
+// One source row: which batch, how much ("all of it" when empty), and whether it's all used
+function sourceRow(batch, fixed) {
+  const inTank = tankBalance(batch.id, batch.tankId);
+  return `<div class="source-row" data-source="${batch.id}">
+    <div><strong>${esc(beerName(batch))} ${esc(batchLabel(batch))}</strong> <span class="muted">in ${esc(tankName(batch.tankId))} · ${volumeText(inTank)}</span>
+      ${fixed ? "" : `<button type="button" class="link inline" data-remove-source>remove</button>`}</div>
+    <div class="two-col">
+      <label><span>How much (<span class="volume-unit">bbl</span>)</span>
+        <input type="number" min="0" step="any" inputmode="decimal" data-unit="volume" data-source-volume
+          placeholder="${inTank != null ? `all of it (${toShown("volume", inTank)})` : "all of it"}"></label>
+      <label class="choice"><input type="checkbox" data-source-used checked> All used: ${esc(tankName(batch.tankId))} is empty after</label>
+    </div>
+  </div>`;
+}
+
+function openBlendEditor() {
+  const b = viewingBatch();
+  blendForm.reset();
+  document.getElementById("blend-sources").innerHTML = sourceRow(b, true);
+  blendForm.occurredOn.value = today();
+  fillBeerChoices(blendForm.beerId, b.beerId);
+  blendForm.stage.innerHTML = STAGES.filter((s) => !["packaged", "used"].includes(s.id))
+    .map((s) => `<option value="${s.id}">${s.label}</option>`).join("");
+  blendForm.stage.value = b.stage;
+  blendForm.batchNumber.value = nextSplitNumber(b);
+  updateBlendForm();
+  applyUnitLabels();
+  blendDialog.showModal();
+}
+document.getElementById("bv-blend").addEventListener("click", openBlendEditor);
+
+// "#142" -> "142-2" (or -3... if taken); a blend of 142 and 143 -> "142/143"
+function nextSplitNumber(b) {
+  const taken = new Set(data.batches.map((x) => x.batchNumber.toLowerCase()));
+  for (let n = 2; ; n++) if (!taken.has(`${b.batchNumber}-${n}`.toLowerCase())) return `${b.batchNumber}-${n}`;
+}
+function fillBeerChoices(select, chosen) {
+  select.innerHTML = [...data.beers].sort((x, y) => x.name.localeCompare(y.name))
+    .map((x) => `<option value="${x.id}">${esc(x.name)}</option>`).join("");
+  select.value = chosen;
+}
+
+const blendSources = () => [...document.querySelectorAll("#blend-sources [data-source]")].map((row) => ({
+  batch: row.dataset.source,
+  volume: row.querySelector("[data-source-volume]").value === "" ? null : fromShown("volume", row.querySelector("[data-source-volume]").value),
+  used_up: row.querySelector("[data-source-used]").checked,
+}));
+
+function updateBlendForm() {
+  const sources = blendSources();
+  const ids = sources.map((s) => s.batch);
+  // More batches that could be blended in: anything else in a tank
+  const others = data.batches.filter((x) => isInTank(x) && x.tankId && !ids.includes(x.id));
+  document.getElementById("blend-add").innerHTML = `<option value="">+ Blend in another batch…</option>` +
+    others.map((x) => `<option value="${x.id}">${esc(beerName(x))} ${esc(batchLabel(x))} (${esc(tankName(x.tankId))})</option>`).join("");
+  document.getElementById("blend-add").hidden = !others.length;
+  // Tanks: empty ones, plus the tank of any source that's all used here
+  const usedTanks = sources.filter((s) => s.used_up).map((s) => findBatchById(s.batch)?.tankId);
+  const chosen = blendForm.tankId.value;
+  const tanks = data.tanks.filter((t) => (!batchInTank(t.id) && t.status !== "maintenance") || usedTanks.includes(t.id));
+  blendForm.tankId.innerHTML = tanks.map((t) => `<option value="${t.id}">${esc(t.name)}${t.status === "cleaning" && !batchInTank(t.id) ? " (cleaning)" : ""}</option>`).join("")
+    || `<option value="">No empty tank</option>`;
+  if (tanks.some((t) => t.id === chosen)) blendForm.tankId.value = chosen;
+  // What it adds up to
+  let total = 0, known = true;
+  for (const s of sources) {
+    const v = s.volume ?? tankBalance(s.batch, findBatchById(s.batch)?.tankId);
+    if (v == null) known = false; else total += v;
+  }
+  document.getElementById("blend-summary").textContent = `New batch: ${known ? showUnit("volume", total) : "volume not recorded"} in ${tankName(blendForm.tankId.value) || "—"}` +
+    (sources.length > 1 ? ` (a blend of ${sources.length} batches)` : "") + ".";
+  document.getElementById("blend-title").textContent = sources.length > 1 ? "Blend into a new batch" : "Split into a new batch";
+}
+const findBatchById = (id) => data.batches.find((x) => x.id === id);
+
+blendForm.addEventListener("input", (e) => {
+  if (e.target.id === "blend-add") return; // handled on "change" below (redrawing now would lose the choice)
+  // "All of it" (no amount typed) usually means the source is all used; a part usually means it isn't.
+  // Once someone ticks or unticks it themselves, leave it alone.
+  const volume = e.target.closest("[data-source-volume]");
+  if (volume) {
+    const used = volume.closest("[data-source]").querySelector("[data-source-used]");
+    if (!used.dataset.touched) used.checked = volume.value === "";
+  }
+  if (e.target.closest("[data-source-used]")) e.target.dataset.touched = "yes";
+  updateBlendForm();
+});
+blendForm.addEventListener("change", (e) => {
+  if (e.target.id === "blend-add" && e.target.value) {
+    const added = findBatchById(e.target.value);
+    document.getElementById("blend-sources").insertAdjacentHTML("beforeend", sourceRow(added, false));
+    // A blend's usual name: the batch numbers together
+    const numbers = blendSources().map((s) => findBatchById(s.batch).batchNumber);
+    blendForm.batchNumber.value = numbers.join("/");
+    applyUnitLabels();
+  }
+  updateBlendForm();
+});
+document.getElementById("blend-sources").addEventListener("click", (e) => {
+  if (e.target.closest("[data-remove-source]")) { e.target.closest("[data-source]").remove(); updateBlendForm(); }
+});
+
+blendForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const number = blendForm.batchNumber.value.trim();
+  if (data.batches.some((x) => x.batchNumber.toLowerCase() === number.toLowerCase())) { alert(`There's already a batch #${number}.`); return; }
+  if (!blendForm.tankId.value) { alert("Choose a tank for the new batch."); return; }
+  const sources = blendSources();
+  const ok = await saveOrKeep("makeBatch", {
+    p_id: newId(), p_brewery_id: brewery.id, p_batch_number: number, p_beer_id: blendForm.beerId.value, p_tank_id: blendForm.tankId.value,
+    p_stage: blendForm.stage.value, p_occurred_on: blendForm.occurredOn.value, p_sources: sources, p_notes: "",
+  }, `New batch #${number} in ${tankName(blendForm.tankId.value)}`);
+  if (ok) blendDialog.close();
+});
+
 // ----- Level checks: what the sight glass shows -----
 const levelDialog = document.getElementById("level-editor");
 const levelForm = document.getElementById("level-form");
@@ -2951,7 +3127,14 @@ function batchOg(b) {
   const samples = values("tank_sample_gravity").sort((x, y) => (y.turn ?? 0) - (x.turn ?? 0));
   if (samples.length) return samples[0].value;
   const ko = values("ko_gravity").map((r) => r.value);
-  return ko.length ? ko.reduce((sum, v) => sum + v, 0) / ko.length : null;
+  if (ko.length) return ko.reduce((sum, v) => sum + v, 0) / ko.length;
+  // A split or blend: its sources' OG, weighted by how much of each went in (or plain average)
+  const parts = madeFrom(b.id).map((m) => ({ og: batchOg(data.batches.find((x) => x.id === m.sourceBatchId) || {}), v: m.volumeBbl }))
+    .filter((p) => p.og);
+  if (!parts.length) return null;
+  const weighted = parts.every((p) => p.v > 0);
+  const weight = (p) => (weighted ? p.v : 1);
+  return parts.reduce((sum, p) => sum + p.og * weight(p), 0) / parts.reduce((sum, p) => sum + weight(p), 0);
 }
 
 // Cellar log entries for a batch, oldest first
@@ -3044,6 +3227,8 @@ function movementText(m) {
     }
     case "served": return `${amount} served from ${from}${note}`;
     case "level": return `Level check: ${amount} in ${to}${note}`;
+    case "to_batch": return `${amount} from ${from} into ${batchLink(m.sourceBatchId)}`;
+    case "from_batch": return `${amount} into ${to} from ${batchLink(m.sourceBatchId)}`;
     case "loss": return `${amount} lost from ${from}${note}`;
     default: return `${amount} ${to ? "added to " + to : "taken out of " + from} as a correction${note}`;
   }
@@ -3072,6 +3257,9 @@ function renderBatchView() {
   document.getElementById("bv-add").hidden = !can("cellar_log") || !inTank;
   document.getElementById("bv-package").hidden = !can("package") || !inTank;
   document.getElementById("bv-level").hidden = !can("move_beer") || !inTank;
+  document.getElementById("bv-blend").hidden = !can("start_batch") || !can("move_beer") || !inTank;
+  document.getElementById("bv-edit").hidden = b.stage === "used"; // all of it went into another batch: nothing left to move
+  renderFamily(b);
 
   // Cellar log, newest first
   const canLog = can("cellar_log");
