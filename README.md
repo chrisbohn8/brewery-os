@@ -108,6 +108,10 @@ These shape every decision, even for features that come later:
 - If the network is very slow, the app opens from the device copy after a few seconds instead of hanging.
 - Signing out deletes the device copy, which matters on a shared phone or tablet. If changes haven't been sent yet, it warns first.
 
+### Brewery settings (units)
+- An admin picks the brewery's **temperature** (°F/°C), **gravity** (Plato/SG/Brix), and **volume** (bbl/hL/gal) units, and its **time zone**. Everyone sees and types numbers in those units: beer targets, tank capacities, and batch sizes.
+- Values are stored in one standard unit (SG, °C, US barrels), so changing a unit never changes a record. Opening a form and saving it without changes keeps the stored value exactly (no rounding drift).
+
 ### Accounts, breweries, and team
 - Sign in by email code or link; no passwords. Sign-in emails come from `noreply@brew.chrisbohn.org`.
 - **Invite coworkers:** in the Team section, an admin enters a coworker's email and picks a role. The coworker opens the app and signs in with that email; they join the brewery automatically. (The app doesn't email the invite yet; tell them to sign in.)
@@ -275,7 +279,7 @@ The shared database (Phase 3) was pulled ahead of the brew log: real crews can o
 
 ### Phase 2: Brew log and history
 The as-brewed record for each batch, compared against its beer's targets. **Design draft:** [docs/brew-log-design.md](docs/brew-log-design.md).
-- [ ] **Brewery preferences, first:** temperature (°F/°C), gravity (SG/Plato/Brix), volume (bbl/hL/gal), and time zone. **Readings are stored in one standard unit** (gravity as SG, temperature as °C, volume as US barrels) and converted for display, so changing a preference never alters old records, breweries' numbers mean the same thing, and TTB math is always in barrels. Brix readings taken after fermentation starts need an alcohol correction (using the original gravity); the app applies it.
+- [x] **Brewery preferences, first:** temperature (°F/°C), gravity (SG/Plato/Brix), volume (bbl/hL/gal), and time zone. **Readings are stored in one standard unit** (gravity as SG, temperature as °C, volume as US barrels) and converted for display, so changing a preference never alters old records, breweries' numbers mean the same thing, and TTB math is always in barrels. Brix readings taken after fermentation starts need an alcohol correction (using the original gravity); the app applies it.
 - [ ] **Event history per batch.** Record every stage change and transfer (date, from, to, volume) instead of overwriting. Traceability, the CIP log, and TTB reporting are all built on this. Stage and tank may become "the latest event" rather than fields that get overwritten.
 - [ ] **Brew-day actuals:** key numbers such as mash temp and pH, pre-boil gravity, OG, volume to fermenter, yeast and pitch temp. Exact fields come from the brewery's current brew sheet.
 - [ ] **Fermentation log:** gravity and temperature readings over time, FG, pH.

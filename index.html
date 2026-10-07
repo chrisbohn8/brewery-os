@@ -126,6 +126,39 @@
     <p id="acid-admin-note" class="muted" hidden>Only an admin can change this list.</p>
   </section>
 
+  <!-- Brewery settings: the units everyone sees and types in. Admins change them. -->
+  <section id="brewery-settings" class="list-section">
+    <h2>Brewery settings</h2>
+    <form id="settings-form" class="settings-grid">
+      <label>Temperature
+        <select name="temperatureUnit">
+          <option value="F">°F</option>
+          <option value="C">°C</option>
+        </select>
+      </label>
+      <label>Gravity
+        <select name="gravityUnit">
+          <option value="plato">Plato (°P)</option>
+          <option value="sg">Specific gravity (SG)</option>
+          <option value="brix">Brix (°Bx)</option>
+        </select>
+      </label>
+      <label>Volume
+        <select name="volumeUnit">
+          <option value="bbl">Barrels (bbl)</option>
+          <option value="hl">Hectoliters (hL)</option>
+          <option value="gal">Gallons (gal)</option>
+        </select>
+      </label>
+      <label>Time zone
+        <select name="timeZone"></select>
+      </label>
+      <button type="submit" class="btn" id="save-settings">Save settings</button>
+    </form>
+    <p class="muted">Changing a unit only changes how numbers are shown and typed; nothing already recorded changes.
+      <span id="settings-admin-note" hidden>Only an admin can change these.</span></p>
+  </section>
+
   <!-- Team: who's in this brewery. Admins invite people and change roles. -->
   <section id="team" class="list-section">
     <h2>Team</h2>
@@ -178,8 +211,8 @@
         <label>Batch #
           <input name="batchId" required inputmode="numeric" placeholder="1043">
         </label>
-        <label>Size (bbl)
-          <input name="sizeBbl" type="number" min="0" step="0.5" placeholder="15">
+        <label>Size (<span class="volume-unit">bbl</span>)
+          <input name="sizeBbl" type="number" min="0" step="0.5" placeholder="15" data-unit="volume">
         </label>
       </div>
 
@@ -223,8 +256,8 @@
         <label>Tank name
           <input name="name" required placeholder="FV-5">
         </label>
-        <label>Capacity (bbl)
-          <input name="capacityBbl" type="number" min="0" step="0.5" placeholder="15">
+        <label>Capacity (<span class="volume-unit">bbl</span>)
+          <input name="capacityBbl" type="number" min="0" step="0.5" placeholder="15" data-unit="volume">
         </label>
       </div>
 
@@ -305,11 +338,11 @@
       </label>
 
       <div class="two-col">
-        <label>Target OG
-          <input name="targetOg" type="number" min="1" max="1.2" step="0.001" placeholder="1.066">
+        <label>Target OG (<span class="gravity-unit">°P</span>)
+          <input name="targetOg" type="number" data-unit="gravity" data-example="1.066">
         </label>
-        <label>Target FG
-          <input name="targetFg" type="number" min="0.99" max="1.2" step="0.001" placeholder="1.016">
+        <label>Target FG (<span class="gravity-unit">°P</span>)
+          <input name="targetFg" type="number" data-unit="gravity" data-example="1.016">
         </label>
       </div>
       <p class="muted">Target ABV: <strong id="target-abv">—</strong> (worked out from OG and FG)</p>

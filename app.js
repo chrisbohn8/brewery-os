@@ -102,6 +102,110 @@ function abv(og, fg) {
   return og && fg ? (og - fg) * 131.25 : null;
 }
 
+// ----- Units -----
+// Every value is STORED in one standard unit: gravity as SG, temperature as °C, volume as
+// US barrels. Each brewery picks the units it reads and types in (Brewery settings), and
+// these helpers convert at the screen. Changing a preference never changes a record.
+const DEFAULT_PREFS = { temperatureUnit: "F", gravityUnit: "plato", volumeUnit: "bbl", timeZone: "America/Chicago" };
+const UNIT_INFO = {
+  gravity: {
+    plato: { label: "°P", decimals: 1, step: 0.1 },
+    sg: { label: "SG", decimals: 3, step: 0.001 },
+    brix: { label: "°Bx", decimals: 1, step: 0.1 },
+  },
+  volume: {
+    bbl: { label: "bbl", decimals: 1, step: 0.5, perBbl: 1 },
+    hl: { label: "hL", decimals: 1, step: 0.5, perBbl: 1.17348 },  // 1 US barrel = 117.348 L
+    gal: { label: "gal", decimals: 0, step: 1, perBbl: 31 },        // 1 US beer barrel = 31 gal
+  },
+  temperature: {
+    F: { label: "°F", decimals: 1, step: 0.1 },
+    C: { label: "°C", decimals: 1, step: 0.1 },
+  },
+};
+
+function prefs() {
+  return { ...DEFAULT_PREFS, ...(brewery?.prefs || {}) };
+}
+
+// Gravity: the standard brewing conversions between specific gravity and degrees Plato.
+// Brix is treated like Plato, which holds for unfermented wort. (Refractometer readings
+// taken after fermentation starts need an alcohol correction; that comes with the brew log.)
+function sgToPlato(sg) {
+  return -616.868 + 1111.14 * sg - 630.272 * sg ** 2 + 135.997 * sg ** 3;
+}
+function platoToSg(p) {
+  return 1 + p / (258.6 - (p / 258.2) * 227.1);
+}
+
+function round(n, decimals) {
+  const f = 10 ** decimals;
+  return Math.round(n * f) / f;
+}
+
+// Stored value -> the number shown in the brewery's unit (rounded for display)
+function toShown(kind, stored) {
+  if (stored === null || stored === undefined || stored === "") return null;
+  const unit = prefs()[`${kind}Unit`];
+  const info = UNIT_INFO[kind][unit];
+  let n = Number(stored);
+  if (kind === "gravity" && unit !== "sg") n = sgToPlato(n);
+  if (kind === "volume") n = n * info.perBbl;
+  if (kind === "temperature" && unit === "F") n = n * 9 / 5 + 32;
+  return round(n, info.decimals);
+}
+
+// A number typed in the brewery's unit -> the stored value
+function fromShown(kind, typed) {
+  if (typed === null || typed === undefined || typed === "") return null;
+  const unit = prefs()[`${kind}Unit`];
+  let n = Number(typed);
+  if (kind === "gravity" && unit !== "sg") n = platoToSg(n);
+  if (kind === "volume") n = n / UNIT_INFO.volume[unit].perBbl;
+  if (kind === "temperature" && unit === "F") n = (n - 32) * 5 / 9;
+  return round(n, kind === "gravity" ? 5 : 4);
+}
+
+// Put a stored value into a number box, remembering exactly what was there...
+function fillUnitInput(input, kind, stored) {
+  const shown = toShown(kind, stored);
+  input.value = shown ?? "";
+  input.dataset.shownValue = input.value;
+  input.dataset.storedValue = stored ?? "";
+}
+
+// ...so reading it back keeps the precise stored value when the person didn't change it.
+// (Otherwise 15 bbl shown as "17.6 hL" and saved untouched would become 14.998 bbl.)
+function readUnitInput(input, kind) {
+  if (input.value === input.dataset.shownValue) {
+    return input.dataset.storedValue === "" ? null : Number(input.dataset.storedValue);
+  }
+  return fromShown(kind, input.value);
+}
+
+// "16.1 °P", "15 bbl", "152 °F"
+function showUnit(kind, stored) {
+  const n = toShown(kind, stored);
+  if (n === null) return "";
+  const info = UNIT_INFO[kind][prefs()[`${kind}Unit`]];
+  return `${n.toFixed(info.decimals)} ${info.label}`.replace(/\.0 (bbl|hL)$/, " $1");
+}
+
+// Put the brewery's unit names on labels, and the right step/example on number boxes
+function applyUnitLabels() {
+  for (const kind of ["gravity", "volume", "temperature"]) {
+    const info = UNIT_INFO[kind][prefs()[`${kind}Unit`]];
+    document.querySelectorAll(`.${kind}-unit`).forEach((el) => { el.textContent = info.label; });
+    document.querySelectorAll(`input[data-unit="${kind}"]`).forEach((input) => {
+      // "any": a converted value like 17.6 hL must be accepted even if it isn't a round step
+      // (a fixed step would make the browser silently refuse to submit the form)
+      input.step = "any";
+      input.min = 0;
+      if (input.dataset.example) input.placeholder = toShown(kind, input.dataset.example);
+    });
+  }
+}
+
 // Escape text before putting it into HTML, so a beer named "<Hop & Glory>" can't break the page
 function esc(text) {
   const div = document.createElement("div");
@@ -210,7 +314,7 @@ async function loadAll() {
     must(db.from("batch_status").select("*").eq("brewery_id", b)),
     must(db.from("batch_events").select("*").eq("brewery_id", b).order("effective_date").order("recorded_at")),
     must(db.from("tank_cleanings").select("*").eq("brewery_id", b).order("cleaned_on").order("recorded_at")),
-    must(db.from("breweries").select("acid_after_styles").eq("id", b).single()),
+    must(db.from("breweries").select("acid_after_styles, temperature_unit, gravity_unit, volume_unit, time_zone").eq("id", b).single()),
     must(db.rpc("brewery_members", { p_brewery_id: b })),
     must(db.from("invites").select("*").eq("brewery_id", b).order("created_at")), // admins only; others get none
   ]);
@@ -237,10 +341,15 @@ async function loadAll() {
     })),
     cleanings: cleanings.map((c) => ({ id: c.id, tankId: c.tank_id, cleanedOn: c.cleaned_on, note: c.note })),
     acidAfterStyles: settings.acid_after_styles,
+    prefs: {
+      temperatureUnit: settings.temperature_unit, gravityUnit: settings.gravity_unit,
+      volumeUnit: settings.volume_unit, timeZone: settings.time_zone,
+    },
     members: members.map((m) => ({ userId: m.user_id, email: m.email, role: m.role })),
     invites: invites.map((i) => ({ id: i.id, email: i.email, role: i.role })),
   };
   data = withWaitingChanges(serverData);
+  brewery.prefs = serverData.prefs;
 }
 
 // After any change: reload from the database and redraw, so the page always shows what's really saved.
@@ -560,8 +669,8 @@ function batchLabel(batch) {
 // "OG 1.066 · FG 1.016 · 6.6%" (skipping any that aren't filled in)
 function targetsText(beer) {
   const parts = [];
-  if (beer.targetOg) parts.push(`OG ${beer.targetOg.toFixed(3)}`);
-  if (beer.targetFg) parts.push(`FG ${beer.targetFg.toFixed(3)}`);
+  if (beer.targetOg) parts.push(`OG ${showUnit("gravity", beer.targetOg)}`);
+  if (beer.targetFg) parts.push(`FG ${showUnit("gravity", beer.targetFg)}`);
   const a = abv(beer.targetOg, beer.targetFg);
   if (a !== null) parts.push(`${a.toFixed(1)}%`);
   return parts.join(" · ");
@@ -635,6 +744,8 @@ function tankGroups() {
 
 function render() {
   document.getElementById("brewery-name").textContent = brewery.name;
+  applyUnitLabels();
+  renderSettings();
   renderTeam();
 
   // A brand-new brewery: show ways to get started
@@ -705,7 +816,7 @@ function render() {
 function tankCard(tank) {
   const batch = batchInTank(tank.id);
   // Capacity only on empty tanks; a full tank shows the batch size instead
-  const capacity = tank.capacityBbl && !batch ? ` · ${tank.capacityBbl} bbl` : "";
+  const capacity = tank.capacityBbl && !batch ? ` · ${showUnit("volume", tank.capacityBbl)}` : "";
   const header = `
     <div class="tank-row">
       <span class="tank">${esc(tank.name)}</span>
@@ -728,7 +839,7 @@ function tankCard(tank) {
 
   const beer = findBeer(batch.beerId);
   const days = daysSince(batch.stageStartDate);
-  const size = batch.sizeBbl ? ` · ${batch.sizeBbl} bbl` : "";
+  const size = batch.sizeBbl ? ` · ${showUnit("volume", batch.sizeBbl)}` : "";
   return `
     <button class="card" data-tank="${tank.id}" style="--stage-color: var(--${batch.stage})">
       ${header}
@@ -791,7 +902,7 @@ function openBatchEditor(batch, tankId) {
   batchForm.batchId.value = b.batchNumber;
   fillBeerDropdown(b.beerId);
   batchForm.brewDate.value = b.brewDate;
-  batchForm.sizeBbl.value = b.sizeBbl ?? "";
+  fillUnitInput(batchForm.sizeBbl, "volume", b.sizeBbl);
   if (b.tankId) batchForm.tankId.value = b.tankId;
   batchForm.stage.value = b.stage;
   batchForm.stageStartDate.value = b.stageStartDate;
@@ -815,7 +926,7 @@ batchForm.addEventListener("submit", async (e) => {
     batchNumber: batchForm.batchId.value.trim(),
     beerId: batchForm.beerId.value,
     brewDate: batchForm.brewDate.value,
-    sizeBbl: batchForm.sizeBbl.value ? Number(batchForm.sizeBbl.value) : null,
+    sizeBbl: readUnitInput(batchForm.sizeBbl, "volume"), // typed in the brewery's unit, stored in barrels
     tankId: batchForm.tankId.value,
     stage: batchForm.stage.value,
     stageStartDate: batchForm.stageStartDate.value,
@@ -867,7 +978,7 @@ batchForm.addEventListener("submit", async (e) => {
 
     // Check 6: will the beer fit? (Also just a warning)
     if (values.sizeBbl && target.capacityBbl && values.sizeBbl > target.capacityBbl) {
-      if (!confirm(`${values.sizeBbl} bbl is more than ${target.name} holds (${target.capacityBbl} bbl). Save anyway?`)) return;
+      if (!confirm(`${showUnit("volume", values.sizeBbl)} is more than ${target.name} holds (${showUnit("volume", target.capacityBbl)}). Save anyway?`)) return;
     }
   }
 
@@ -941,7 +1052,7 @@ function openTankEditor(tank) {
 
   tankForm.name.value = t.name;
   tankForm.type.value = t.type;
-  tankForm.capacityBbl.value = t.capacityBbl ?? "";
+  fillUnitInput(tankForm.capacityBbl, "volume", t.capacityBbl);
   // A new tank goes in the same location as the last tank, as a starting guess
   fillLocationDropdown(tank ? t.locationId : data.tanks.at(-1)?.locationId);
   tankForm.status.value = t.status;
@@ -1024,7 +1135,7 @@ tankForm.addEventListener("submit", async (e) => {
   const fields = {
     name,
     type: tankForm.type.value,
-    capacity_bbl: tankForm.capacityBbl.value ? Number(tankForm.capacityBbl.value) : null,
+    capacity_bbl: readUnitInput(tankForm.capacityBbl, "volume"), // stored in barrels
     location_id: ["", NEW_LOCATION].includes(tankForm.locationId.value) ? null : tankForm.locationId.value,
     status: tankForm.status.value,
     acid_every_turns: tankForm.acidEveryTurns.value ? Number(tankForm.acidEveryTurns.value) : null,
@@ -1074,15 +1185,15 @@ function openBeerEditor(beer) {
 
   beerForm.name.value = b.name;
   beerForm.style.value = b.style;
-  beerForm.targetOg.value = b.targetOg ?? "";
-  beerForm.targetFg.value = b.targetFg ?? "";
+  fillUnitInput(beerForm.targetOg, "gravity", b.targetOg);
+  fillUnitInput(beerForm.targetFg, "gravity", b.targetFg);
   showTargetAbv();
   beerDialog.showModal();
 }
 
 // Update the ABV line as you type the gravities
 function showTargetAbv() {
-  const a = abv(Number(beerForm.targetOg.value), Number(beerForm.targetFg.value));
+  const a = abv(readUnitInput(beerForm.targetOg, "gravity"), readUnitInput(beerForm.targetFg, "gravity"));
   document.getElementById("target-abv").textContent = a !== null ? `${a.toFixed(1)}%` : "—";
 }
 beerForm.targetOg.addEventListener("input", showTargetAbv);
@@ -1093,8 +1204,8 @@ beerForm.addEventListener("submit", async (e) => {
   const values = {
     name: beerForm.name.value.trim(),
     style: beerForm.style.value.trim(),
-    target_og: beerForm.targetOg.value ? Number(beerForm.targetOg.value) : null,
-    target_fg: beerForm.targetFg.value ? Number(beerForm.targetFg.value) : null,
+    target_og: readUnitInput(beerForm.targetOg, "gravity"), // typed in the brewery's unit, stored as SG
+    target_fg: readUnitInput(beerForm.targetFg, "gravity"),
   };
   if (data.beers.some((b) => b !== editingBeer && b.name.toLowerCase() === values.name.toLowerCase())) {
     alert(`There's already a beer called ${values.name}.`);
@@ -1478,11 +1589,14 @@ document.querySelectorAll(".sign-out").forEach((btn) =>
 // New user with no brewery yet: create one (they become its admin)
 document.getElementById("setup-form").addEventListener("submit", async (e) => {
   e.preventDefault();
-  const { error } = await db.rpc("create_brewery", { brewery_name: e.target.name.value.trim() });
+  const { data: newBreweryId, error } = await db.rpc("create_brewery", { brewery_name: e.target.name.value.trim() });
   if (error) {
     alert(`Couldn't create the brewery: ${explain(error)}`);
     return;
   }
+  // Start with this device's time zone (the admin can change it in Brewery settings)
+  const deviceZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  if (deviceZone) await db.from("breweries").update({ time_zone: deviceZone }).eq("id", newBreweryId);
   await start();
 });
 
@@ -1562,6 +1676,41 @@ document.getElementById("check-invites").addEventListener("click", () => start()
 // Signing in or out (in this tab, or from the emailed link) re-runs start()
 db.auth.onAuthStateChange((event) => {
   if (event === "SIGNED_IN" || event === "SIGNED_OUT") setTimeout(start, 0);
+});
+
+// ----- Brewery settings (units and time zone) -----
+const settingsForm = document.getElementById("settings-form");
+
+// Every time zone the browser knows, for the dropdown (filled once)
+const TIME_ZONES = (Intl.supportedValuesOf?.("timeZone") || [DEFAULT_PREFS.timeZone]);
+settingsForm.timeZone.innerHTML = TIME_ZONES.map((z) => `<option value="${z}">${z.replace(/_/g, " ")}</option>`).join("");
+
+function renderSettings() {
+  const p = prefs();
+  const isAdmin = brewery.role === "admin";
+  settingsForm.temperatureUnit.value = p.temperatureUnit;
+  settingsForm.gravityUnit.value = p.gravityUnit;
+  settingsForm.volumeUnit.value = p.volumeUnit;
+  if (!TIME_ZONES.includes(p.timeZone)) {
+    settingsForm.timeZone.insertAdjacentHTML("afterbegin", `<option value="${esc(p.timeZone)}">${esc(p.timeZone)}</option>`);
+  }
+  settingsForm.timeZone.value = p.timeZone;
+  for (const el of settingsForm.elements) el.disabled = !isAdmin;
+  document.getElementById("save-settings").hidden = !isAdmin;
+  document.getElementById("settings-admin-note").hidden = isAdmin;
+}
+
+settingsForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  await save(async () => {
+    const saved = await must(db.from("breweries").update({
+      temperature_unit: settingsForm.temperatureUnit.value,
+      gravity_unit: settingsForm.gravityUnit.value,
+      volume_unit: settingsForm.volumeUnit.value,
+      time_zone: settingsForm.timeZone.value,
+    }).eq("id", brewery.id).select("id"));
+    if (!saved.length) throw new Error("Only an admin can change the brewery settings.");
+  });
 });
 
 // ----- Team: members, roles, and invites -----
