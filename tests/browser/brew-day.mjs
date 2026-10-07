@@ -420,6 +420,26 @@ try {
     `copied names, amounts, and turns, with empty lots (${copied.length})`);
   check(!(await page.isVisible("#copy-ingredients")), "the copy button goes away once there are ingredients");
 
+  console.log("17. The batch's numbers and fermentation chart");
+  await floor(page);
+  await page.click(`.card[data-tank="${tankId}"]`);
+  await page.waitForSelector("#batch-view:not([hidden])");
+  check((await text("#bv-chart")).includes("appears once"), "no chart until there are a couple of readings");
+  await page.click("#bv-log");
+  await page.waitForSelector("#cellar-editor[open]");
+  await page.selectOption('#cellar-form [name="action"]', "Check");
+  await page.fill('#cellar-form [name="gravity"]', "4.0");
+  await page.fill('#cellar-form [name="temp"]', "66");
+  await page.click("#cellar-form button[type=submit]");
+  await allSent();
+  const nums = await text("#bv-numbers");
+  const expected = await page.evaluate(() => { const b = viewingBatch(); return abv(batchOg(b), fromShown("gravity", "4.0")).toFixed(1); });
+  check(nums.includes(`OG ${(targetP + 0.8).toFixed(1)} °P`), `OG from the tank sample: "${nums}"`);
+  check(nums.includes(`ABV ${expected}% so far`) && nums.includes("Attenuation") && nums.includes("Now 4.0 °P"), `ABV ${expected}% and attenuation shown`);
+  check(await page.locator("#bv-chart svg polyline.gravity").count() === 1 && await page.locator("#bv-chart svg circle.temp").count() === 1,
+    "chart drawn: gravity line from the OG, and the temperature");
+  await page.screenshot({ path: SHOTS + "batch-numbers.png" });
+
   console.log("12. Scanning the QR code opens the batch (signed in)");
   const link = await page.evaluate((id) => `${location.origin}${location.pathname}#batch=${id}`, batchId);
   await page.goto(APP);

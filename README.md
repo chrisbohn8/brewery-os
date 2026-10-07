@@ -100,6 +100,11 @@ These shape every decision, even for features that come later:
 - Entries can be corrected (marked "edited") or deleted, and all of it works offline.
 - **Brewhouse settings per location** (Settings → Equipment → a location): turn size, usual turns per batch, kettle-full volume, flow target, water-to-grist ratio, and grain absorption, used by the brew-day sheet.
 
+### A batch's numbers
+- The batch page shows **OG** (the tank sample, or the average of the turns' knockout gravities), the **latest gravity** ("Now", or "FG" once the batch is past fermenting), **ABV** and **attenuation**, each next to the beer's target.
+- A **fermentation chart**: gravity and temperature by day since brewing, from the cellar log, with the target FG as a dashed line.
+- None of it is stored: it's worked out from the readings, so correcting a reading corrects the numbers.
+
 ### The brew-day sheet
 - **"Brew-day sheet"** on a batch's page, in paper order: brew day, water treatment, mash, lauter and runoff, boil and whirlpool, gravity, pH, knockout, fermenter and yeast, time log, cleaning sign-offs, and notes.
 - **Each brewery chooses its fields** (Settings → Brew sheet) from a catalog of about 100: water salts and acids, step-mash temps, lauter pressure, post-boil volume and gravity, knockout temperature, dissolved oxygen, yeast viability, cell count and pitch rate, cleaning sign-offs, and more. A usual set is ticked to start. Unticking a field never hides anything already recorded: a batch always shows every field it has a value for.
@@ -302,8 +307,7 @@ These are the reasons it isn't production-ready yet:
 
 1. **Setup changes need a connection.** Floor work (batches, tanks, acid) works offline; adding or deleting beers, locations, and tanks doesn't yet.
 2. **Pop-up messages** ("Are you sure?") use the browser's built-in boxes, which some apps block. They'll move onto the page.
-3. **No actual ABV yet,** and no fermentation chart; readings are recorded but not yet compared over time.
-4. **Packaging is only a stage.** It doesn't record yield, package counts, or losses.
+3. **Packaging is only a stage.** It doesn't record yield, package counts, or losses.
 
 ---
 
@@ -338,9 +342,9 @@ The as-brewed record for each batch, compared against its beer's targets. **Desi
 - [x] **Brew-day ingredients with lot numbers,** copied from the last batch of the beer.
 - [x] **Brew sheet field catalog:** each brewery ticks the fields it measures (Settings → Brew sheet). Breweries can also add their own fields. Fields can be renamed and given the brewery's own targets. Still to come: choosing fields during onboarding, and different fields or targets per location.
 - [x] **Brew-day sheet:** the brewery's paper sheet as a screen, per turn, with targets, water math from grist weight, meter readings, and "far from target" highlighting. (Admins editing the sheet's fields comes later.)
-- [ ] **Fermentation log:** gravity and temperature readings over time, FG, pH.
-- [ ] **Actual ABV**, calculated from actual OG and FG, plus **target vs. actual**: is 1042 hitting House Hazy's numbers?
-- [ ] **Fermentation curve:** a simple chart of gravity and temperature over time.
+- [x] **Fermentation log:** gravity, temperature, and pH over time, in the cellar log.
+- [x] **Actual ABV**, worked out from the actual OG (tank sample, or the turns' knockout gravities) and the latest gravity, plus **target vs. actual** and attenuation, at the top of the batch page.
+- [x] **Fermentation curve:** gravity and temperature by day since brewing, with the target FG.
 - [x] **Printable brew sheet** for each batch, laid out for pen and paper, with a **QR code** that opens that batch in the app.
 - [x] **Open a batch from a link** (what the QR code points at).
 - [ ] **Brewer notes** per batch.

@@ -2534,6 +2534,92 @@ function readingsText(gravitySg, ph, tempC) {
   ].filter(Boolean).join(" · ");
 }
 
+// ----- A batch's numbers: OG, gravity now, ABV, attenuation, and the fermentation chart -----
+// OG: the tank sample (taken once every turn is in the tank; the last turn's is the whole tank) if
+// recorded, otherwise the average of the turns' knockout gravities. Nothing here is stored: it's
+// all worked out from the readings, so a corrected reading corrects the numbers.
+function batchOg(b) {
+  const values = (key) => data.readings.filter((r) => r.batchId === b.id && r.fieldKey === key && r.value != null);
+  const samples = values("tank_sample_gravity").sort((x, y) => (y.turn ?? 0) - (x.turn ?? 0));
+  if (samples.length) return samples[0].value;
+  const ko = values("ko_gravity").map((r) => r.value);
+  return ko.length ? ko.reduce((sum, v) => sum + v, 0) / ko.length : null;
+}
+
+// Cellar log entries for a batch, oldest first
+function cellarLog(b) {
+  return data.cellar.filter((c) => c.batchId === b.id)
+    .sort((x, y) => x.occurredOn.localeCompare(y.occurredOn) || (x.recordedAt || "").localeCompare(y.recordedAt || ""));
+}
+
+function renderNumbers(b) {
+  const beer = findBeer(b.beerId);
+  const og = batchOg(b);
+  const last = cellarLog(b).filter((c) => c.gravitySg != null).at(-1);
+  const pct = (n) => `${n.toFixed(1)}%`;
+  const target = (text) => `<span class="muted">target ${text}</span>`;
+  const chips = [];
+  if (og) chips.push(`<span><b>OG</b> ${showUnit("gravity", og)} ${beer?.targetOg ? target(showUnit("gravity", beer.targetOg)) : ""}</span>`);
+  else if (beer?.targetOg) chips.push(`<span><b>OG</b> not recorded yet ${target(showUnit("gravity", beer.targetOg))}</span>`);
+  if (last) {
+    const finished = ["conditioning", "carbonating", "ready", "packaged"].includes(b.stage);
+    chips.push(`<span><b>${finished ? "FG" : "Now"}</b> ${showUnit("gravity", last.gravitySg)} <span class="muted">${formatDate(last.occurredOn)}</span>${
+      beer?.targetFg ? ` ${target(showUnit("gravity", beer.targetFg))}` : ""}</span>`);
+    if (og) {
+      const targetAbv = abv(beer?.targetOg, beer?.targetFg);
+      chips.push(`<span><b>ABV</b> ${pct(abv(og, last.gravitySg))}${finished ? "" : " so far"} ${targetAbv ? target(pct(targetAbv)) : ""}</span>`);
+      chips.push(`<span><b>Attenuation</b> ${pct((og - last.gravitySg) / (og - 1) * 100)}</span>`);
+    }
+  }
+  document.getElementById("bv-numbers").innerHTML = chips.join("");
+}
+
+// Gravity and temperature over the days since brewing, drawn as a small chart (no library needed)
+function renderChart(b) {
+  const beer = findBeer(b.beerId);
+  const og = batchOg(b);
+  const start = parseDate(b.brewDate);
+  const day = (date) => Math.max(0, (parseDate(date) - start) / 86400000);
+  const log = cellarLog(b);
+  const gravity = [...(og ? [{ x: 0, y: toShown("gravity", og) }] : []),
+    ...log.filter((c) => c.gravitySg != null).map((c) => ({ x: day(c.occurredOn), y: toShown("gravity", c.gravitySg) }))];
+  const temp = log.filter((c) => c.tempC != null).map((c) => ({ x: day(c.occurredOn), y: toShown("temperature", c.tempC) }));
+  const box = document.getElementById("bv-chart");
+  if (gravity.length < 2 && temp.length < 2) {
+    box.innerHTML = `<p class="muted">The chart appears once there are a couple of gravity or temperature readings (the OG counts as the first).</p>`;
+    return;
+  }
+  const W = 420, H = 210, L = 40, R = 34, T = 14, B = 26;
+  const days = Math.max(7, ...gravity.map((p) => p.x), ...temp.map((p) => p.x));
+  const fg = beer?.targetFg ? toShown("gravity", beer.targetFg) : null;
+  const range = (values, pad) => {
+    const lo = Math.min(...values), hi = Math.max(...values);
+    return hi - lo < pad ? [lo - pad / 2, hi + pad / 2] : [lo, hi];
+  };
+  const sg = prefs().gravityUnit === "sg";
+  const [gLo, gHi] = range([...gravity.map((p) => p.y), ...(fg != null ? [fg] : [])], sg ? 0.01 : 2);
+  const [tLo, tHi] = temp.length ? range(temp.map((p) => p.y), 4) : [0, 1];
+  const x = (d) => L + (d / days) * (W - L - R);
+  const yG = (v) => T + (1 - (v - gLo) / (gHi - gLo)) * (H - T - B);
+  const yT = (v) => T + (1 - (v - tLo) / (tHi - tLo)) * (H - T - B);
+  const line = (points, y) => points.map((p) => `${x(p.x).toFixed(1)},${y(p.y).toFixed(1)}`).join(" ");
+  const dots = (points, y, cls) => points.map((p) => `<circle class="${cls}" cx="${x(p.x).toFixed(1)}" cy="${y(p.y).toFixed(1)}" r="3.5"/>`).join("");
+  const fmtG = (v) => v.toFixed(sg ? 3 : 1);
+  const step = days <= 14 ? 2 : days <= 35 ? 7 : 14;
+  const ticks = Array.from({ length: Math.floor(days / step) + 1 }, (_, i) => i * step);
+  box.innerHTML = `<svg viewBox="0 0 ${W} ${H}" class="chart" role="img" aria-label="Gravity and temperature by day">
+    ${ticks.map((d) => `<line class="grid" x1="${x(d)}" x2="${x(d)}" y1="${T}" y2="${H - B}"/><text class="axis" x="${x(d)}" y="${H - 8}" text-anchor="middle">${d === 0 ? "brew" : "day " + d}</text>`).join("")}
+    ${fg != null ? `<line class="target" x1="${L}" x2="${W - R}" y1="${yG(fg)}" y2="${yG(fg)}"/><text class="axis" x="${W - R - 4}" y="${yG(fg) - 4}" text-anchor="end">target FG</text>` : ""}
+    <text class="axis gravity" x="${L - 6}" y="${T + 4}" text-anchor="end">${fmtG(gHi)}</text>
+    <text class="axis gravity" x="${L - 6}" y="${H - B}" text-anchor="end">${fmtG(gLo)}</text>
+    ${temp.length ? `<text class="axis temp" x="${W - R + 6}" y="${T + 4}">${tHi.toFixed(0)}°</text><text class="axis temp" x="${W - R + 6}" y="${H - B}">${tLo.toFixed(0)}°</text>` : ""}
+    ${gravity.length > 1 ? `<polyline class="gravity" points="${line(gravity, yG)}"/>` : ""}${dots(gravity, yG, "gravity")}
+    ${temp.length > 1 ? `<polyline class="temp" points="${line(temp, yT)}"/>` : ""}${dots(temp, yT, "temp")}
+  </svg>
+  <p class="muted legend"><span class="key gravity"></span> gravity (${UNIT_INFO.gravity[prefs().gravityUnit].label})
+    ${temp.length ? `<span class="key temp"></span> temperature (${UNIT_INFO.temperature[prefs().temperatureUnit].label})` : ""}</p>`;
+}
+
 function renderBatchView() {
   const b = viewingBatch();
   if (!b) { showView("floor"); return; }
@@ -2550,6 +2636,8 @@ function renderBatchView() {
     b.sizeBbl ? showUnit("volume", b.sizeBbl) : "",
     `brewed ${formatDate(b.brewDate)}`,
   ].filter(Boolean).join(" · ");
+  renderNumbers(b);
+  renderChart(b);
   const inTank = isInTank(b);
   document.getElementById("bv-log").hidden = !can("cellar_log") || !inTank;
   document.getElementById("bv-add").hidden = !can("cellar_log") || !inTank;
