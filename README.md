@@ -448,6 +448,7 @@ Beer is tracked by **volume, not just location**: a batch has barrels in places,
 - [ ] Packaged beer becomes finished-goods inventory (Phase 6).
 
 ### Phase 6: Inventory
+**Design draft:** [docs/inventory-design.md](docs/inventory-design.md) (stock worked out from records, like volumes: packaged in, removals out).
 - [ ] **Finished goods:** kegs and cases on hand per beer and batch, and removals (sold, transferred, donated, dumped).
 - [ ] **Keg tracking:** which kegs are full, empty, or out at accounts.
 - [ ] **Raw materials:** malt, hops, yeast, and chemicals on hand, used up by batches as they're brewed.
