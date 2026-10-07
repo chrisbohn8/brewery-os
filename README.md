@@ -110,6 +110,10 @@ These shape every decision, even for features that come later:
 - **Flow meter fields** take the start and end readings and save the difference.
 - **Each value saves as soon as you leave its box**, also with no signal. Values far from their target are highlighted ("Typo?"); how far is adjustable in Settings → Brewery (by default 1 °P, 3 °F, 0.15 pH, 10% for volumes), and each flag can be turned off. Corrections keep the earlier value in the database's history.
 
+### Staying up to date
+- A tab left open keeps running the version it opened with. Every 10 minutes, and when you come back to the app, it checks whether a newer version has been published and, if so, shows **"A new version of the app is ready. Reload"**. It never reloads by itself, since someone might be typing.
+- Reloading always gets the newest version (the offline copy checks with the server each time).
+
 ### The printed brew sheet
 - **"Print brew sheet"** on a batch's page (or "Print" on its brew-day sheet) prints one Letter page to fill in by hand on the brew deck: the same fields in the same order, **a box per turn**, targets alongside (water written as the formula, since grist isn't weighed yet), and a line for the brewers.
 - Values already entered are printed in their boxes, so a sheet can be reprinted mid-brew.

@@ -84,6 +84,16 @@ body {
 .top p { margin: 2px 0 0; }
 
 /* No signal: a band under the header saying how old the data is */
+.update-banner {
+  max-width: 1100px;
+  margin: 0 auto 12px;
+  padding: 8px 16px;
+  background: var(--ready);
+  color: #fff;
+  font-weight: 600;
+  font-size: 0.9rem;
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+}
 .offline-banner {
   max-width: 1100px;
   margin: 0 auto 12px;

@@ -3229,6 +3229,36 @@ setInterval(() => {
   }
 }, 30000);
 
+// ----- A newer version of the app -----
+// A tab left open keeps running the version it opened with. Every so often (and when coming back
+// to the app) this compares the app's files with what's published, and if they've changed, offers
+// a reload. It never reloads by itself: someone might be in the middle of typing.
+const WATCHED_FILES = ["index.html", "app.js", "style.css"];
+let loadedVersion = null;
+async function publishedVersion() {
+  const texts = await Promise.all(WATCHED_FILES.map(async (file) => {
+    const response = await fetch(file, { cache: "no-cache" });
+    if (!response.ok) throw new Error(`${file}: ${response.status}`);
+    return response.text();
+  }));
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(texts.join("\n")));
+  return Array.from(new Uint8Array(digest), (n) => n.toString(16).padStart(2, "0")).join("");
+}
+async function checkForUpdate() {
+  if (!navigator.onLine || offline) return;
+  try {
+    const version = await publishedVersion();
+    loadedVersion ??= version; // the first check remembers the version this page is running
+    document.getElementById("update-banner").hidden = version === loadedVersion;
+  } catch {
+    // no signal or a hiccup: try again next time
+  }
+}
+document.getElementById("update-reload").addEventListener("click", () => location.reload());
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") checkForUpdate(); });
+setInterval(checkForUpdate, 10 * 60 * 1000);
+
 // ---------- 15. Go ----------
 showSyncProblems();
 start();
+checkForUpdate();

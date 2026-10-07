@@ -48,7 +48,9 @@ async function networkFirst(request) {
   const cache = await caches.open(CACHE);
 
   // Ask the network, and keep the saved copy up to date when it answers
-  const fromNetwork = fetch(request).then((response) => {
+  // ("no-cache" checks with the server every time, so a reload always gets a newly published
+  // version instead of a copy the browser kept for a few minutes; unchanged files cost almost nothing)
+  const fromNetwork = fetch(request, { cache: "no-cache" }).then((response) => {
     if (response.ok) cache.put(request, response.clone());
     return response;
   });

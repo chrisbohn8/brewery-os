@@ -8,6 +8,10 @@
   <link rel="icon" href="data:,"> <!-- no tab icon yet; this stops the browser asking for one -->
 </head>
 <body>
+  <!-- Shown when a newer version of the app has been published since this page was opened -->
+  <p id="update-banner" class="update-banner" role="status" hidden>
+    A new version of the app is ready. <button id="update-reload" class="btn small">Reload</button>
+  </p>
   <!-- Shown while we check whether you're signed in -->
   <p id="loading-screen" class="screen-message">Loading…</p>
 
@@ -67,6 +71,7 @@
 
   <!-- Shown when there's no signal: how old the data on screen is -->
   <p id="offline-banner" class="offline-banner" role="status" hidden></p>
+
 
   <!-- Changes made offline that the database refused when they were sent -->
   <section id="sync-problems" class="sync-problems" role="alert" hidden>
