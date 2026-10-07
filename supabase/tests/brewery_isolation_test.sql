@@ -11,7 +11,7 @@ set local role postgres;
 create extension if not exists pgtap with schema extensions;
 set search_path = public, extensions;
 
-select plan(17);
+select plan(22);
 
 -- ---------- Setup: three pretend people ----------
 insert into auth.users (id, email) values
@@ -114,6 +114,15 @@ select set_config('role', 'anon', true), set_config('request.jwt.claims', '{"rol
 select is((select count(*) from tanks)::int, 0, 'signed-out visitors see no tanks');
 select throws_ok($$ select public.create_brewery('Anon brewery') $$, '42501', null,
   'signed-out visitors cannot create a brewery');
+
+-- Signed-out visitors can't even run the functions that need a sign-in (a second lock behind
+-- each function's own check). If this fails after restoring a backup, run supabase/after-restore.sql.
+set local role postgres;
+select ok(not has_function_privilege('anon', p.oid, 'execute'), 'signed-out visitors cannot run ' || p.proname)
+  from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+ where n.nspname = 'public'
+   and p.proname in ('create_brewery', 'accept_invites', 'brewery_members', 'my_permissions', 'save_batch')
+ order by p.proname;
 
 select * from finish();
 rollback;

@@ -152,6 +152,7 @@ Plain HTML, CSS, and JavaScript with no frameworks and no build step, so it's ea
 | `app.js` | Everything the page does, in numbered sections: fixed lists → helpers → sample data → connecting to the database → lookups → drawing → batch, tank, beer, and location forms → backups → sign-in → wiring up taps. |
 | `supabase/migrations/` | The database design, one file per change, applied in order. |
 | `supabase/tests/` | Database tests: breweries can't reach each other's data, roles are enforced, saving a batch is all-or-nothing, acid tracking, and invites (including "a brewery always keeps an admin"). |
+| `supabase/after-restore.sql` | Run after restoring a backup into a new project: re-locks the functions only signed-in people may use. |
 | `supabase/config.toml`, `supabase/templates/` | Settings for the local test copy of the database, and the sign-in email wording. |
 | `sw.js` | The service worker: keeps a copy of the app's files on the device so it opens with no signal. |
 | `tests/browser/` | Browser tests: real Chrome clicking through the app like a brewer (batches, acid tracking, offline viewing, offline recording with a coworker conflict, and team invites and roles), against the local test copy of the database. |
@@ -283,7 +284,7 @@ The shared database (Phase 3) was pulled ahead of the brew log: real crews can o
 
 ### Up next, in order
 1. ~~Settings screen and permission levels~~ (done).
-2. **Keep the data safe:** automatic daily backups, and a decision on Supabase's paid plan (the free plan pauses after a week without use and keeps no backups).
+2. ~~Keep the data safe~~: nightly backups are running and a restore has been rehearsed. **Supabase's paid plan before real records** (decided).
 3. **Brew log, step 2:** brew-day readings, cellar log, additions ([design](docs/brew-log-design.md)).
 4. **Moving beer** design, ahead of packaging (Phase 5).
 
@@ -362,7 +363,8 @@ These make the app trustworthy and quick on the floor. They aren't a separate ph
 - [ ] **Reminders:** a "Today" list ("Dry hop FV-2", "1042 conditioning 21 days", "BT-1 due for acid"), then phone notifications.
 
 **Keeping the data safe (Resilient)**
-- [ ] **Automatic daily backups** to storage the brewery controls, and a decision on Supabase's paid plan (keeps the project awake; adds daily backups).
+- [x] **Nightly backups** of the whole database (structure, data, sign-in accounts) to a **private** repository, with every night kept. A full restore was rehearsed into a fresh database: every row matched and all database tests passed. Restoring also runs `supabase/after-restore.sql`, which re-locks the sign-in-only functions (a fresh Supabase project opens them to everyone by default).
+- [ ] **Supabase's paid plan before real records** (decided): it never pauses and adds Supabase's own daily backups.
 - [ ] **Error reporting,** so problems on someone's phone are found right away, not a week later.
 
 **Polish**
