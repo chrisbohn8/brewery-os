@@ -108,6 +108,11 @@ These shape every decision, even for features that come later:
 - **Flow meter fields** take the start and end readings and save the difference.
 - **Each value saves as soon as you leave its box**, also with no signal. Values far from their target are highlighted ("Typo?"); how far is adjustable in Settings → Brewery (by default 1 °P, 3 °F, 0.15 pH, 10% for volumes), and each flag can be turned off. Corrections keep the earlier value in the database's history.
 
+### The printed brew sheet
+- **"Print brew sheet"** on a batch's page (or "Print" on its brew-day sheet) prints one Letter page to fill in by hand on the brew deck: the same fields in the same order, **a box per turn**, targets alongside (water written as the formula, since grist isn't weighed yet), and a line for the brewers.
+- Values already entered are printed in their boxes, so a sheet can be reprinted mid-brew.
+- A **QR code** opens that batch in the app (after signing in, if needed) to type the numbers in. With no signal, the link is printed instead.
+
 ### Batch history
 - Every stage change and transfer is recorded with its date. Nothing is overwritten, so the records show where each batch has been, not just where it is.
 - A transfer keeps the "days in stage" counter; a stage change restarts it.
@@ -300,7 +305,7 @@ The shared database (Phase 3) was pulled ahead of the brew log: real crews can o
 ### Up next, in order
 1. ~~Settings screen and permission levels~~ (done).
 2. ~~Keep the data safe~~: nightly backups are running and a restore has been rehearsed. **Supabase's paid plan before real records** (decided).
-3. **Brew log, step 2:** ~~cellar log, additions, brew-day sheet~~ (done); next the **printed sheet with QR code** and typing in a filled-in paper sheet ([design](docs/brew-log-design.md)).
+3. **Brew log, step 2:** ~~cellar log, additions, brew-day sheet~~ (done); ~~printed sheet with QR code~~ (done); next **brew-day ingredients with lot numbers** and the sheet's field list ([design](docs/brew-log-design.md)).
 4. **Moving beer** design, ahead of packaging (Phase 5).
 
 ### ✅ Phase 0: Foundation (done)
@@ -323,8 +328,8 @@ The as-brewed record for each batch, compared against its beer's targets. **Desi
 - [ ] **Fermentation log:** gravity and temperature readings over time, FG, pH.
 - [ ] **Actual ABV**, calculated from actual OG and FG, plus **target vs. actual**: is 1042 hitting House Hazy's numbers?
 - [ ] **Fermentation curve:** a simple chart of gravity and temperature over time.
-- [ ] **Printable brew sheet** for each batch, laid out for pen and paper, with a **QR code** that opens that batch in the app.
-- [ ] **Open a batch from a link** (what the QR code points at).
+- [x] **Printable brew sheet** for each batch, laid out for pen and paper, with a **QR code** that opens that batch in the app.
+- [x] **Open a batch from a link** (what the QR code points at).
 - [ ] **Brewer notes** per batch.
 
 ### Phase 3: Shared data, sign-in, multiple breweries, and offline (in progress)

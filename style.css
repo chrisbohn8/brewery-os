@@ -431,3 +431,39 @@ dialog fieldset.acid p { margin: 0 0 8px; }
   font: inherit; font-size: 16px; padding: 8px; width: 90px;
   border: 1px solid var(--border); border-radius: 8px; background: var(--card); color: var(--text);
 }
+
+/* ---- The printed brew-day sheet ---- */
+/* Hidden on screen; on paper it's the only thing printed. Boxes are sized for handwriting. */
+#print-sheet { display: none; }
+@media print {
+  @page { size: letter portrait; margin: 0.4in; }
+  body { background: #fff !important; color: #000 !important; margin: 0; padding: 0; }
+  body > *:not(#print-sheet) { display: none !important; }
+  #print-sheet { display: block; font: 9pt/1.2 system-ui, -apple-system, "Segoe UI", sans-serif; color: #000; }
+  #print-sheet .muted { color: #444; }
+  .print-head { display: flex; justify-content: space-between; gap: 16px; border-bottom: 2px solid #000; padding-bottom: 6px; margin-bottom: 8px; }
+  .print-head h1 { font-size: 16pt; margin: 2px 0 6px; }
+  .print-head dl { display: grid; grid-template-columns: repeat(4, auto); gap: 2px 14px; margin: 0; }
+  .print-head dl div { display: flex; gap: 4px; align-items: baseline; }
+  .print-head dl .wide { grid-column: 1 / -1; }
+  .print-head dt { font-weight: 600; white-space: nowrap; }
+  .print-head dt::after { content: ":"; }
+  .print-head dd { margin: 0; min-width: 0.8in; border-bottom: 1px solid #999; }
+  .print-head .wide dd { flex: 1; }
+  .print-head .qr { text-align: center; width: 1.3in; font-size: 7pt; }
+  .print-head .qr img, .print-head .qr canvas { width: 1.1in !important; height: 1.1in !important; margin: 0 auto 2px; }
+  .print-head .qr .link { word-break: break-all; font-size: 7pt; }
+  .print-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; align-items: start; }
+  #print-sheet.one-column .print-columns { grid-template-columns: 1fr; }
+  .print-table { width: 100%; border-collapse: collapse; margin-bottom: 8px; break-inside: avoid; }
+  .print-table th { text-align: left; font-size: 9pt; border-bottom: 1.5px solid #000; padding: 2px 4px; }
+  .print-table th.target { font-weight: 400; color: #444; font-size: 7.5pt; }
+  .print-table td { border: 1px solid #888; padding: 0 4px; height: 0.25in; }
+  .print-table td.target { color: #444; font-size: 7.5pt; width: 0.85in; }
+  .print-table td.box, .print-table th.box { width: 0.75in; text-align: center; }
+  .print-table tr.tall td { height: 0.4in; }
+  .print-table tr.tall td.box { text-align: left; }
+  .print-table.whole-batch td.box, .print-table.whole-batch th.box { width: 1.6in; text-align: left; }
+  .print-table tr.notes td { height: 1.6in; vertical-align: top; padding-top: 3px; }
+  .print-head dd { white-space: nowrap; }
+}

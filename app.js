@@ -1831,6 +1831,7 @@ async function start() {
     showBrewerySwitch(memberships);
     await refresh();
     showScreen("app-screen");
+    openFromLink(); // opened from a printed sheet's QR code
   } catch (e) {
     if (isConnectionProblem(e) && openOfflineCopy()) return;
     alert(`Something went wrong loading your data: ${explain(e)}`);
@@ -2639,6 +2640,112 @@ function showSheet(open) {
 }
 document.getElementById("bv-sheet").addEventListener("click", () => showSheet(true));
 document.getElementById("bv-sheet-back").addEventListener("click", () => showSheet(false));
+
+// ----- The printed brew-day sheet -----
+// For filling in by hand on the brew deck: the same fields in the same order, a box per turn,
+// targets alongside, and a QR code that opens this batch in the app for typing the numbers in later.
+// Values already entered are printed in their boxes, so a sheet can be reprinted mid-brew.
+function printTarget(field, b) {
+  const loc = brewLocation(b);
+  if (field.key === "mash_water_volume" && loc?.waterGristQtLb) return `grist × ${loc.waterGristQtLb} ÷ 4 gal`;
+  if (field.key === "end_sparge_volume" && loc?.waterGristQtLb && loc.kettleFullBbl) {
+    return `${loc.kettleFullBbl} × 31 + grist × ${loc.absorptionGalLb || 0} gal`;
+  }
+  const target = field.target ? field.target(sheetContext(b, 1)) : null;
+  return targetText(field, target).replace(/^target /, "");
+}
+
+// What's already recorded, as it would be written on paper
+function printedValue(field, b, turn, part) {
+  const r = reading(b.id, field.key, turn);
+  if (!r) return "";
+  if (field.type === "meter") return String(r.raw?.[part] ?? "");
+  if (field.type === "time" || field.type === "text") return esc(r.valueText ?? "");
+  if (UNIT_TYPES.includes(field.type)) return showUnit(field.type, r.value).replace(/ \S+$/, ""); // the number only
+  return String(r.value);
+}
+
+function printUnit(field) {
+  if (field.unit) return ` (${field.unit})`;
+  if (UNIT_TYPES.includes(field.type)) return ` (${UNIT_INFO[field.type][prefs()[`${field.type}Unit`]].label})`;
+  return "";
+}
+
+function printSection(section, b) {
+  const turns = section.perTurn ? Array.from({ length: b.turns }, (_, i) => i + 1) : [null];
+  const hasTargets = section.fields.some((f) => printTarget(f, b));
+  const head = `<tr><th>${section.title}</th>${hasTargets ? `<th class="target">Target</th>` : ""}${turns.map((t) =>
+    `<th class="box">${t ? (b.turns > 1 ? `Turn ${t}` : "") : ""}</th>`).join("")}</tr>`;
+  const rows = section.fields.flatMap((f) => {
+    const parts = f.type === "meter" ? [["start", " meter start"], ["end", " meter end"]] : [[null, ""]];
+    const size = f.key === "brew_notes" ? "notes" : f.type === "text" ? "tall" : "";
+    return parts.map(([part, suffix], i) => `<tr class="${size}">
+      <td>${i ? "&nbsp;&nbsp;↳" : f.label}${suffix}${i ? "" : printUnit(f)}${f.type === "meter" && !i ? " (gal)" : ""}</td>
+      ${hasTargets ? `<td class="target">${i ? "" : esc(printTarget(f, b))}</td>` : ""}
+      ${turns.map((t) => `<td class="box">${printedValue(f, b, t, part)}</td>`).join("")}
+    </tr>`);
+  });
+  return `<table class="print-table${section.perTurn ? "" : " whole-batch"}">${head}${rows.join("")}</table>`;
+}
+
+function renderPrintSheet(b) {
+  const beer = findBeer(b.beerId);
+  const tank = findTank(b.tankId);
+  const loc = brewLocation(b);
+  const link = `${location.origin}${location.pathname}#batch=${b.id}`;
+  const facts = [
+    ["Beer", `${esc(beerName(b))}${beer?.style ? ` <span class="muted">(${esc(beer.style)})</span>` : ""}`],
+    ["Batch", esc(batchLabel(b))],
+    ["Brew date", esc(b.brewDate || "")],
+    ["Tank", esc(tank?.name || "")],
+    ["Location", esc(loc?.name || "")],
+    ["Size", b.sizeBbl ? showUnit("volume", b.sizeBbl) : ""],
+    ["Turns", String(b.turns)],
+    ["Target OG / FG", beer?.targetOg ? `${showUnit("gravity", beer.targetOg)} / ${beer.targetFg ? showUnit("gravity", beer.targetFg) : "—"}` : ""],
+  ];
+  const sections = (titles) => SHEET.filter((s) => titles.includes(s.title)).map((s) => printSection(s, b)).join("");
+  const sheet = document.getElementById("print-sheet");
+  sheet.className = b.turns > 2 ? "one-column" : "";
+  sheet.innerHTML = `
+    <header class="print-head">
+      <div>
+        <div class="muted">${esc(brewery.name)} · Brew-day sheet</div>
+        <h1>${esc(beerName(b))} ${esc(batchLabel(b))}</h1>
+        <dl>${facts.map(([k, v]) => `<div><dt>${k}</dt><dd>${v || "&nbsp;"}</dd></div>`).join("")}
+          <div class="wide"><dt>Brewer(s)</dt><dd>&nbsp;</dd></div></dl>
+      </div>
+      <div class="qr"><div id="print-qr"></div><div class="muted">Scan to type in the numbers</div></div>
+    </header>
+    <div class="print-columns">
+      <div>${sections(["Mash & runoff", "Gravity", "pH"])}</div>
+      <div>${sections(["Time log", "Knockout & yeast", "Notes"])}</div>
+    </div>`;
+  // The QR code (if the code library loaded; with no signal the link is printed instead)
+  const qr = document.getElementById("print-qr");
+  if (window.QRCode) new QRCode(qr, { text: link, width: 110, height: 110, correctLevel: QRCode.CorrectLevel.M });
+  else qr.innerHTML = `<div class="link">${esc(link)}</div>`;
+}
+
+function printSheet() {
+  const b = viewingBatch();
+  if (!b) return;
+  renderPrintSheet(b);
+  // Give the QR code a moment to draw before the print dialog takes a snapshot
+  setTimeout(() => window.print(), 150);
+}
+document.getElementById("bv-print").addEventListener("click", printSheet);
+document.getElementById("bv-sheet-print").addEventListener("click", printSheet);
+
+// ----- Opening a batch from a link (what the printed QR code points at) -----
+// The link looks like  https://brew.chrisbohn.org/#batch=<id>  (signing in first if needed).
+function openFromLink() {
+  const id = new URLSearchParams(location.hash.slice(1)).get("batch");
+  if (!id || document.getElementById("app-screen").hidden) return;
+  history.replaceState(null, "", location.pathname + location.search); // so a reload doesn't reopen it
+  if (data.batches.some((b) => b.id === id)) openBatchView(id);
+  else alert("That batch isn't in this brewery. (If you're in more than one brewery, switch in Settings → Account.)");
+}
+window.addEventListener("hashchange", openFromLink);
 
 // ----- Logging cellar work -----
 const cellarDialog = document.getElementById("cellar-editor");

@@ -112,6 +112,7 @@
       <button id="bv-add" class="btn" data-needs="cellar_log">+ Addition</button>
       <button id="bv-edit" class="btn">Stage / transfer…</button>
       <button id="bv-sheet" class="btn">Brew-day sheet</button>
+      <button id="bv-print" class="btn">Print brew sheet</button>
     </div>
   </section>
 
@@ -120,7 +121,7 @@
   <section class="list-section">
     <div class="section-head">
       <h2>Brew-day sheet</h2>
-      <button id="bv-sheet-back" class="btn small">← Back to batch</button>
+      <span class="actions"><button id="bv-sheet-print" class="btn small">Print</button><button id="bv-sheet-back" class="btn small">← Back to batch</button></span>
     </div>
     <div class="turn-bar">
       <div id="turn-tabs" class="turn-tabs" role="tablist" aria-label="Turn"></div>
@@ -653,6 +654,12 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.js"
           integrity="sha384-Rj26LVGvoeRVR6+mwQmFfcR3QOBEwT+ZmuCWpuiqeTzJpCs0ER4ITAWGb4Hiy3Ok"
           crossorigin="anonymous"></script>
+  <!-- QR codes for printed brew sheets (same integrity check as above) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"
+          integrity="sha512-CNgIRecGo7nphbeZ04Sc13ka07paqdeTu0WR1IM4kNcpmBAUSHSQX0FslNhTDadL4O5SAGapGt4FodqL8My0mA=="
+          crossorigin="anonymous" referrerpolicy="no-referrer"></script>
   <script src="app.js"></script>
+  <!-- The printed brew-day sheet: only shown on paper (filled in when "Print" is tapped) -->
+  <div id="print-sheet"></div>
 </body>
 </html>

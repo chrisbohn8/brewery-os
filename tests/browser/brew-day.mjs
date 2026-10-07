@@ -222,6 +222,49 @@ try {
   await page.click("#save-settings");
   await allSent();
   check(Math.abs((await page.evaluate(() => prefs().targetLimits.temperature)) - 5 / 3) < 1e-9, "set back to 3 °F");
+
+  console.log("11. The printed sheet: boxes per turn, values already entered, a QR code to open the batch");
+  await floor(page);
+  await page.click(`.card[data-tank="${tankId}"]`);
+  await page.waitForSelector("#batch-view:not([hidden])");
+  await page.evaluate(() => { window.printed = 0; window.print = () => window.printed++; });
+  await page.click("#bv-print");
+  await page.waitForFunction(() => window.printed === 1);
+  const sheetText = await text("#print-sheet");
+  check(sheetText.includes(`D${run}`) && sheetText.includes(tankName), "header shows the batch and tank");
+  check(await page.locator("#print-sheet table").first().locator("th.box").count() === 3, "a column of boxes for each of the 3 turns");
+  check(await page.evaluate(() => document.querySelector("#print-sheet").classList.contains("one-column")), "3 turns: one column, so the boxes fit");
+  const boxes = await page.evaluate(() => [...document.querySelectorAll("#print-sheet tr")].find((r) => r.textContent.includes("Grist weight"))
+    .querySelectorAll("td.box")).then(() => page.evaluate(() => [...[...document.querySelectorAll("#print-sheet tr")]
+    .find((r) => r.textContent.includes("Grist weight")).querySelectorAll("td.box")].map((td) => td.textContent)));
+  check(boxes.join(",") === "1010,980,", `grist weight boxes pre-filled: ${boxes.join(",")}`);
+  check(sheetText.includes("grist × 1.3 ÷ 4 gal"), "mash water target written as the formula for paper");
+  check(await page.locator("#print-qr img, #print-qr canvas").count() > 0, "QR code drawn");
+  await page.emulateMedia({ media: "print" });
+  check(await page.isVisible("#print-sheet") && await page.isHidden("#app-screen"), "on paper only the sheet prints");
+  await page.emulateMedia({ media: "screen" });
+  await page.evaluate(() => db.from("batches").update({ turns: 2 }).eq("id", viewingBatchId));
+  await page.evaluate(() => refresh());
+  await page.click("#bv-print");
+  await page.waitForFunction(() => window.printed === 2);
+  await page.emulateMedia({ media: "print" });
+  await page.pdf({ path: SHOTS + "brew-sheet.pdf", format: "Letter", printBackground: true });
+  await page.emulateMedia({ media: null });
+  check(true, "PDF saved (2 turns): tests/browser/shots/brew-sheet.pdf");
+
+  console.log("12. Scanning the QR code opens the batch (signed in)");
+  const link = await page.evaluate((id) => `${location.origin}${location.pathname}#batch=${id}`, batchId);
+  await page.goto(APP);
+  await page.waitForSelector("#app-screen:not([hidden]) .card", { timeout: 20000 });
+  await page.goto(link);
+  await page.waitForSelector("#batch-view:not([hidden])", { timeout: 20000 });
+  check((await text("#bv-title")).includes(`#D${run}`), `the link opens batch D${run}`);
+  const fresh = await context.newPage();
+  await fresh.goto(link);
+  await fresh.waitForSelector("#batch-view:not([hidden])", { timeout: 20000 });
+  check((await fresh.textContent("#bv-title")).includes(`#D${run}`), "also when the app is opened fresh from the link");
+  check(!(await fresh.evaluate(() => location.hash)), "the link is cleared, so reloading doesn't reopen it");
+  await fresh.close();
   check(errors.length === 0, `no page errors (${errors.join("; ")})`);
 } catch (e) {
   fails.push("crashed: " + e.message);
