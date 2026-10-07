@@ -46,18 +46,48 @@ A **target** can be a number, a range (5.2–5.4), a minimum ("20+"), or calcula
 
 Because values are stored in standard units with the field's type, a brewery can change its preferences later without changing old records, and reports like TTB always add up.
 
+## What a second location's sheets showed
+
+A second location's workbook (one template per beer, sized "30 bbl") has **the same fields** as the first location's sheet, which means one sheet template per brewery works. What differs is the **brewhouse**:
+
+| | Location 1 | Location 2 |
+| --- | --- | --- |
+| Batch | 15 bbl per turn; 30 bbl = 2 turns | 30 bbl in 1 turn |
+| Kettle full / KO | ~16–17 bbl per turn | ~32–34 / 30–37 bbl |
+| Flow / pump targets | 6.6 – 5.5 – 6.2 | 20–22 |
+
+What that changes:
+- **Brewhouse settings belong to a location:**
+    - turn size and the usual number of turns;
+    - kettle-full volume;
+    - flow and pump targets;
+    - water-to-grist ratio and grain absorption.
+
+  A batch's sheet uses the settings of the location where it's brewed.
+- **Recipes carry targets for specific sheet fields** (kettle-full, KO, and tank-sample gravity), not just OG/FG/IBU. That's already in the model below as "any sheet field's target".
+- **Recipes are sized for a brewhouse.** The same beer at a 15 bbl and a 30 bbl brewhouse has different quantities, and not always a straight multiple. See the open question on recipes per location.
+- **Ingredient kinds** need to cover:
+    - malt;
+    - sugars and adjuncts (dextrose);
+    - salts, with timing (Mash / FWH);
+    - hops, with timing (FWH, 60, 15, WP, dry hop);
+    - yeast, with generation (a number, or "Fresh");
+    - process aids (Whirlfloc, bioglucanase in ml, ALDC, Tetra);
+    - other.
+
 ## Data model sketch
 
 ```
-BREWERY SETTINGS     units (°F/°C, °P/SG/Brix, gal/bbl/hL), time zone,
-                     water-to-grist ratio, grain absorption, kettle volume, default turns
+BREWERY SETTINGS     units (°F/°C, °P/SG/Brix, gal/bbl/hL), time zone
+BREWHOUSE            per location: turn size, usual turns, kettle-full volume, flow/pump targets,
+                     water-to-grist ratio, grain absorption
 
 SHEET TEMPLATE       per brewery, versioned
   SECTION            "Mash / runoff", "Gravity", "pH", "Time log", ...
     FIELD            key, label, type, per turn | per batch, target, order, hidden?
 
-RECIPE               per beer, versioned (v1, v2, ...); one is current
-  RECIPE LINE        kind (malt / hop / salt / yeast / other), name, supplier,
+RECIPE               per beer (and brewhouse size), versioned (v1, v2, ...); one is current
+  RECIPE LINE        kind (malt / sugar-adjunct / salt / hop / yeast / process aid / other), name, supplier,
                      amount + unit, when (mash, 60 min, whirlpool, dry hop ...), notes
   TARGETS            OG, FG, IBU, plus any sheet field's target
 
@@ -119,3 +149,5 @@ Steps 1–3 replace the brew-day and cellar parts of the spreadsheet; step 4 rep
 2. **The time log** (mash start → KO end): is it used for anything later (brewhouse efficiency, scheduling), or just a record?
 3. **Who edits the template:** admins only (suggested)?
 4. **Corrections:** is it fine that a corrected reading keeps the old value in its history (shown as "changed from 4.8 by Sam, Oct 6")?
+5. **The same beer at both locations:** does each brewhouse keep its own recipe (likely, since 15 vs 30 bbl and not a straight multiple), or should the app scale one recipe and let the brewer adjust?
+6. **Batch logs at the second location:** its workbook holds per-beer templates; where are its actual batch logs kept (the same kind of per-batch sheet)?
