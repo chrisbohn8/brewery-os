@@ -6,7 +6,7 @@ set local role postgres;
 create extension if not exists pgtap with schema extensions;
 set search_path = public, extensions;
 
-select plan(12);
+select plan(15);
 
 insert into auth.users (id, email) values
   ('00000000-0000-0000-0000-0000000000a2', 'admin@example.test'),
@@ -37,6 +37,9 @@ select is((select target_limits->>'ph' from breweries), '0.1', 'the admin can ch
 select is((select sheet_fields from breweries), null, 'a new brewery uses the usual brew sheet fields');
 update breweries set sheet_fields = array['grist_weight', 'mash_temp', 'mash_ph'];
 select is((select cardinality(sheet_fields) from breweries), 3, 'the admin can choose the brew sheet''s fields');
+update breweries set sheet_custom_fields = '[{"key": "custom_a1", "label": "Hot side DO", "section": "Knockout", "type": "number", "unit": "ppb"}]';
+select is((select sheet_custom_fields->0->>'label' from breweries), 'Hot side DO', 'the admin can add the brewery''s own fields');
+select throws_ok($$ update breweries set sheet_custom_fields = '{}' $$, '23514', null, 'own fields must be a list');
 
 -- A brewer can see the preferences but not change them
 set local role postgres;
@@ -48,6 +51,7 @@ select throws_ok($$ update breweries set gravity_unit = 'plato' $$, '42501',
 select throws_ok($$ update breweries set target_limits = '{}' $$, '42501', null, 'or the target limits');
 select throws_ok($$ update breweries set sheet_fields = null $$, '42501',
   'You don''t have permission to choose the brew sheet''s fields.', 'or the brew sheet''s fields');
+select throws_ok($$ update breweries set sheet_custom_fields = '[]' $$, '42501', null, 'or add their own fields');
 
 -- Someone outside the brewery sees nothing
 select pg_temp.act_as('00000000-0000-0000-0000-0000000000d2');

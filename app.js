@@ -317,7 +317,7 @@ async function loadAll() {
     must(db.from("batch_status").select("*").eq("brewery_id", b)),
     must(db.from("batch_events").select("*").eq("brewery_id", b).order("effective_date").order("recorded_at")),
     must(db.from("tank_cleanings").select("*").eq("brewery_id", b).order("cleaned_on").order("recorded_at")),
-    must(db.from("breweries").select("acid_after_styles, temperature_unit, gravity_unit, volume_unit, time_zone, target_limits, sheet_fields").eq("id", b).single()),
+    must(db.from("breweries").select("acid_after_styles, temperature_unit, gravity_unit, volume_unit, time_zone, target_limits, sheet_fields, sheet_custom_fields").eq("id", b).single()),
     must(db.rpc("brewery_members", { p_brewery_id: b })),
     must(db.from("invites").select("*").eq("brewery_id", b).order("created_at")), // admins only; others get none
     must(db.rpc("my_permissions", { b })),
@@ -360,6 +360,7 @@ async function loadAll() {
     cleanings: cleanings.map((c) => ({ id: c.id, tankId: c.tank_id, cleanedOn: c.cleaned_on, note: c.note })),
     acidAfterStyles: settings.acid_after_styles,
     sheetFields: settings.sheet_fields,
+    sheetCustomFields: settings.sheet_custom_fields,
     prefs: {
       temperatureUnit: settings.temperature_unit, gravityUnit: settings.gravity_unit,
       volumeUnit: settings.volume_unit, timeZone: settings.time_zone, targetLimits: settings.target_limits,
@@ -388,6 +389,7 @@ async function loadAll() {
   data = withWaitingChanges(serverData);
   brewery.prefs = serverData.prefs;
   brewery.sheetFields = serverData.sheetFields;
+  brewery.sheetCustomFields = serverData.sheetCustomFields;
   brewery.permissions = serverData.permissions;
   brewery.role = (serverData.members.find((m) => m.email === signedInEmail) || {}).role || brewery.role;
 }
@@ -1990,17 +1992,22 @@ function renderSheetPicker() {
   const allowed = can("manage_settings");
   const choice = pickerChoice ?? chosenFields();
   document.getElementById("sheet-field-count").textContent =
-    `${CATALOG_FIELDS.filter((f) => choice.has(f.key)).length} of ${CATALOG_FIELDS.length} fields chosen`;
-  document.getElementById("sheet-field-picker").innerHTML = SHEET_CATALOG.map((section) => `
+    `${catalogFields().filter((f) => choice.has(f.key)).length} of ${catalogFields().length} fields chosen`;
+  document.getElementById("sheet-field-picker").innerHTML = sheetCatalog().map((section) => `
     <fieldset class="picker-section">
       <legend>${section.title} <span class="muted">· ${section.perTurn ? "each turn" : "whole batch"}</span></legend>
       ${allowed ? `<div class="picker-all"><button type="button" class="link" data-pick-section="${section.title}" data-pick="all">All</button>
         <button type="button" class="link" data-pick-section="${section.title}" data-pick="none">None</button></div>` : ""}
       ${section.fields.map((f) => `<label class="pick">
         <input type="checkbox" data-pick-field="${f.key}" ${choice.has(f.key) ? "checked" : ""} ${allowed ? "" : "disabled"}>
-        <span>${f.label} <span class="muted">${esc(fieldMeta(f))}</span></span></label>`).join("")}
+        <span>${esc(f.label)} <span class="muted">${esc(fieldMeta(f))}${f.own ? " · your own" : ""}</span></span></label>`).join("")}
     </fieldset>`).join("");
   document.getElementById("sheet-fields-actions").hidden = !allowed;
+  document.getElementById("custom-field-form").hidden = !allowed;
+  if (!customForm.section.options.length) { // filled once
+    customForm.section.innerHTML = SHEET_CATALOG.map((s) => `<option>${s.title}</option>`).join("");
+    customForm.type.innerHTML = CUSTOM_TYPES.map((t) => `<option value="${t.id}">${t.label}</option>`).join("");
+  }
   document.getElementById("sheet-fields-note").hidden = allowed;
   document.getElementById("save-sheet-fields").disabled = !pickerChoice;
 }
@@ -2016,7 +2023,7 @@ document.getElementById("sheet-field-picker").addEventListener("click", (e) => {
   const button = e.target.closest("[data-pick-section]");
   if (!button) return;
   pickerChoice ??= new Set(chosenFields());
-  const section = SHEET_CATALOG.find((s) => s.title === button.dataset.pickSection);
+  const section = sheetCatalog().find((s) => s.title === button.dataset.pickSection);
   for (const f of section.fields) {
     if (button.dataset.pick === "all") pickerChoice.add(f.key); else pickerChoice.delete(f.key);
   }
@@ -2024,18 +2031,45 @@ document.getElementById("sheet-field-picker").addEventListener("click", (e) => {
 });
 document.getElementById("pick-usual").addEventListener("click", () => { pickerChoice = new Set(USUAL_FIELDS); renderSheetPicker(); });
 document.getElementById("pick-everything").addEventListener("click", () => {
-  pickerChoice = new Set(CATALOG_FIELDS.map((f) => f.key));
+  pickerChoice = new Set(catalogFields().map((f) => f.key));
   renderSheetPicker();
 });
 document.getElementById("save-sheet-fields").addEventListener("click", async () => {
   if (!pickerChoice) return;
   // Saved in catalog (paper) order
-  const keys = CATALOG_FIELDS.map((f) => f.key).filter((k) => pickerChoice.has(k));
+  const keys = catalogFields().map((f) => f.key).filter((k) => pickerChoice.has(k));
   const ok = await save(async () => {
     const saved = await must(db.from("breweries").update({ sheet_fields: keys }).eq("id", brewery.id).select("id"));
     if (!saved.length) throw new Error("You don't have permission to choose the brew sheet's fields.");
   });
   if (ok) pickerChoice = null;
+  renderSheetPicker();
+});
+
+// Adding the brewery's own field: saved right away, and ticked (so it shows on the sheet)
+const customForm = document.getElementById("custom-field-form");
+customForm.type.addEventListener("change", () => { customForm.querySelector(".unit-field").hidden = customForm.type.value !== "number"; });
+customForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const label = customForm.label.value.trim();
+  if (!label) return;
+  if (catalogFields().some((f) => f.label.toLowerCase() === label.toLowerCase() && f.own)) {
+    alert(`There's already a field called "${label}".`);
+    return;
+  }
+  const own = { key: `custom_${newId().replace(/-/g, "").slice(0, 12)}`, label, section: customForm.section.value,
+    type: customForm.type.value, unit: customForm.type.value === "number" ? customForm.unit.value.trim() : "" };
+  // Ticked along with whatever is ticked now (including unsaved ticks)
+  const choice = new Set(pickerChoice ?? chosenFields());
+  choice.add(own.key);
+  const keys = [...catalogFields(), field(own.key)].map((f) => f.key).filter((k) => choice.has(k));
+  const ok = await save(async () => {
+    const saved = await must(db.from("breweries").update({
+      sheet_custom_fields: [...(brewery.sheetCustomFields || []), own], sheet_fields: keys,
+    }).eq("id", brewery.id).select("id"));
+    if (!saved.length) throw new Error("You don't have permission to change the brew sheet's fields.");
+  });
+  if (ok) { customForm.reset(); customForm.querySelector(".unit-field").hidden = false; pickerChoice = null; }
   renderSheetPicker();
 });
 
@@ -2587,8 +2621,27 @@ const SHEET_CATALOG = [
     field("wort_sensory", "Wort taste / smell", "text"),
   ]},
 ];
-const CATALOG_FIELDS = SHEET_CATALOG.flatMap((section) => section.fields);
-const USUAL_FIELDS = CATALOG_FIELDS.filter((f) => f.usual).map((f) => f.key);
+const USUAL_FIELDS = SHEET_CATALOG.flatMap((section) => section.fields).filter((f) => f.usual).map((f) => f.key);
+
+// Kinds of value a brewery's own field can hold (Settings → Brew sheet → Add your own field)
+const CUSTOM_TYPES = [
+  { id: "number", label: "Number (with your unit)" }, { id: "temperature", label: "Temperature" },
+  { id: "gravity", label: "Gravity" }, { id: "volume", label: "Volume" }, { id: "ph", label: "pH" },
+  { id: "time", label: "Time of day" }, { id: "text", label: "Text / initials" },
+];
+
+// The full catalog: the app's fields plus the brewery's own, each at the end of its section
+function sheetCatalog() {
+  const own = brewery?.sheetCustomFields || [];
+  return SHEET_CATALOG.map((section) => ({
+    ...section,
+    fields: [...section.fields, ...own.filter((c) => c.section === section.title)
+      .map((c) => field(c.key, c.label, c.type, { unit: c.unit || undefined, own: true }))],
+  }));
+}
+function catalogFields() {
+  return sheetCatalog().flatMap((section) => section.fields);
+}
 const UNIT_TYPES = ["temperature", "gravity", "volume"];
 
 // The fields this brewery measures (null = the usual set)
@@ -2600,7 +2653,7 @@ function chosenFields() {
 function sheetFor(batch) {
   const chosen = chosenFields();
   const recorded = new Set(data.readings.filter((r) => r.batchId === batch.id).map((r) => r.fieldKey));
-  return SHEET_CATALOG
+  return sheetCatalog()
     .map((section) => ({ ...section, fields: section.fields.filter((f) => chosen.has(f.key) || recorded.has(f.key)) }))
     .filter((section) => section.fields.length);
 }
@@ -2737,7 +2790,7 @@ document.getElementById("sheet").addEventListener("change", (e) => {
   if (!input || !b || !can("start_batch")) return;
   const key = input.dataset.field;
   const turn = input.dataset.turn ? Number(input.dataset.turn) : null;
-  const field = CATALOG_FIELDS.find((f) => f.key === key);
+  const field = catalogFields().find((f) => f.key === key);
   const row = input.closest(".field");
   const current = reading(b.id, key, turn);
   let value = null, valueText = null, raw = null;

@@ -234,6 +234,17 @@
     <p id="sheet-fields-note" class="muted" hidden>You don't have permission to change these.</p>
     <div id="sheet-field-picker"></div>
   </section>
+  <section class="list-section">
+    <h2>Add your own field</h2>
+    <p class="muted">For anything the list above doesn't have. It's added to the sheet right away, at the end of its section.</p>
+    <form id="custom-field-form" class="settings-grid">
+      <label>Name <input name="label" required maxlength="60" placeholder="Like: Hot side DO"></label>
+      <label>Section <select name="section"></select></label>
+      <label>Kind of value <select name="type"></select></label>
+      <label class="unit-field">Unit <input name="unit" maxlength="20" placeholder="Like: ppb"></label>
+      <button type="submit" class="btn">Add field</button>
+    </form>
+  </section>
   </div>
 
   <div class="settings-page" data-page="equipment">

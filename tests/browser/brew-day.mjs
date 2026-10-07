@@ -278,6 +278,26 @@ try {
   await enter("yeast_viability", "96");
   await allSent();
   check((await value(batchId, "yeast_viability", null))?.value === 96, "a newly ticked field saves");
+  console.log("14. Adding the brewery's own field");
+  await settings(page, "sheet");
+  await page.fill('#custom-field-form [name="label"]', `Hot side DO ${run}`);
+  await page.selectOption('#custom-field-form [name="section"]', "Knockout");
+  await page.selectOption('#custom-field-form [name="type"]', "number");
+  await page.fill('#custom-field-form [name="unit"]', "ppb");
+  await page.click("#custom-field-form button[type=submit]");
+  await allSent();
+  const own = await page.evaluate((r) => brewery.sheetCustomFields.find((f) => f.label === `Hot side DO ${r}`), run);
+  check(own?.key.startsWith("custom_") && own.unit === "ppb", `saved: ${JSON.stringify(own)}`);
+  check(await page.isChecked(`[data-pick-field="${own.key}"]`), "and ticked");
+  await floor(page);
+  await page.click(`.card[data-tank="${tankId}"]`);
+  await page.waitForSelector("#batch-view:not([hidden])");
+  await page.click("#bv-sheet");
+  check((await row(own.key).innerText()).includes(`Hot side DO ${run} (ppb)`), "shows on the sheet with its unit");
+  await enter(own.key, "42");
+  await allSent();
+  check((await value(batchId, own.key, 1))?.value === 42, "its value saves (turn 1)");
+
   await settings(page, "sheet");
   await page.click("#pick-everything");
   await page.click("#save-sheet-fields");
