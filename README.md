@@ -266,6 +266,12 @@ The order follows dependencies: each phase sets up what the next one needs. **Br
 
 The shared database (Phase 3) was pulled ahead of the brew log: real crews can only try the app once data is shared, and multi-tenancy and offline are easier to build in from the start than to add later.
 
+### Up next, in order
+1. **Settings screen and permission levels** (below, under "Floor and safety").
+2. **Keep the data safe:** automatic daily backups, and a decision on Supabase's paid plan (the free plan pauses after a week without use and keeps no backups).
+3. **Brew log, step 2:** brew-day readings, cellar log, additions ([design](docs/brew-log-design.md)).
+4. **Moving beer** design, ahead of packaging (Phase 5).
+
 ### ✅ Phase 0: Foundation (done)
 - [x] Tank dashboard with stage and days in stage
 - [x] Batches as their own records: transfer between tanks, packaging, guardrails
@@ -306,16 +312,63 @@ Turns the prototype into something a brewery can rely on.
 - [x] **Works offline, recording:** floor changes made offline are kept on the device and sent in order when the signal returns; the screen shows what's still waiting.
 - [x] **Simple conflict rule:** in a small crew two people rarely change the same thing at once, so there's no merge tool. Changes apply in the order they reach the database. If one can't apply (a duplicate batch number, a tank someone else just filled), the database's checks reject it and the person who made it sees why. Nothing is silently dropped.
 
+### Floor and safety improvements (scheduled between phases)
+These make the app trustworthy and quick on the floor. They aren't a separate phase; each is slotted in where it fits.
+
+**Settings and permissions**
+- [ ] **A Settings screen** (⚙︎ in the header), so the main screen stays about the floor. It has pages for:
+    - Brewery (name, units, time zone);
+    - Equipment (locations, tanks);
+    - Beers and recipes;
+    - Cleaning (acid rules);
+    - Team and permissions;
+    - Backup;
+    - My account.
+
+  People only see the pages they're allowed to use.
+- [ ] **Permission levels, enforced by the database.** Admins pick one per person:
+    - **Viewer:** look at everything, change nothing.
+    - **Cellar:** daily floor work (readings, cellar log, acid cycles, tank status).
+    - **Brewer:** adds batches, stages, transfers, packaging, and brew-day sheets.
+    - **Head brewer:** adds beers and recipes, tanks and locations, acid rules, and units.
+    - **Admin:** adds team and permissions, brewery name, backups, and deleting things.
+
+  Extra per-person exceptions can come later if needed.
+
+**Fewer mistakes (Robust)**
+- [ ] **Undo** for a few seconds after a transfer, stage change, or packaging entry.
+- [ ] **On-page confirmations and messages** instead of the browser's pop-ups, which some apps block.
+- [ ] **Activity feed:** who did what and when ("Sam moved 1042 to BT-2 at 2:14 PM").
+
+**Faster on the floor**
+- [ ] **QR stickers on tanks:** scanning one opens whatever is in that tank, ready to log a reading. Printable from the app.
+- [ ] **Quick actions on tank cards** (long-press for "Log reading", "Dry hop", ...).
+- [ ] **Cellar TV:** a big-screen tank board for a monitor on the wall, laid out with a simple **floor plan builder** (drag tanks to where they really stand, per location) so it's quick to scan.
+- [ ] **Reminders:** a "Today" list ("Dry hop FV-2", "1042 conditioning 21 days", "BT-1 due for acid"), then phone notifications.
+
+**Keeping the data safe (Resilient)**
+- [ ] **Automatic daily backups** to storage the brewery controls, and a decision on Supabase's paid plan (keeps the project awake; adds daily backups).
+- [ ] **Error reporting,** so problems on someone's phone are found right away, not a week later.
+
+**Polish**
+- [ ] **App icon and name** on the home screen (and the branding question that comes with it).
+
 ### Phase 4: Tank care
 - [x] **Acid tracking:** acid cycle log per tank, "acid every X turns" per tank, a brewery-wide list of styles that need acid afterward, an "Acid due" flag, and a warning before filling a tank that's due.
 - [ ] **Full CIP log:** caustic and sanitizer cleanings too (date, who, what chemicals), using the same cleaning records as the acid log.
 - [ ] **Tank batch history,** looked up from batch events: everything that's been through FV-1.
 - [ ] **Tank notes:** quirks, gasket replacements, maintenance history.
 
-### Phase 5: Packaging
-- [ ] **Package a batch for real:** package date, yield in bbl, and package counts (½ bbl, ¼ bbl, ⅙ bbl kegs, cans).
-- [ ] **Losses:** the difference between batch size and yield (dumps, tank bottoms, packaging loss). TTB cares about this.
-- [ ] Packaged batches become finished-goods inventory (Phase 6).
+### Phase 5: Moving beer and packaging
+Beer is tracked by **volume, not just location**: a batch has barrels in places, and every move records how much moved. This is the foundation for inventory and TTB. A short design comes first, like the brew log's, because a batch can now be in more than one tank.
+- [ ] **Transfers with volumes,** including **splits** (one batch into two brite tanks) and **blends** (two batches into one tank). Each tank shows its running balance.
+- [ ] **Package types set per brewery:**
+    - kegs: ½, ¼, and ⅙ bbl, and 50 L;
+    - cans and bottles: 12, 16, and 19.2 oz;
+    - case formats: 4×6, 6×4, 2×12.
+- [ ] **A packaging calculator** that turns counts into volume. For example, a skid of 72 cases of 16 oz 4×6 = 216 gal ≈ 7 bbl, so a 30 bbl batch still has about 23 bbl in the tank.
+- [ ] **Packaging never empties a tank by itself.** A person confirms **"this tank is spent"**; whatever is left on paper is recorded as **loss** (tank bottoms, dumped beer), which TTB asks for. A suspicious leftover (say 4 bbl) asks before closing.
+- [ ] Packaged beer becomes finished-goods inventory (Phase 6).
 
 ### Phase 6: Inventory
 - [ ] **Finished goods:** kegs and cases on hand per beer and batch, and removals (sold, transferred, donated, dumped).
