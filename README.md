@@ -120,6 +120,13 @@ These shape every decision, even for features that come later:
 - A tab left open keeps running the version it opened with. Every 10 minutes, and when you come back to the app, it checks whether a newer version has been published and, if so, shows **"A new version of the app is ready. Reload"**. It never reloads by itself, since someone might be typing.
 - Reloading always gets the newest version (the offline copy checks with the server each time).
 
+### Volumes (moving beer, step 1)
+- **Every tank card shows how much is in it** ("29.5 bbl"), worked out from a **ledger of movements**: knockout into a fermenter, transfers, packaging, losses, corrections. The ledger is append-only; nothing is overwritten. See [docs/moving-beer-design.md](docs/moving-beer-design.md).
+- **Knockout volume** comes from the brew sheet's "Total knockout volume", or the batch size.
+- **Moving or packaging a batch asks how much moved;** empty means all of it. What's left behind (yeast, trub, bottoms) is recorded as **loss**, and the form says so before saving. Moving more than was on record adds a correction instead of a negative tank.
+- **Volumes are optional.** A batch with none recorded says "volume not recorded" and everything still works.
+- The batch page shows what's in the tank, and its history lists every movement with its volume.
+
 ### Brew-day ingredients
 - The brew-day sheet starts with **Ingredients**: malt, adjuncts, water salts and acids, hops, finings, yeast, each with amount, when it went in (mash, boil 60 min, whirlpool...), the turn, and its **lot number** for traceability.
 - **"Copy from the last batch"** of the same beer fills in names, amounts, timing, and turns, with lot numbers left empty for this batch's own. The last batch is the recipe; the brewer adds lots and adjusts what changed.
@@ -416,7 +423,9 @@ These make the app trustworthy and quick on the floor. They aren't a separate ph
 
 ### Phase 5: Moving beer and packaging
 Beer is tracked by **volume, not just location**: a batch has barrels in places, and every move records how much moved. This is the foundation for inventory and TTB. **Design draft:** [docs/moving-beer-design.md](docs/moving-beer-design.md) (a ledger of movements; a tank's contents are worked out from it).
-- [ ] **Transfers with volumes,** including **splits** (one batch into two brite tanks) and **blends** (two batches into one tank). Each tank shows its running balance.
+- [x] **Volumes and transfers with volumes:** a ledger of movements; each tank shows its running balance; what's left behind on a transfer is a loss.
+- [ ] **Splits and blends:** one batch in two tanks; a blend makes a new batch that lists its sources.
+- [ ] **Level checks** (sight glass): type what the glass shows; the difference is served, loss, or a correction.
 - [ ] **Package types set per brewery:**
     - kegs: ½, ¼, and ⅙ bbl, and 50 L;
     - cans and bottles: 12, 16, and 19.2 oz;

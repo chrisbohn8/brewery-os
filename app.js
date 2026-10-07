@@ -310,7 +310,7 @@ function explain(error) {
 let serverData = null;
 async function loadAll() {
   const b = brewery.id;
-  const [locations, beers, tanks, batches, events, cleanings, settings, members, invites, permissions, memberRows, levels, cellar, additions, readings] = await Promise.all([
+  const [locations, beers, tanks, batches, events, cleanings, settings, members, invites, permissions, memberRows, levels, cellar, additions, readings, movements] = await Promise.all([
     must(db.from("locations").select("*").eq("brewery_id", b).order("created_at")),
     must(db.from("beers").select("*").eq("brewery_id", b)),
     must(db.from("tanks").select("*").eq("brewery_id", b).order("created_at")),
@@ -327,6 +327,7 @@ async function loadAll() {
     must(db.from("batch_additions").select("*").eq("brewery_id", b).order("added_on").order("recorded_at")),
     // (only each field's current value; history stays in the database)
     must(db.from("batch_readings_current").select("id, batch_id, turn, field_key, value, value_text, raw, recorded_at").eq("brewery_id", b)),
+    must(db.from("beer_movements").select("*").eq("brewery_id", b).order("occurred_on").order("recorded_at")),
   ]);
   // Each member: email and level (from brewery_members) plus their personal adjustments
   const adjustments = Object.fromEntries(memberRows.map((r) => [r.user_id, r]));
@@ -355,7 +356,7 @@ async function loadAll() {
       stage: x.stage, tankId: x.tank_id, stageStartDate: x.stage_started_on,
     })),
     events: events.map((e) => ({
-      id: e.id, batchId: e.batch_id, effectiveDate: e.effective_date, stage: e.stage, tankId: e.tank_id,
+      id: e.id, batchId: e.batch_id, effectiveDate: e.effective_date, stage: e.stage, tankId: e.tank_id, recordedAt: e.recorded_at,
     })),
     cleanings: cleanings.map((c) => ({ id: c.id, tankId: c.tank_id, cleanedOn: c.cleaned_on, note: c.note })),
     acidAfterStyles: settings.acid_after_styles,
@@ -379,6 +380,10 @@ async function loadAll() {
     readings: readings.map((r) => ({
       id: r.id, batchId: r.batch_id, turn: r.turn, fieldKey: r.field_key, value: num(r.value),
       valueText: r.value_text, raw: r.raw, recordedAt: r.recorded_at,
+    })),
+    movements: movements.map((m) => ({
+      id: m.id, batchId: m.batch_id, occurredOn: m.occurred_on, kind: m.kind, fromTankId: m.from_tank_id,
+      toTankId: m.to_tank_id, volumeBbl: num(m.volume_bbl), notes: m.notes, recordedAt: m.recorded_at,
     })),
     additions: additions.map((a) => ({
       id: a.id, batchId: a.batch_id, addedOn: a.added_on, kind: a.kind, name: a.name,
@@ -617,6 +622,28 @@ const SHOW = {
         effectiveDate: stageChanged ? a.p_stage_started_on : a.p_action_date,
       });
     }
+    // Volumes, as the database records them (see save_batch in ..._beer_movements.sql)
+    const moveDate = stageChanged ? a.p_stage_started_on : a.p_action_date;
+    const move = (m) => d.movements.push({ id: `waiting-${a.p_id}-m${d.movements.length}`, batchId: a.p_id,
+      occurredOn: moveDate, fromTankId: null, toTankId: null, volumeBbl: null, notes: "", ...m });
+    const typed = a.p_volume_bbl ?? null;
+    if (!before && inTank) {
+      move({ kind: "knockout", toTankId: newTank, volumeBbl: typed, occurredOn: a.p_brew_date || moveDate });
+    } else if (before?.tankId && before.stage !== "packaged" && (tankChanged || !inTank)) {
+      let balance = tankBalance(a.p_id, before.tankId, d);
+      const moved = typed ?? balance;
+      if (moved != null && balance != null && moved > balance) {
+        move({ kind: "correction", toTankId: before.tankId, volumeBbl: moved - balance, notes: "more moved out than was recorded" });
+        balance = moved;
+      }
+      move({ kind: inTank ? "transfer" : "package", fromTankId: before.tankId, toTankId: newTank, volumeBbl: moved });
+      if (balance != null && moved != null && balance > moved) {
+        move({ kind: "loss", fromTankId: before.tankId, volumeBbl: balance - moved, notes: "left in the tank" });
+      }
+    } else if (before?.stage === "packaged" && inTank) {
+      move({ kind: "correction", toTankId: newTank, volumeBbl: typed, notes: "back in a tank" });
+    }
+
     const tank = (id) => d.tanks.find((t) => t.id === id);
     if (before?.tankId && before.stage !== "packaged" && (!inTank || before.tankId !== newTank) && tank(before.tankId)) {
       tank(before.tankId).status = "cleaning";
@@ -672,6 +699,7 @@ function withWaitingChanges(base) {
   d.cellar ??= [];
   d.additions ??= [];
   d.readings ??= [];
+  d.movements ??= [];
   for (const change of outbox) SHOW[change.kind](d, change.args);
   return d;
 }
@@ -760,6 +788,30 @@ document.getElementById("sync-problems-ok").addEventListener("click", () => {
 });
 
 // ---------- 5. Looking things up ----------
+// ----- Volumes: worked out from the movement ledger (docs/moving-beer-design.md) -----
+// How much of a batch is in a tank now, in barrels, or null if a volume along the way wasn't
+// recorded. A knockout with no volume counts as the brew sheet's knockout volume, or the batch size.
+// (Mirrors tank_balance() in the database.)
+function tankBalance(batchId, tankId, d = data) {
+  let total = 0;
+  for (const m of d.movements || []) {
+    if (m.batchId !== batchId || (m.toTankId !== tankId && m.fromTankId !== tankId)) continue;
+    let v = m.volumeBbl;
+    if (v == null && m.kind === "knockout") v = knockoutVolume(batchId, d);
+    if (v == null) return null;
+    total += m.toTankId === tankId ? v : -v;
+  }
+  return total;
+}
+function knockoutVolume(batchId, d = data) {
+  const ko = d.readings.find((r) => r.batchId === batchId && r.fieldKey === "ko_volume" && r.turn == null)?.value;
+  return ko ?? d.batches.find((b) => b.id === batchId)?.sizeBbl ?? null;
+}
+// "29.5 bbl", or "volume not recorded"
+function volumeText(v) {
+  return v == null ? "volume not recorded" : showUnit("volume", v);
+}
+
 function isInTank(batch) {
   return batch.stage !== "packaged";
 }
@@ -984,7 +1036,7 @@ function tankCard(tank) {
 
   const beer = findBeer(batch.beerId);
   const days = daysSince(batch.stageStartDate);
-  const size = batch.sizeBbl ? ` · ${showUnit("volume", batch.sizeBbl)}` : "";
+  const size = ` · ${volumeText(tankBalance(batch.id, tank.id))}`;
   return `
     <button class="card" data-tank="${tank.id}" style="--stage-color: var(--${batch.stage})">
       ${header}
@@ -1052,8 +1104,33 @@ function openBatchEditor(batch, tankId) {
   if (b.tankId) batchForm.tankId.value = b.tankId;
   batchForm.stage.value = b.stage;
   batchForm.stageStartDate.value = b.stageStartDate;
+  batchForm.volume.value = "";
+  updateVolumeField();
   batchDialog.showModal();
 }
+
+// "Volume moved": shown when beer leaves its tank (a transfer, or packaging). Empty = all of it.
+// Below it, what that means for the tank it leaves: something left behind is recorded as loss.
+function updateVolumeField() {
+  const b = editingBatch;
+  const leaving = b && isInTank(b) && b.tankId &&
+    (batchForm.stage.value === "packaged" || batchForm.tankId.value !== b.tankId);
+  document.getElementById("volume-field").hidden = !leaving;
+  const note = document.getElementById("volume-note");
+  note.hidden = !leaving;
+  if (!leaving) return;
+  const inTank = tankBalance(b.id, b.tankId);
+  batchForm.volume.placeholder = inTank != null ? `all of it (${toShown("volume", inTank)})` : "all of it";
+  const typed = batchForm.volume.value === "" ? null : fromShown("volume", batchForm.volume.value);
+  const from = tankName(b.tankId);
+  if (typed == null) note.textContent = inTank != null ? `Everything in ${from} (${showUnit("volume", inTank)}) moves.` : `Everything in ${from} moves.`;
+  else if (inTank == null) note.textContent = `${showUnit("volume", typed)} moves out of ${from}.`;
+  else if (typed < inTank) note.textContent = `${showUnit("volume", inTank - typed)} left in ${from} will be recorded as loss (yeast, trub, bottoms).`;
+  else if (typed > inTank) note.textContent = `That's ${showUnit("volume", typed - inTank)} more than ${from} had on record; it'll be noted as a correction.`;
+  else note.textContent = `Everything in ${from} moves.`;
+}
+batchForm.tankId.addEventListener("change", updateVolumeField);
+batchForm.volume.addEventListener("input", updateVolumeField);
 
 // Only the parts of the batch form this person may change are editable:
 //   details (number, beer, brew date, size) -> start_batch; stage, tank, date -> move_beer; "Packaged" -> package
@@ -1061,7 +1138,7 @@ function lockBatchForm(batch) {
   const details = !batch || can("start_batch");
   const moves = can("move_beer") || can("package");
   for (const name of ["batchId", "beerId", "brewDate", "sizeBbl"]) batchForm[name].disabled = !details;
-  for (const name of ["tankId", "stage", "stageStartDate"]) batchForm[name].disabled = !moves;
+  for (const name of ["tankId", "stage", "stageStartDate", "volume"]) batchForm[name].disabled = !moves;
   for (const option of batchForm.stage.options) {
     option.disabled = option.value === "packaged" ? !can("package") : (!can("move_beer") && option.value !== batchForm.stage.value);
   }
@@ -1077,6 +1154,7 @@ batchForm.beerId.addEventListener("change", () => {
 // When you pick a new stage, assume it started today (you can still change the date)
 batchForm.stage.addEventListener("change", () => {
   batchForm.stageStartDate.value = today();
+  updateVolumeField();
 });
 
 batchForm.addEventListener("submit", async (e) => {
@@ -1157,6 +1235,9 @@ batchForm.addEventListener("submit", async (e) => {
     p_stage_started_on: values.stageStartDate,
     p_tank_id: willBeInTank ? values.tankId : null,
     p_action_date: today(), // the day you did it, even if it reaches the database later
+    // How much moved, when beer leaves its tank (empty = all of it)
+    p_volume_bbl: !document.getElementById("volume-field").hidden && batchForm.volume.value !== ""
+      ? fromShown("volume", batchForm.volume.value) : null,
   }, label);
   if (ok) batchDialog.close();
 });
@@ -1615,7 +1696,12 @@ async function loadIntoBrewery(source, description) {
   const ok = await save(async () => {
     try {
       if (d.locations.length) {
-        await must(db.from("locations").insert(d.locations.map((l) => ({ id: idFor(l.id), brewery_id: b, name: l.name }))));
+        await must(db.from("locations").insert(d.locations.map((l) => ({
+          id: idFor(l.id), brewery_id: b, name: l.name,
+          // Brewhouse settings (backups made since they existed)
+          turn_size_bbl: l.turnSizeBbl ?? null, usual_turns: l.usualTurns || 1, kettle_full_bbl: l.kettleFullBbl ?? null,
+          flow_target: l.flowTarget || "", water_grist_qt_lb: l.waterGristQtLb ?? null, grain_absorption_gal_lb: l.absorptionGalLb ?? null,
+        }))));
       }
       if (d.beers.length) {
         await must(db.from("beers").insert(d.beers.map((x) => {
@@ -1645,18 +1731,68 @@ async function loadIntoBrewery(source, description) {
       if (d.batches.length) {
         await must(db.from("batches").insert(d.batches.map((x) => ({
           id: idFor(x.id), brewery_id: b, batch_number: x.batchNumber || "?", beer_id: idFor(x.beerId),
-          brew_date: x.brewDate, size_bbl: x.sizeBbl,
+          brew_date: x.brewDate, size_bbl: x.sizeBbl, turns: x.turns || 1,
         }))));
         // History: newer backups include it. Older data only knows each batch's current
         // stage, so that becomes the batch's one history event.
         const events = d.events?.length
-          ? d.events.map((e) => ({ batch: e.batchId, date: e.effectiveDate, stage: e.stage, tank: e.tankId }))
+          ? d.events.map((e) => ({ batch: e.batchId, date: e.effectiveDate, stage: e.stage, tank: e.tankId, at: e.recordedAt }))
           : d.batches.map((x) => ({
               batch: x.id, date: x.stageStartDate, stage: x.stage, tank: x.stage === "packaged" ? null : x.tankId,
             }));
         await must(db.from("batch_events").insert(events.map((e) => ({
           brewery_id: b, batch_id: idFor(e.batch), effective_date: e.date, stage: e.stage, tank_id: idFor(e.tank),
+          // Keep the original order of same-day changes (it decides which tank a batch is in now)
+          ...(e.at && { recorded_at: e.at }),
         }))));
+
+        // Volumes. Backups made before volumes existed: each batch in a tank was knocked out into it
+        // (its volume then comes from the brew sheet or batch size), as when volumes were added.
+        const movements = d.movements?.length
+          ? d.movements.map((m) => ({
+              batch_id: idFor(m.batchId), occurred_on: m.occurredOn, kind: m.kind, from_tank_id: idFor(m.fromTankId),
+              to_tank_id: idFor(m.toTankId), volume_bbl: m.volumeBbl ?? null, notes: m.notes || "",
+              ...(m.recordedAt && { recorded_at: m.recordedAt }),
+            }))
+          : d.batches.filter((x) => x.stage !== "packaged" && x.tankId).map((x) => ({
+              batch_id: idFor(x.id), occurred_on: x.brewDate || x.stageStartDate || today(), kind: "knockout",
+              to_tank_id: idFor(x.tankId), notes: "recorded when volumes were added",
+            }));
+        if (movements.length) await must(db.from("beer_movements").insert(movements.map((m) => ({ brewery_id: b, ...m }))));
+
+        // The brew log (backups made since it existed): cellar log, ingredients and additions,
+        // and each brew-day field's current value
+        if (d.cellar?.length) {
+          await must(db.from("cellar_entries").insert(d.cellar.map((c) => ({
+            brewery_id: b, batch_id: idFor(c.batchId), occurred_on: c.occurredOn, action: c.action || "",
+            gravity_sg: c.gravitySg ?? null, ph: c.ph ?? null, temp_c: c.tempC ?? null,
+            cellar_change: c.cellarChange || "", notes: c.notes || "",
+            ...(c.recordedAt && { recorded_at: c.recordedAt }),
+          }))));
+        }
+        if (d.additions?.length) {
+          await must(db.from("batch_additions").insert(d.additions.map((a) => ({
+            brewery_id: b, batch_id: idFor(a.batchId), added_on: a.addedOn, kind: a.kind, name: a.name,
+            amount: a.amount ?? null, unit: a.unit, timing: a.timing || "", lot: a.lot || "", notes: a.notes || "",
+            brew_day: !!a.brewDay, turn: a.turn ?? null,
+            ...(a.recordedAt && { recorded_at: a.recordedAt }),
+          }))));
+        }
+        if (d.readings?.length) {
+          await must(db.from("batch_readings").insert(d.readings.map((r) => ({
+            brewery_id: b, batch_id: idFor(r.batchId), turn: r.turn ?? null, field_key: r.fieldKey,
+            value: r.value ?? null, value_text: r.valueText ?? null, raw: r.raw ?? null,
+          }))));
+        }
+      }
+      // The brew sheet's setup and units (an admin setting; skipped quietly for anyone else)
+      if (can("manage_settings") && (d.prefs || d.sheetFields || d.sheetCustomFields?.length)) {
+        await must(db.from("breweries").update({
+          ...(d.prefs && { temperature_unit: d.prefs.temperatureUnit, gravity_unit: d.prefs.gravityUnit,
+            volume_unit: d.prefs.volumeUnit, time_zone: d.prefs.timeZone, target_limits: d.prefs.targetLimits ?? undefined }),
+          sheet_fields: d.sheetFields ?? null, sheet_custom_fields: d.sheetCustomFields || [],
+          sheet_field_settings: d.sheetFieldSettings || {},
+        }).eq("id", b));
       }
     } catch (error) {
       // Don't leave half-loaded data behind: empty the brewery again, then report the error
@@ -2620,6 +2756,22 @@ function renderChart(b) {
     ${temp.length ? `<span class="key temp"></span> temperature (${UNIT_INFO.temperature[prefs().temperatureUnit].label})` : ""}</p>`;
 }
 
+// One movement, for the batch history: "29.5 bbl FV-1 → BT-1"
+function movementText(m) {
+  const v = m.volumeBbl ?? (m.kind === "knockout" ? knockoutVolume(m.batchId) : null);
+  const amount = v == null ? "volume not recorded" : showUnit("volume", v);
+  const from = m.fromTankId ? esc(tankName(m.fromTankId)) : "", to = m.toTankId ? esc(tankName(m.toTankId)) : "";
+  const note = m.notes ? ` <span class="muted">(${esc(m.notes)})</span>` : "";
+  switch (m.kind) {
+    case "knockout": return `${amount} knocked out into ${to}${m.volumeBbl == null && v != null ? ` <span class="muted">(from the brew sheet or batch size)</span>` : ""}`;
+    case "transfer": return `${amount} moved ${from} → ${to}`;
+    case "package": return `${amount} packaged from ${from}`;
+    case "served": return `${amount} served from ${from}`;
+    case "loss": return `${amount} lost from ${from}${note}`;
+    default: return `${amount} ${to ? "added to " + to : "taken out of " + from} as a correction${note}`;
+  }
+}
+
 function renderBatchView() {
   const b = viewingBatch();
   if (!b) { showView("floor"); return; }
@@ -2633,7 +2785,7 @@ function renderBatchView() {
   document.getElementById("bv-meta").textContent = [
     isInTank(b) && tank ? `${tank.name}${locationName(tank) ? " · " + locationName(tank) : ""}` : "Packaged",
     `${days} ${days === 1 ? "day" : "days"} in ${stageLabel(b.stage).toLowerCase()}`,
-    b.sizeBbl ? showUnit("volume", b.sizeBbl) : "",
+    isInTank(b) && b.tankId ? `${volumeText(tankBalance(b.id, b.tankId))} in the tank` : "",
     `brewed ${formatDate(b.brewDate)}`,
   ].filter(Boolean).join(" · ");
   renderNumbers(b);
@@ -2667,10 +2819,14 @@ function renderBatchView() {
 
   renderSheet();
 
-  // History: stage changes and transfers, oldest first
-  const history = data.events.filter((e) => e.batchId === b.id);
-  document.getElementById("bv-history").innerHTML = history.map((e) => `
-    <li class="item"><span class="when">${formatDate(e.effectiveDate)}</span> · ${stageLabel(e.stage)}${e.tankId ? " in " + esc(tankName(e.tankId)) : ""}</li>`).join("");
+  // History: stage changes and transfers, and the volumes that moved, oldest first
+  const history = [
+    ...data.events.filter((e) => e.batchId === b.id)
+      .map((e) => ({ date: e.effectiveDate, at: e.recordedAt || "", text: `${stageLabel(e.stage)}${e.tankId ? " in " + esc(tankName(e.tankId)) : ""}` })),
+    ...data.movements.filter((m) => m.batchId === b.id).map((m) => ({ date: m.occurredOn, at: m.recordedAt || "~", text: movementText(m), volume: true })),
+  ].sort((x, y) => x.date.localeCompare(y.date) || x.at.localeCompare(y.at)); // same day: in the order recorded
+  document.getElementById("bv-history").innerHTML = history.map((h) => `
+    <li class="item${h.volume ? " volume" : ""}"><span class="when">${formatDate(h.date)}</span> · ${h.text}</li>`).join("");
 }
 
 document.getElementById("bv-edit").addEventListener("click", () => {

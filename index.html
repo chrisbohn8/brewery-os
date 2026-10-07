@@ -386,6 +386,11 @@
         <select name="tankId"></select>
       </label>
 
+      <label id="volume-field" hidden><span>Volume moved (<span class="volume-unit">bbl</span>)</span>
+        <input name="volume" type="number" min="0" step="any" inputmode="decimal" data-unit="volume">
+      </label>
+      <p id="volume-note" class="muted" hidden></p>
+
       <div class="two-col">
         <label>Stage
           <select name="stage"></select>
