@@ -274,7 +274,7 @@ The shared database (Phase 3) was pulled ahead of the brew log: real crews can o
 - [x] **Backup and restore** as a JSON file
 
 ### Phase 2: Brew log and history
-The as-brewed record for each batch, compared against its beer's targets.
+The as-brewed record for each batch, compared against its beer's targets. **Design draft:** [docs/brew-log-design.md](docs/brew-log-design.md).
 - [ ] **Brewery preferences, first:** temperature (°F/°C), gravity (SG/Plato/Brix), volume (bbl/hL/gal), and time zone. **Readings are stored in one standard unit** (gravity as SG, temperature as °C, volume as US barrels) and converted for display, so changing a preference never alters old records, breweries' numbers mean the same thing, and TTB math is always in barrels. Brix readings taken after fermentation starts need an alcohol correction (using the original gravity); the app applies it.
 - [ ] **Event history per batch.** Record every stage change and transfer (date, from, to, volume) instead of overwriting. Traceability, the CIP log, and TTB reporting are all built on this. Stage and tank may become "the latest event" rather than fields that get overwritten.
 - [ ] **Brew-day actuals:** key numbers such as mash temp and pH, pre-boil gravity, OG, volume to fermenter, yeast and pitch temp. Exact fields come from the brewery's current brew sheet.
