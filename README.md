@@ -445,7 +445,7 @@ Multi-tenancy itself arrives in Phase 3. This phase is about letting a new brewe
     6. A **setup checklist** in Settings for the rest, each item asked when it becomes relevant: TTB permit, state, and filing frequency (at the first TTB report); package types (at the first packaging); acid rules (at the first cleaning); batch numbering and stage list; "too long in a stage" alerts.
 
   Every step can be skipped and changed later. For the first breweries, also a hands-on setup call.
-- [ ] **Free trial, decided:** every brewery gets **at least one free TTB report**. The trial runs until the first TTB report is ready to file, with a minimum of 90 days, so it always covers one full reporting period (monthly or quarterly). The brewery files that first report before being asked to pay. No payment details to start.
+- [ ] **Free trial, decided:** every brewery gets **two free TTB reports**. The first usually covers a period that started before the switch (opening inventory from the old system); the second covers a whole period done only in Brewery OS, which is the experience that shows its value, without ever juggling two systems. The trial runs until the second report is filed (so about two months for monthly filers, about six for quarterly). No payment details to start.
     - **One trial per TTB permit number** (each brewery premises has its own Brewer's Notice). The permit is asked for at the first TTB report, which needs it anyway. A permit that already had a trial goes straight to paid, with an offer to pick up the earlier brewery's data. No IP tracking or name matching.
     - **After the trial nothing is deleted or locked away:** the brewery goes read-only, and export is always free.
 - [ ] **Billing.**
