@@ -2352,6 +2352,7 @@ function showSettings(open, page = settingsPage) {
       if (b.dataset.page === page) b.setAttribute("aria-current", "page");
     });
     document.querySelectorAll(".settings-page").forEach((p) => { p.hidden = p.dataset.page !== page; });
+    if (page === "backup") renderExports();
     if (page === "api") { document.getElementById("new-key").hidden = true; renderKeyPermissions(); loadApiKeys(); }
   }
 }
@@ -4288,6 +4289,125 @@ document.getElementById("key-list").addEventListener("click", async (e) => {
   if (!b || !confirm("Revoke this key? Anything using it stops working right away.")) return;
   const ok = await save(async () => { const { error } = await db.rpc("revoke_api_key", { p_id: b.dataset.revokeKey }); if (error) throw error; });
   if (ok) await loadApiKeys();
+});
+
+// ----- Export as spreadsheets (CSV) -----
+// "Nobody adopts software they can't leave." Every list as a CSV file (opens in Excel or Google
+// Sheets), with plain names (not ids) and the brewery's units in the column names, or all of them
+// in one zip file. (The JSON backup above is the full-fidelity copy; these are for people.)
+function csvText(rows) {
+  if (!rows.length) return "";
+  const columns = Object.keys(rows[0]);
+  const cell = (v) => {
+    const text = v == null ? "" : String(v);
+    return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+  };
+  // The byte-order mark makes Excel read accents and ° correctly
+  return "﻿" + [columns.map(cell).join(","), ...rows.map((r) => columns.map((c) => cell(r[c])).join(","))].join("\r\n");
+}
+function exportLists() {
+  const vol = UNIT_INFO.volume[prefs().volumeUnit].label, grav = UNIT_INFO.gravity[prefs().gravityUnit].label,
+    temp = UNIT_INFO.temperature[prefs().temperatureUnit].label;
+  const v = (bbl) => (bbl == null ? "" : toShown("volume", bbl));
+  const g = (sg) => (sg == null ? "" : toShown("gravity", sg));
+  const t = (c) => (c == null ? "" : toShown("temperature", c));
+  const batch = (id) => findBatchById(id);
+  const label = (id) => (batch(id) ? batch(id).batchNumber : "");
+  const beerOf = (id) => (batch(id) ? beerName(batch(id)) : "");
+  const field = (key) => catalogFields().find((f) => f.key === key);
+  const place = (id) => (id ? placeName(id) : "");
+  return {
+    "tanks": data.tanks.map((tk) => {
+      const b = batchInTank(tk.id);
+      return { "Tank": tk.name, "Type": labelFrom(TANK_TYPES, tk.type), "Status": labelFrom(TANK_STATUSES, tk.status), "Location": locationName(tk),
+        [`Capacity (${vol})`]: v(tk.capacityBbl), "Batch": b?.batchNumber ?? "", "Beer": b ? beerName(b) : "", "Stage": b ? stageLabel(b.stage) : "",
+        [`In the tank (${vol})`]: b ? v(tankBalance(b.id, tk.id)) : "" };
+    }),
+    "beers": data.beers.map((b) => ({ "Beer": b.name, "Style": b.style || "", [`Target OG (${grav})`]: g(b.targetOg), [`Target FG (${grav})`]: g(b.targetFg),
+      "Target ABV (%)": abv(b.targetOg, b.targetFg) ? abv(b.targetOg, b.targetFg).toFixed(1) : "" })),
+    "batches": data.batches.map((b) => {
+      const og = batchOg(b), last = cellarLog(b).filter((c) => c.gravitySg != null).at(-1);
+      return { "Batch": b.batchNumber, "Beer": beerName(b), "Brewed": b.brewDate || "", [`Size (${vol})`]: v(b.sizeBbl), "Turns": b.turns,
+        "Stage": stageLabel(b.stage), "Since": b.stageStartDate || "", "Tank": b.tankId ? tankName(b.tankId) : "",
+        [`In the tank (${vol})`]: b.tankId && isInTank(b) ? v(tankBalance(b.id, b.tankId)) : "", [`OG (${grav})`]: g(og),
+        [`Latest gravity (${grav})`]: g(last?.gravitySg), "ABV (%)": og && last ? abv(og, last.gravitySg).toFixed(1) : "" };
+    }),
+    "batch-history": data.events.map((e) => ({ "Batch": label(e.batchId), "Beer": beerOf(e.batchId), "Date": e.effectiveDate,
+      "Stage": stageLabel(e.stage), "Tank": e.tankId ? tankName(e.tankId) : "" })),
+    "cellar-log": data.cellar.map((c) => ({ "Batch": label(c.batchId), "Beer": beerOf(c.batchId), "Date": c.occurredOn, "Action": c.action,
+      [`Gravity (${grav})`]: g(c.gravitySg), "pH": c.ph ?? "", [`Temperature (${temp})`]: t(c.tempC), "Cellar change": c.cellarChange, "Notes": c.notes })),
+    "brew-day-readings": data.readings.map((r) => {
+      const f = field(r.fieldKey);
+      const shown = f && UNIT_TYPES.includes(f.type) ? toShown(f.type, r.value) : f?.type === "meter" && r.value != null ? +(r.value * 31).toFixed(1) : r.value;
+      const unit = !f ? "" : UNIT_TYPES.includes(f.type) ? UNIT_INFO[f.type][prefs()[`${f.type}Unit`]].label : f.type === "meter" ? "gal" : f.unit || "";
+      return { "Batch": label(r.batchId), "Beer": beerOf(r.batchId), "Turn": r.turn ?? "whole batch", "Field": f?.label ?? r.fieldKey,
+        "Value": r.valueText ?? shown ?? "", "Unit": unit, "Meter start": r.raw?.start ?? "", "Meter end": r.raw?.end ?? "" };
+    }),
+    "ingredients-and-additions": data.additions.map((a) => ({ "Batch": label(a.batchId), "Beer": beerOf(a.batchId), "Date": a.addedOn,
+      "Brew day": a.brewDay ? "yes" : "", "Turn": a.turn ?? "", "Kind": a.kind, "Name": a.name, "Amount": a.amount ?? "", "Unit": a.unit,
+      "When": a.timing, "Lot": a.lot, "Notes": a.notes })),
+    "volumes": data.movements.map((m) => ({ "Batch": label(m.batchId), "Beer": beerOf(m.batchId), "Date": m.occurredOn, "Kind": m.kind,
+      "From tank": m.fromTankId ? tankName(m.fromTankId) : "", "To tank": m.toTankId ? tankName(m.toTankId) : "",
+      [`Volume (${vol})`]: v(m.volumeBbl), "Notes": m.notes })),
+    "packaging": (data.packageCounts || []).map((c) => {
+      const m = data.movements.find((x) => x.id === c.movementId);
+      return { "Batch": label(m?.batchId), "Beer": beerOf(m?.batchId), "Date": m?.occurredOn ?? "", "From tank": m?.fromTankId ? tankName(m.fromTankId) : "",
+        "Package": typeOf(c.packageTypeId)?.name ?? "", "Count": c.count, [`Volume (${vol})`]: v(c.count * c.unitVolumeBbl) };
+    }),
+    "finished-goods-on-hand": stockOnHand().filter((r) => r.count > 0).map((r) => ({ "Place": place(r.placeId), "Beer": findBeer(r.beerId)?.name ?? "",
+      "Batch": r.batchId ? label(r.batchId) : "from before the app", "Package": typeOf(r.typeId)?.name ?? "", "Count": +r.count.toFixed(3),
+      [`Volume (${vol})`]: v(r.count * (typeOf(r.typeId)?.volumeBbl || 0)) })),
+    "stock-moves": (data.stockMoves || []).map((m) => ({ "Date": m.occurredOn, "Kind": m.kind, "Removal": m.removalKind ? REMOVAL_KINDS[m.removalKind] : "",
+      "Beer": findBeer(m.beerId)?.name ?? "", "Batch": m.batchId ? label(m.batchId) : "", "Package": typeOf(m.packageTypeId)?.name ?? "", "Count": m.count,
+      "From": place(m.fromPlaceId), "To": place(m.toPlaceId), "Account": m.account, "Reason": m.notes })),
+    "pars": (data.pars || []).map((p) => ({ "Place": p.placeId ? place(p.placeId) : "whole brewery", "Beer": findBeer(p.beerId)?.name ?? "",
+      [`Par (${vol})`]: v(p.parBbl), "Par (cases)": p.parCases ?? "" })),
+    "draft-lines": (data.lines || []).map((l) => ({ "Place": place(l.placeId), "Line": l.lineNo,
+      "Pouring": l.status === "beer" ? findBeer(l.beerId)?.name ?? "" : { other: l.label, empty: "(empty)", out: "(out of order)" }[l.status] })),
+    "raw-materials-on-hand": (data.rawItems || []).flatMap((item) => rawLots(item).filter((l) => Math.abs(l.onHand) > 1e-9)
+      .map((l) => ({ "Item": item.name, "Kind": RAW_KINDS[item.kind], "Lot": l.lot, "On hand": +l.onHand.toFixed(3), "Unit": item.unit }))),
+    "raw-material-deliveries": (data.rawReceipts || []).map((r) => {
+      const item = data.rawItems.find((i) => i.id === r.itemId);
+      return { "Item": item?.name ?? "", "Date": r.receivedOn, "Lot": r.lot, "Amount": r.amount, "Unit": item?.unit ?? "", "Supplier": r.supplier, "Cost": r.cost ?? "" };
+    }),
+  };
+}
+function downloadFile(name, blob) {
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = name;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(link.href), 10000);
+}
+function renderExports() {
+  document.getElementById("export-lists").innerHTML = Object.entries(exportLists()).map(([name, rows]) =>
+    `<button type="button" class="btn small" data-export="${name}">${name.replace(/-/g, " ")} <span class="muted">(${rows.length})</span></button>`).join("");
+}
+document.getElementById("export-lists").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-export]");
+  if (!b) return;
+  const rows = exportLists()[b.dataset.export];
+  if (!rows.length) { alert("That list is empty."); return; }
+  downloadFile(`${slugName(brewery.name)}-${b.dataset.export}-${today()}.csv`, new Blob([csvText(rows)], { type: "text/csv;charset=utf-8" }));
+});
+const slugName = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "brewery";
+// Everything, as one zip of CSV files (the zip library loads only when it's needed)
+document.getElementById("export-all").addEventListener("click", async () => {
+  if (!window.JSZip) {
+    await new Promise((resolve, reject) => {
+      const script = document.createElement("script");
+      script.src = "https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js";
+      script.integrity = "sha512-XMVd28F1oH/O71fzwBnV7HucLxVwtxf26XV8P4wPk26EDxuGZ91N8bsOttmnomcCD3CS5ZMRL50H0GgOHvegtg==";
+      script.crossOrigin = "anonymous";
+      script.onload = resolve;
+      script.onerror = () => reject(new Error("no signal"));
+      document.head.append(script);
+    }).catch(() => alert("Making a zip file needs signal the first time. The single lists can be downloaded one by one."));
+    if (!window.JSZip) return;
+  }
+  const zip = new JSZip();
+  for (const [name, rows] of Object.entries(exportLists())) if (rows.length) zip.file(`${name}.csv`, csvText(rows));
+  downloadFile(`${slugName(brewery.name)}-everything-${today()}.zip`, await zip.generateAsync({ type: "blob" }));
 });
 
 // ----- Stock places (Settings → Equipment) -----

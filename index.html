@@ -468,6 +468,14 @@
       <input id="import-file" type="file" accept=".json,application/json" hidden>
     </div>
   </section>
+  <!-- Export as spreadsheets: every list as a CSV file, or all of them in one zip -->
+  <section class="list-section" data-needs="backups">
+    <h2>Export as spreadsheets</h2>
+    <p class="muted">Every list as a CSV file that opens in Excel or Google Sheets, with names (not codes) and your units in the
+      column names. The backup above is the complete copy for loading back in; these are for reading, sharing, and moving to other tools.</p>
+    <div class="actions"><button type="button" id="export-all" class="btn primary">Everything (one zip file)</button></div>
+    <div id="export-lists" class="actions wrap"></div>
+  </section>
   </div>
 
   <div class="settings-page" data-page="account">
