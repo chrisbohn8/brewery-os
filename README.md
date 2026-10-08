@@ -352,8 +352,11 @@ The shared database (Phase 3) was pulled ahead of the brew log: real crews can o
 ### Up next, in order
 1. ~~Settings screen and permission levels~~ (done).
 2. ~~Keep the data safe~~: nightly backups are running and a restore has been rehearsed. **Supabase's paid plan before real records** (decided).
-3. **Brew log, step 2:** ~~cellar log, additions, brew-day sheet~~ (done); ~~printed sheet with QR code~~ (done); next **brew-day ingredients with lot numbers** and the sheet's field list ([design](docs/brew-log-design.md)).
-4. **Moving beer** design, ahead of packaging (Phase 5): **draft in [docs/moving-beer-design.md](docs/moving-beer-design.md).**
+3. ~~Brew log~~ (done, Phase 2).
+4. ~~Moving beer and packaging~~ (done, Phase 5).
+5. **Inventory** (Phase 6, [design](docs/inventory-design.md)): ~~finished goods~~ (done); next pars, restocking, and "on deck", then raw materials, then keg tracking.
+6. **API, import, and export** (Phase 6½, below).
+7. TTB reporting (Phase 7), and the rest in order; **onboarding last** (Phase 11).
 
 ### ✅ Phase 0: Foundation (done)
 - [x] Tank dashboard with stage and days in stage
@@ -462,6 +465,15 @@ Beer is tracked by **volume, not just location**: a batch has barrels in places,
 - [ ] **Pars, restocking, and "on deck"** (from the review of a real inventory workbook).
 - [ ] **Keg tracking:** which kegs are full, empty, or out at accounts.
 - [ ] **Raw materials:** malt, hops, yeast, and chemicals on hand, used up by batches as they're brewed.
+
+### Phase 6½: API, import, and export
+The user's idea (API-first): outside tools and AI agents read and write through the same endpoints the app uses, spreadsheets come in with a one-shot import, and everything can go out again. "Nobody adopts software they can't leave."
+- [ ] **API keys** made in Settings, shown once, stored hashed, with "last used", and revocable. **Each key belongs to a person and acts with up to all of that person's permissions** (pick some or all when making it), so a key handed to an AI agent can never do more than its maker, and the database's permission checks apply as usual.
+- [ ] **A small first API** (a server function in front of the same database rules and actions the app uses): tanks (list, update status), brew log entries (list; create cellar log entries and readings), beers and recipes (list).
+- [ ] **Export everything** as CSV (per list) and JSON (the backup file already exists).
+- [ ] **Import from spreadsheets:** CSV upload or a Google Sheets link, for tanks, beers, batches, and cellar logs, with a preview of what will be created and a column mapping before anything is saved.
+- [ ] **Recipe import from all the major tools** via **BeerXML** (BeerSmith, Brewfather, Brewer's Friend, and others export it); later, Brewfather's own API. Recipes stay simple (decided): a beer's targets and ingredient list, which the brew-day sheet copies like "copy from the last batch".
+- Later, when someone besides us holds a key: rate limits and public API docs.
 
 ### Phase 7: TTB reporting
 The payoff for keeping accurate volumes at every step.
