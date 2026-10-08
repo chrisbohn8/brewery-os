@@ -548,7 +548,8 @@ The user's idea. Watching only, never controlling equipment (controllers already
 - [ ] **A short buying guide:** floating hydrometers' radios struggle through jacketed stainless tanks, so for those a wired probe in the tank's thermowell, connected to a small Wi-Fi sensor or bridge outside the tank, is the practical low-tech option.
 
 ### Later: a planning calendar
-The user's idea (2026-10-08): see the week ahead, tank by tank.
+The user's idea (2026-10-08): see the week ahead, tank by tank, and know before brew day whether there's enough malt and hops.
+**Design draft:** [docs/calendar-design.md](docs/calendar-design.md) (week view, beer schedules from recipes and past batches, gravity triggers, push the rest back, raw materials look ahead with on-order deliveries and a shopping list, and the questions to confirm).
 - [ ] **Week view:** days across the top, tanks down the side, and in each square what's due on that tank that day: brew day, dry hop, crash, transfer, package, clean, acid cycle. Swipe to the next week; tap an item to open the batch or tank. A phone shows fewer days at a time.
 - [ ] **Planned vs. done, kept apart:** a plan is never a record. Planned items come from dates the brewer sets (a brew day, a planned transfer), and "expected" items from simple, visible rules (the usual days in each stage, the acid rules), drawn lighter and labeled "expected". Doing the work on the floor records it as usual and the plan item is ticked off; nothing is ever recorded from the calendar on its own.
 - [ ] **Plan ahead:** put a future brew on an empty tank, and see a clash (two batches planned into one tank, a tank still full on the planned brew day) before it happens.
