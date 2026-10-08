@@ -537,3 +537,25 @@ dialog fieldset.acid p { margin: 0 0 8px; }
 .source-row label.choice input { width: 22px; height: 22px; flex: none; margin: 0; }
 #blend-add { font: inherit; font-size: 16px; padding: 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--card); color: var(--text); width: 100%; }
 #blend-editor h3 { margin: 14px 0 4px; font-size: 1rem; }
+
+/* Inventory */
+.header-buttons { display: flex; gap: 8px; }
+.place-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0; }
+.place-chips button { font: inherit; font-size: 0.9rem; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--border); background: var(--card); color: var(--text); }
+.place-chips button[aria-selected="true"] { background: var(--text); color: var(--bg); border-color: var(--text); }
+.inv-table-wrap { overflow-x: auto; }
+.inv-table { width: 100%; border-collapse: collapse; font-size: 0.95rem; }
+.inv-table th, .inv-table td { padding: 8px 6px; border-bottom: 1px solid var(--border); text-align: right; white-space: nowrap; }
+.inv-table th:first-child, .inv-table td:first-child { text-align: left; white-space: normal; }
+.inv-table th { font-size: 0.8rem; color: var(--muted); font-weight: 600; }
+.inv-table tr.beer-row { cursor: pointer; }
+.inv-table tr.batches td { font-size: 0.85rem; color: var(--muted); background: var(--card); }
+.inv-table td.zero { color: var(--muted); }
+.inv-table input { width: 64px; font: inherit; font-size: 16px; padding: 6px; text-align: right; border: 1px solid var(--border); border-radius: 8px; background: var(--card); color: var(--text); }
+.inv-table input.changed { border: 2px solid var(--fermenting); }
+dialog.wide { max-width: 720px; width: calc(100vw - 32px); }
+#place-form { flex-wrap: wrap; }
+#reasons-form { display: grid; gap: 10px; }
+#reasons-form label.choice { display: flex; gap: 8px; align-items: center; color: var(--text); }
+#reasons-form label.choice input { width: 22px; height: 22px; }
+#reasons-form textarea { font: inherit; font-size: 16px; padding: 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--card); color: var(--text); width: 100%; }

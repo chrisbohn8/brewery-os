@@ -65,7 +65,10 @@
       <h1 id="view-title">Tanks</h1>
       <p id="brewery-name" class="muted"></p>
     </div>
-    <button id="open-settings" class="btn">⚙︎ Settings</button>
+    <span class="header-buttons">
+      <button id="open-inventory" class="btn">Inventory</button>
+      <button id="open-settings" class="btn">⚙︎ Settings</button>
+    </span>
     <button id="close-settings" class="btn" hidden>← Tanks</button>
   </header>
 
@@ -101,6 +104,24 @@
   <section id="packaged" class="list-section" hidden>
     <h2>Packaged batches</h2>
     <ul id="packaged-list"></ul>
+  </section>
+  </div>
+
+  <!-- ===== Inventory: finished kegs and cases on hand, by place ===== -->
+  <div id="inventory-view" hidden>
+  <section class="list-section">
+    <div class="actions wrap">
+      <button id="inv-count" class="btn primary" data-needs="inventory">Count a place</button>
+      <button id="inv-move" class="btn" data-needs="inventory">Move</button>
+      <button id="inv-remove" class="btn" data-needs="inventory">Remove</button>
+    </div>
+    <div id="inv-places" class="place-chips" role="tablist" aria-label="Place"></div>
+    <div id="inv-table" class="inv-table-wrap"></div>
+    <p class="muted">Tap a beer to see the batches behind it. Stock comes in from packaging runs and goes out by removals and counts.</p>
+  </section>
+  <section class="list-section">
+    <h2>Recent</h2>
+    <ul id="inv-recent" class="plain log-list"></ul>
   </section>
   </div>
 
@@ -280,6 +301,19 @@
     </div>
     <ul id="location-list"></ul>
   </section>
+  <!-- Stock places: where finished kegs and cases sit (each location starts with a storage place) -->
+  <section class="list-section">
+    <div class="section-head"><h2>Stock places</h2></div>
+    <p class="muted">Where finished kegs and cases are kept: a storage cooler, a taproom... Packaging puts them in the
+      location's storage place unless you choose another.</p>
+    <ul id="place-list" class="plain"></ul>
+    <form id="place-form" class="inline-add" data-needs="manage_equipment">
+      <input name="name" required maxlength="60" placeholder="Like: Taproom, Walk-in" aria-label="Place name">
+      <select name="locationId" aria-label="Location"></select>
+      <select name="kind" aria-label="Kind"><option value="storage">Storage</option><option value="taproom">Taproom</option></select>
+      <button type="submit" class="btn">Add</button>
+    </form>
+  </section>
   </div>
 
   <div class="settings-page" data-page="packages">
@@ -290,6 +324,16 @@
       turns the counts into barrels. Unticking one never changes past packaging.</p>
     <p id="package-types-note" class="muted" hidden>You don't have permission to change these.</p>
     <div id="package-type-picker"></div>
+  </section>
+  <section class="list-section">
+    <h2>Reasons for stock changes</h2>
+    <form id="reasons-form">
+      <label class="choice"><input type="checkbox" name="required"> Ask for a reason on every count, move, and removal</label>
+      <label>Reasons to choose from (one per line; people can also type their own)
+        <textarea name="reasons" rows="5" placeholder="Stocked the taproom&#10;Dock sale&#10;Distributor order"></textarea></label>
+      <button type="submit" class="btn">Save reasons</button>
+    </form>
+    <p id="reasons-note" class="muted" hidden>You don't have permission to change these.</p>
   </section>
   <section class="list-section">
     <h2>Add your own</h2>
@@ -773,7 +817,65 @@
         <label class="choice"><input type="radio" name="spent" value="yes"> Yes, it's spent</label>
         <p id="package-spent-note" class="muted"></p>
       </fieldset>
+      <label>Into <select name="placeId"></select></label>
       <label>Notes <input name="notes" maxlength="500"></label>
+      <div class="actions">
+        <span class="spacer"></span>
+        <button type="button" class="btn cancel">Cancel</button>
+        <button type="submit" class="btn primary">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Inventory: a count sheet for one place (like counting the cooler, beer by beer, size by size) -->
+  <dialog id="count-editor" class="wide">
+    <form id="count-form">
+      <h2 tabindex="-1" autofocus>Count a place</h2>
+      <div class="two-col">
+        <label>Place <select name="placeId"></select></label>
+        <label>Date <input name="occurredOn" type="date" required></label>
+      </div>
+      <p class="muted">Each box starts at what the app expects. Change the ones that are different; the rest stay as they are.</p>
+      <div id="count-sheet" class="inv-table-wrap"></div>
+      <label>Add a beer <select id="count-add"></select></label>
+      <label>Reason <input name="reason" list="stock-reason-list" maxlength="500" placeholder="Like: Weekly count"></label>
+      <label>When there's less than expected, it was <select name="drop">
+        <option value="taproom">Poured in the taproom</option><option value="sold">Sold</option>
+        <option value="unknown">Not sure (check later)</option><option value="dumped">Dumped</option>
+      </select></label>
+      <p id="count-summary" class="package-summary"></p>
+      <div class="actions">
+        <span class="spacer"></span>
+        <button type="button" class="btn cancel">Cancel</button>
+        <button type="submit" class="btn primary">Save count</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Inventory: move or remove stock -->
+  <dialog id="stock-editor">
+    <form id="stock-form">
+      <h2 id="stock-title" tabindex="-1" autofocus>Move stock</h2>
+      <div class="two-col">
+        <label>From <select name="fromPlaceId"></select></label>
+        <label id="stock-to-field">To <select name="toPlaceId"></select></label>
+        <label id="stock-kind-field">What for <select name="removal">
+          <option value="sold">Sold</option><option value="taproom">Taproom (poured or sold there)</option>
+          <option value="transferred">Transferred (in bond)</option><option value="donated">Donated or samples</option>
+          <option value="dumped">Dumped</option>
+        </select></label>
+      </div>
+      <div class="two-col">
+        <label>Beer <select name="beerId"></select></label>
+        <label>Date <input name="occurredOn" type="date" required></label>
+      </div>
+      <div id="stock-rows" class="package-rows"></div>
+      <div class="two-col">
+        <label>Reason <input name="reason" list="stock-reason-list" maxlength="500" placeholder="Like: Stocked the taproom"></label>
+        <label id="stock-account-field">Account <input name="account" maxlength="120" placeholder="Like: Corner Bar"></label>
+      </div>
+      <datalist id="stock-reason-list"></datalist>
+      <p id="stock-summary" class="package-summary"></p>
       <div class="actions">
         <span class="spacer"></span>
         <button type="button" class="btn cancel">Cancel</button>

@@ -311,14 +311,14 @@ function explain(error) {
 let serverData = null;
 async function loadAll() {
   const b = brewery.id;
-  const [locations, beers, tanks, batches, events, cleanings, settings, members, invites, permissions, memberRows, levels, cellar, additions, readings, movements, packageTypes, packageCounts] = await Promise.all([
+  const [locations, beers, tanks, batches, events, cleanings, settings, members, invites, permissions, memberRows, levels, cellar, additions, readings, movements, packageTypes, packageCounts, places, stockMoves] = await Promise.all([
     must(db.from("locations").select("*").eq("brewery_id", b).order("created_at")),
     must(db.from("beers").select("*").eq("brewery_id", b)),
     must(db.from("tanks").select("*").eq("brewery_id", b).order("created_at")),
     must(db.from("batch_status").select("*").eq("brewery_id", b)),
     must(db.from("batch_events").select("*").eq("brewery_id", b).order("effective_date").order("recorded_at")),
     must(db.from("tank_cleanings").select("*").eq("brewery_id", b).order("cleaned_on").order("recorded_at")),
-    must(db.from("breweries").select("acid_after_styles, temperature_unit, gravity_unit, volume_unit, time_zone, target_limits, sheet_fields, sheet_custom_fields, sheet_field_settings").eq("id", b).single()),
+    must(db.from("breweries").select("acid_after_styles, temperature_unit, gravity_unit, volume_unit, time_zone, target_limits, sheet_fields, sheet_custom_fields, sheet_field_settings, stock_reasons, require_stock_reason").eq("id", b).single()),
     must(db.rpc("brewery_members", { p_brewery_id: b })),
     must(db.from("invites").select("*").eq("brewery_id", b).order("created_at")), // admins only; others get none
     must(db.rpc("my_permissions", { b })),
@@ -331,6 +331,8 @@ async function loadAll() {
     must(db.from("beer_movements").select("*").eq("brewery_id", b).order("occurred_on").order("recorded_at")),
     must(db.from("package_types").select("*").eq("brewery_id", b).order("created_at")),
     must(db.from("package_counts").select("*").eq("brewery_id", b)),
+    must(db.from("stock_places").select("*").eq("brewery_id", b).order("created_at")),
+    must(db.from("stock_moves").select("*").eq("brewery_id", b).order("occurred_on").order("recorded_at")),
   ]);
   // Each member: email and level (from brewery_members) plus their personal adjustments
   const adjustments = Object.fromEntries(memberRows.map((r) => [r.user_id, r]));
@@ -366,6 +368,7 @@ async function loadAll() {
     sheetFields: settings.sheet_fields,
     sheetCustomFields: settings.sheet_custom_fields,
     sheetFieldSettings: settings.sheet_field_settings,
+    stockReasons: settings.stock_reasons || [], requireStockReason: !!settings.require_stock_reason,
     prefs: {
       temperatureUnit: settings.temperature_unit, gravityUnit: settings.gravity_unit,
       volumeUnit: settings.volume_unit, timeZone: settings.time_zone, targetLimits: settings.target_limits,
@@ -389,6 +392,12 @@ async function loadAll() {
       toTankId: m.to_tank_id, volumeBbl: num(m.volume_bbl), notes: m.notes, recordedAt: m.recorded_at,
       sourceBatchId: m.source_batch_id,
     })),
+    places: places.map((p) => ({ id: p.id, locationId: p.location_id, name: p.name, kind: p.kind, active: p.active })),
+    stockMoves: stockMoves.map((m) => ({
+      id: m.id, groupId: m.group_id, occurredOn: m.occurred_on, kind: m.kind, removalKind: m.removal_kind, beerId: m.beer_id,
+      batchId: m.batch_id, packageTypeId: m.package_type_id, count: num(m.count), fromPlaceId: m.from_place_id,
+      toPlaceId: m.to_place_id, sourceMovementId: m.source_movement_id, account: m.account, notes: m.notes, recordedAt: m.recorded_at,
+    })),
     packageTypes: packageTypes.map((t) => ({
       id: t.id, name: t.name, volumeBbl: num(t.volume_bbl), kind: t.kind, catalogKey: t.catalog_key, active: t.active,
     })),
@@ -408,6 +417,8 @@ async function loadAll() {
   brewery.sheetFields = serverData.sheetFields;
   brewery.sheetCustomFields = serverData.sheetCustomFields;
   brewery.sheetFieldSettings = serverData.sheetFieldSettings;
+  brewery.stockReasons = serverData.stockReasons;
+  brewery.requireStockReason = serverData.requireStockReason;
   brewery.permissions = serverData.permissions;
   brewery.role = (serverData.members.find((m) => m.email === signedInEmail) || {}).role || brewery.role;
 }
@@ -599,6 +610,8 @@ Object.assign(SEND, {
   package: (a) => must(db.rpc("record_packaging", a)),
   levelCheck: (a) => must(db.rpc("record_level_check", a)),
   makeBatch: (a) => must(db.rpc("make_batch_from", a)),
+  stock: (a) => must(db.rpc("record_stock", a)),
+  count: (a) => must(db.rpc("record_count", a)),
   logCellar: (a) => must(db.rpc("log_cellar_entry", a)),
   editCellar: (a) => must(db.from("cellar_entries").update(cellarRow(a)).eq("id", a.id)),
   logAddition: async (a) => {
@@ -705,6 +718,12 @@ const SHOW = {
     move({ id: a.p_id, kind: "package", fromTankId: a.p_tank_id, volumeBbl: total, notes: a.p_notes || "" });
     a.p_counts.forEach((c, i) => d.packageCounts.push({ id: `${a.p_id}-${i}`, movementId: a.p_id, packageTypeId: c.type,
       count: c.count, unitVolumeBbl: unit(c.type) }));
+    // ...and into stock
+    const packagedBatch = d.batches.find((b) => b.id === a.p_batch_id);
+    const place = a.p_place_id || defaultPlace(d.tanks.find((t) => t.id === a.p_tank_id)?.locationId, d);
+    if (place && packagedBatch) a.p_counts.forEach((c, i) => d.stockMoves.push({ id: `${a.p_id}-s${i}`, groupId: null, occurredOn: a.p_occurred_on,
+      kind: "packaged", removalKind: null, beerId: packagedBatch.beerId, batchId: a.p_batch_id, packageTypeId: c.type, count: c.count,
+      fromPlaceId: null, toPlaceId: place, sourceMovementId: a.p_id, account: "", notes: "", recordedAt: now }));
     if (!a.p_spent) return;
     const left = tankBalance(a.p_batch_id, a.p_tank_id, d);
     if (left > 0) move({ id: `${a.p_id}-loss`, kind: "loss", fromTankId: a.p_tank_id, volumeBbl: left, notes: "tank spent" });
@@ -727,6 +746,38 @@ const SHOW = {
       move({ id: `${a.p_id}-diff`, kind: "correction", toTankId: a.p_tank_id, volumeBbl: a.p_reading_bbl - expected, notes: "level check" });
     }
     move({ id: a.p_id, kind: "level", toTankId: a.p_tank_id, volumeBbl: a.p_reading_bbl, notes: a.p_notes || "", recordedAt: at + "~" });
+  },
+  // Moving, removing, or returning stock, as the database records it (record_stock)
+  stock(d, a) {
+    if (d.stockMoves.some((m) => m.groupId === a.p_id)) return;
+    for (const l of a.p_lines) {
+      if (!(l.count > 0)) continue;
+      if (a.p_from) {
+        takeStock(d, { group: a.p_id, date: a.p_date, kind: a.p_to ? "moved" : "removed", removal: a.p_to ? null : a.p_removal,
+          beer: l.beer, batch: l.batch, type: l.type, count: l.count, from: a.p_from, to: a.p_to, account: a.p_account });
+      } else {
+        const newest = d.batches.filter((b) => b.beerId === l.beer).sort((x, y) => (y.brewDate || "").localeCompare(x.brewDate || ""))[0];
+        d.stockMoves.push({ id: `${a.p_id}-${d.stockMoves.length}`, groupId: a.p_id, occurredOn: a.p_date, kind: "returned", removalKind: null,
+          beerId: l.beer, batchId: l.batch || newest?.id || null, packageTypeId: l.type, count: l.count, fromPlaceId: null, toPlaceId: a.p_to,
+          account: a.p_account || "", notes: "", recordedAt: new Date().toISOString() });
+      }
+    }
+  },
+  // A count sheet (record_count): less than expected is removed, oldest first; more is added to the newest batch
+  count(d, a) {
+    if (d.stockMoves.some((m) => m.groupId === a.p_id)) return;
+    for (const l of a.p_lines) {
+      const expected = sumCount(stockOnHand(d).filter((r) => r.placeId === a.p_place_id && r.beerId === l.beer && r.typeId === l.type));
+      if (l.counted < expected) {
+        takeStock(d, { group: a.p_id, date: a.p_date, kind: "removed", removal: a.p_drop || "unknown", beer: l.beer, type: l.type,
+          count: expected - l.counted, from: a.p_place_id, notes: a.p_notes });
+      } else if (l.counted > expected) {
+        const newest = d.batches.filter((b) => b.beerId === l.beer).sort((x, y) => (y.brewDate || "").localeCompare(x.brewDate || ""))[0];
+        d.stockMoves.push({ id: `${a.p_id}-${d.stockMoves.length}`, groupId: a.p_id, occurredOn: a.p_date, kind: "counted", removalKind: null,
+          beerId: l.beer, batchId: newest?.id || null, packageTypeId: l.type, count: l.counted - expected, fromPlaceId: null,
+          toPlaceId: a.p_place_id, account: "", notes: a.p_notes || "", recordedAt: new Date().toISOString() });
+      }
+    }
   },
   // A split or blend, as the database records it (see make_batch_from in ..._batches_from_batches.sql)
   makeBatch(d, a) {
@@ -776,6 +827,8 @@ function withWaitingChanges(base) {
   d.movements ??= [];
   d.packageTypes ??= [];
   d.packageCounts ??= [];
+  d.places ??= [];
+  d.stockMoves ??= [];
   for (const change of outbox) SHOW[change.kind](d, change.args);
   return d;
 }
@@ -1020,6 +1073,9 @@ function render() {
   renderSettings();
   renderSheetPicker();
   renderPackageTypes();
+  renderPlaces();
+  renderReasons();
+  if (currentView === "inventory") renderInventory();
   renderTeam();
   renderTankList();
   if (viewingBatchId) renderBatchView();
@@ -1841,9 +1897,20 @@ async function loadIntoBrewery(source, description) {
             }));
         if (movements.length) await must(db.from("beer_movements").insert(movements.map((m) => ({ brewery_id: b, ...m }))));
 
+        // Stock places match the brewery's own by location and name (new locations already got a
+        // storage place), then the stock ledger
+        if (d.places?.length || d.stockMoves?.length) {
+          const current = await must(db.from("stock_places").select("id, name, location_id").eq("brewery_id", b));
+          for (const p of d.places || []) {
+            const same = current.find((c) => c.name.toLowerCase() === p.name.toLowerCase() && (c.location_id ?? null) === (idFor(p.locationId) ?? null));
+            if (same) ids.set(p.id, same.id);
+            else await must(db.from("stock_places").insert({ id: idFor(p.id), brewery_id: b, location_id: idFor(p.locationId), name: p.name, kind: p.kind, active: p.active }));
+          }
+        }
+
         // Packaging: package types match the brewery's own by name (or are added), then each
         // packaging run's counts, with the volume per package they were packaged with
-        if (d.packageCounts?.length) {
+        if (d.packageCounts?.length || d.stockMoves?.length) {
           const current = await must(db.from("package_types").select("id, name").eq("brewery_id", b));
           for (const t of d.packageTypes || []) {
             const same = current.find((c) => c.name.toLowerCase() === t.name.toLowerCase());
@@ -1851,9 +1918,17 @@ async function loadIntoBrewery(source, description) {
             else await must(db.from("package_types").insert({ id: idFor(t.id), brewery_id: b, name: t.name,
               volume_bbl: t.volumeBbl, kind: t.kind || "other", catalog_key: t.catalogKey ?? null, active: !!t.active }));
           }
-          await must(db.from("package_counts").insert(d.packageCounts.map((c) => ({
+          if (d.packageCounts?.length) await must(db.from("package_counts").insert(d.packageCounts.map((c) => ({
             brewery_id: b, movement_id: idFor(c.movementId), package_type_id: idFor(c.packageTypeId),
             count: c.count, unit_volume_bbl: c.unitVolumeBbl,
+          }))));
+        }
+        if (d.stockMoves?.length) {
+          await must(db.from("stock_moves").insert(d.stockMoves.map((m) => ({
+            brewery_id: b, group_id: m.groupId ? idFor(m.groupId) : null, occurred_on: m.occurredOn, kind: m.kind, removal_kind: m.removalKind,
+            beer_id: idFor(m.beerId), batch_id: idFor(m.batchId), package_type_id: idFor(m.packageTypeId), count: m.count,
+            from_place_id: idFor(m.fromPlaceId), to_place_id: idFor(m.toPlaceId), source_movement_id: idFor(m.sourceMovementId),
+            account: m.account || "", notes: m.notes || "", ...(m.recordedAt && { recorded_at: m.recordedAt }),
           }))));
         }
 
@@ -1903,9 +1978,11 @@ async function loadIntoBrewery(source, description) {
 // Remove everything in this brewery (used to undo a load that failed partway)
 async function clearBrewery() {
   const b = brewery.id;
+  await db.from("stock_moves").delete().eq("brewery_id", b);
   await db.from("batches").delete().eq("brewery_id", b); // history goes with its batches
   await db.from("tanks").delete().eq("brewery_id", b);
   await db.from("beers").delete().eq("brewery_id", b);
+  await db.from("stock_places").delete().eq("brewery_id", b);
   await db.from("locations").delete().eq("brewery_id", b);
 }
 
@@ -2127,6 +2204,7 @@ const PERMISSIONS = [
   { id: "acid_log",         label: "Log acid cycles" },
   { id: "move_beer",        label: "Change stages and transfer beer" },
   { id: "package",          label: "Package beer" },
+  { id: "inventory",        label: "Count and move finished goods" },
   { id: "start_batch",      label: "Start batches and edit batch details" },
   { id: "manage_beers",     label: "Beers and recipes" },
   { id: "manage_equipment", label: "Tanks and locations" },
@@ -2146,9 +2224,9 @@ const ROLES = [
 // What each level includes until a brewery changes it (same as default_permissions() in the database)
 const DEFAULT_LEVELS = {
   viewer: [],
-  cellar: ["cellar_log", "tank_status", "acid_log", "move_beer", "package"],
-  brewer: ["cellar_log", "tank_status", "acid_log", "move_beer", "package", "start_batch"],
-  head_brewer: ["cellar_log", "tank_status", "acid_log", "move_beer", "package", "start_batch",
+  cellar: ["cellar_log", "tank_status", "acid_log", "move_beer", "package", "inventory"],
+  brewer: ["cellar_log", "tank_status", "acid_log", "move_beer", "package", "inventory", "start_batch"],
+  head_brewer: ["cellar_log", "tank_status", "acid_log", "move_beer", "package", "inventory", "start_batch",
                 "manage_beers", "manage_equipment", "manage_cleaning", "manage_settings"],
 };
 
@@ -2188,9 +2266,11 @@ function showView(view) {
   document.getElementById("floor-view").hidden = view !== "floor";
   document.getElementById("batch-view").hidden = view !== "batch";
   document.getElementById("settings-view").hidden = view !== "settings";
+  document.getElementById("inventory-view").hidden = view !== "inventory";
   document.getElementById("open-settings").hidden = view === "settings";
+  document.getElementById("open-inventory").hidden = view !== "floor";
   document.getElementById("close-settings").hidden = view === "floor";
-  document.getElementById("view-title").textContent = { settings: "Settings", batch: "Batch" }[view] || "Tanks";
+  document.getElementById("view-title").textContent = { settings: "Settings", batch: "Batch", inventory: "Inventory" }[view] || "Tanks";
   if (view !== "batch") viewingBatchId = null;
   window.scrollTo(0, 0);
 }
@@ -2874,6 +2954,10 @@ function openPackageEditor() {
     ? types.map((t) => `<label class="package-row"><span>${esc(t.name)} <span class="muted">${packageSize(t.volumeBbl)}</span></span>
         <input type="number" min="0" step="any" inputmode="decimal" placeholder="0" data-package-type="${t.id}" aria-label="How many ${esc(t.name)}"></label>`).join("")
     : `<p class="muted">No package types are ticked yet (Settings → Packages).</p>`;
+  // Into: the tank location's storage place, unless another is chosen
+  packageForm.placeId.innerHTML = activePlaces().map((p) => `<option value="${p.id}">${esc(placeName(p.id))}</option>`).join("");
+  const into = defaultPlace(findTank(b.tankId)?.locationId);
+  if (into) packageForm.placeId.value = into;
   updatePackageSummary();
   packageDialog.showModal();
 }
@@ -2925,7 +3009,7 @@ packageForm.addEventListener("submit", async (e) => {
   const filled = countsVolume(counts);
   const ok = await saveOrKeep("package", {
     p_id: newId(), p_brewery_id: brewery.id, p_batch_id: b.id, p_tank_id: b.tankId, p_occurred_on: packageForm.occurredOn.value,
-    p_counts: counts, p_spent: spent, p_notes: packageForm.notes.value.trim(),
+    p_counts: counts, p_spent: spent, p_notes: packageForm.notes.value.trim(), p_place_id: packageForm.placeId.value || null,
   }, `${beerName(b)} ${batchLabel(b)}: packaged ${showUnit("volume", filled)}${spent ? ", tank spent" : ""}`);
   if (ok) packageDialog.close();
 });
@@ -2947,7 +3031,12 @@ const amountOf = (m) => (m.volumeBbl != null ? `${showUnit("volume", m.volumeBbl
 
 function renderFamily(b) {
   const from = madeFrom(b.id), into = wentInto(b.id);
+  // Finished goods from this batch still on hand
+  const stock = stockOnHand().filter((r) => r.batchId === b.id && r.count > 0);
+  const stockText = [...new Set(stock.map((r) => r.typeId))].map((t) =>
+    `${+sumCount(stock.filter((r) => r.typeId === t)).toFixed(2)} × ${esc(typeOf(t)?.name ?? "package")}`).join(", ");
   document.getElementById("bv-family").innerHTML = [
+    stockText ? `In stock: ${stockText}` : "",
     from.length ? `Made from ${from.map((m) => `${amountOf(m)}${batchLink(m.sourceBatchId)}`).join(" + ")}` : "",
     into.length ? `${b.stage === "used" ? "All used in" : "Part went into"} ${into.map((m) => `${batchLink(m.sourceBatchId)}${m.volumeBbl != null ? ` (${showUnit("volume", m.volumeBbl)})` : ""}`).join(", ")}` : "",
   ].filter(Boolean).map((t) => `<div>${t}</div>`).join("");
@@ -3116,6 +3205,342 @@ levelForm.addEventListener("submit", async (e) => {
     p_reading_bbl: reading, p_reason: levelForm.reason.value, p_notes: levelForm.notes.value.trim(),
   }, `${tankName(b.tankId)}: level check (${showUnit("volume", reading)})`);
   if (ok) levelDialog.close();
+});
+
+// ---------- Inventory: finished goods (docs/inventory-design.md) ----------
+// Stock sits in places (a location's storage cooler, its taproom...). Like beer in tanks, what's on
+// hand is worked out from a ledger of stock moves: packaged in, moved, removed, returned, counted.
+const REMOVAL_KINDS = { sold: "Sold", taproom: "Taproom", transferred: "Transferred", donated: "Donated or samples", dumped: "Dumped", unknown: "Not sure" };
+const activePlaces = () => (data.places || []).filter((p) => p.active);
+function placeName(id, d = data) {
+  const p = (d.places || []).find((x) => x.id === id);
+  if (!p) return "a place";
+  const loc = d.locations.length > 1 ? findLocation(p.locationId)?.name : null;
+  return loc ? `${loc} · ${p.name}` : p.name;
+}
+// Where packages go by default: the location's storage place (mirrors default_stock_place())
+function defaultPlace(locationId, d = data) {
+  const storage = (d.places || []).filter((p) => p.active && p.kind === "storage");
+  return (storage.find((p) => p.locationId === locationId) || storage[0])?.id ?? null;
+}
+
+// What's on hand: [{ placeId, beerId, batchId, typeId, count }], counts not zero
+function stockOnHand(d = data) {
+  const totals = new Map();
+  const add = (placeId, m, sign) => {
+    const key = `${placeId}|${m.beerId}|${m.batchId || ""}|${m.packageTypeId}`;
+    const row = totals.get(key) || { placeId, beerId: m.beerId, batchId: m.batchId || null, typeId: m.packageTypeId, count: 0 };
+    row.count += sign * m.count;
+    totals.set(key, row);
+  };
+  for (const m of d.stockMoves || []) {
+    if (m.toPlaceId) add(m.toPlaceId, m, 1);
+    if (m.fromPlaceId) add(m.fromPlaceId, m, -1);
+  }
+  return [...totals.values()].filter((r) => Math.abs(r.count) > 1e-9);
+}
+const sumCount = (rows) => rows.reduce((sum, r) => sum + r.count, 0);
+const typeOf = (id, d = data) => (d.packageTypes || []).find((t) => t.id === id);
+
+// Take stock out of a place, oldest batch first (no batch = from before the app = oldest).
+// Mirrors take_stock() in the database, for showing changes before they're sent.
+function takeStock(d, { group, date, kind, removal, beer, batch, type, count, from, to, account, notes }) {
+  const brewed = (id) => d.batches.find((b) => b.id === id)?.brewDate || "";
+  const lots = stockOnHand(d).filter((r) => r.placeId === from && r.beerId === beer && r.typeId === type && r.count > 0 && (!batch || r.batchId === batch))
+    .sort((x, y) => (x.batchId ? 1 : 0) - (y.batchId ? 1 : 0) || brewed(x.batchId).localeCompare(brewed(y.batchId)));
+  let left = count;
+  for (const lot of lots) {
+    if (left <= 0) break;
+    const take = Math.min(lot.count, left);
+    d.stockMoves.push({ id: `${group}-${d.stockMoves.length}`, groupId: group, occurredOn: date, kind, removalKind: removal ?? null, beerId: beer,
+      batchId: lot.batchId, packageTypeId: type, count: take, fromPlaceId: from, toPlaceId: to ?? null, account: account || "", notes: notes || "",
+      recordedAt: new Date().toISOString() });
+    left -= take;
+  }
+}
+
+// ----- The Inventory screen -----
+let inventoryPlace = "all";
+const openBeers = new Set(); // beers whose batches are showing
+
+function renderInventory() {
+  const places = activePlaces();
+  if (inventoryPlace !== "all" && !places.some((p) => p.id === inventoryPlace)) inventoryPlace = "all";
+  document.getElementById("inv-places").innerHTML = [{ id: "all", label: "All places" }, ...places.map((p) => ({ id: p.id, label: placeName(p.id) }))]
+    .map((p) => `<button type="button" role="tab" aria-selected="${p.id === inventoryPlace}" data-place="${p.id}">${esc(p.label)}</button>`).join("");
+
+  const rows = stockOnHand().filter((r) => inventoryPlace === "all" || r.placeId === inventoryPlace);
+  const typeIds = [...new Set(rows.map((r) => r.typeId))];
+  const types = (data.packageTypes || []).filter((t) => typeIds.includes(t.id) || (t.active && !rows.length));
+  const beers = [...new Set(rows.map((r) => r.beerId))].map(findBeer).filter(Boolean).sort((a, b) => a.name.localeCompare(b.name));
+  const bbl = (rs) => rs.reduce((sum, r) => sum + r.count * (typeOf(r.typeId)?.volumeBbl || 0), 0);
+  const cell = (n) => `<td class="${n ? "" : "zero"}">${n ? +n.toFixed(2) : "–"}</td>`;
+  const head = `<tr><th>Beer</th>${types.map((t) => `<th>${esc(t.name)}</th>`).join("")}<th>Total</th></tr>`;
+  const body = beers.map((beer) => {
+    const mine = rows.filter((r) => r.beerId === beer.id);
+    let html = `<tr class="beer-row" data-inv-beer="${beer.id}"><td><strong>${esc(beer.name)}</strong></td>
+      ${types.map((t) => cell(sumCount(mine.filter((r) => r.typeId === t.id)))).join("")}<td>${showUnit("volume", bbl(mine))}</td></tr>`;
+    if (openBeers.has(beer.id)) {
+      // The batches behind it, oldest first (stock from before the app first)
+      const batchIds = [...new Set(mine.map((r) => r.batchId))]
+        .sort((x, y) => (x ? 1 : 0) - (y ? 1 : 0) || (findBatchById(x)?.brewDate || "").localeCompare(findBatchById(y)?.brewDate || ""));
+      html += batchIds.map((id) => {
+        const lot = mine.filter((r) => r.batchId === id);
+        const b = findBatchById(id);
+        const label = b ? `${batchLabel(b)} · brewed ${formatDate(b.brewDate)} (${daysSince(b.brewDate)} days)` : "From before the app";
+        return `<tr class="batches"><td>${esc(label)}</td>${types.map((t) => cell(sumCount(lot.filter((r) => r.typeId === t.id)))).join("")}<td>${showUnit("volume", bbl(lot))}</td></tr>`;
+      }).join("");
+    }
+    return html;
+  }).join("");
+  const foot = beers.length ? `<tr><td><strong>Total</strong></td>${types.map((t) => cell(sumCount(rows.filter((r) => r.typeId === t.id)))).join("")}<td><strong>${showUnit("volume", bbl(rows))}</strong></td></tr>` : "";
+  document.getElementById("inv-table").innerHTML = beers.length
+    ? `<table class="inv-table">${head}${body}${foot}</table>`
+    : `<p class="muted">Nothing on hand${inventoryPlace === "all" ? "" : " here"}. Packaging puts kegs and cases into stock; a count adds what's already on the shelf.</p>`;
+
+  // Recent: one line per action (a count sheet or a move is one action)
+  const groups = new Map();
+  for (const m of [...(data.stockMoves || [])].reverse()) {
+    const key = m.groupId || m.id;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(m);
+    if (groups.size > 15) { groups.delete(key); break; }
+  }
+  document.getElementById("inv-recent").innerHTML = [...groups.values()].map((ms) => {
+    const m = ms[0];
+    const what = summarizeStock(ms);
+    const verb = { packaged: `Packaged into ${placeName(m.toPlaceId)}`, moved: `Moved ${placeName(m.fromPlaceId)} → ${placeName(m.toPlaceId)}`,
+      removed: `${REMOVAL_KINDS[m.removalKind] || "Removed"} from ${placeName(m.fromPlaceId)}`, returned: `Returned to ${placeName(m.toPlaceId)}`,
+      counted: `Count found more in ${placeName(m.toPlaceId)}` }[m.kind];
+    const why = [m.notes && m.notes !== "count" ? m.notes : "", m.account].filter(Boolean).join(" · ");
+    return `<li class="item"><span class="when">${formatDate(m.occurredOn)}</span> · ${esc(verb)}: ${what}${why ? ` <span class="muted">(${esc(why)})</span>` : ""}</li>`;
+  }).join("") || `<li class="item muted">Nothing yet.</li>`;
+}
+// "12 × ½ bbl keg Lager, 3 × ⅙ bbl keg Lager"
+function summarizeStock(moves) {
+  const totals = new Map();
+  for (const m of moves) {
+    const key = `${m.beerId}|${m.packageTypeId}`;
+    totals.set(key, (totals.get(key) || 0) + m.count);
+  }
+  return [...totals].map(([key, n]) => {
+    const [beer, type] = key.split("|");
+    return `${+n.toFixed(2)} × ${esc(typeOf(type)?.name ?? "package")} ${esc(findBeer(beer)?.name ?? "")}`;
+  }).join(", ");
+}
+
+document.getElementById("inv-places").addEventListener("click", (e) => {
+  const chip = e.target.closest("[data-place]");
+  if (chip) { inventoryPlace = chip.dataset.place; renderInventory(); }
+});
+document.getElementById("inv-table").addEventListener("click", (e) => {
+  const row = e.target.closest("[data-inv-beer]");
+  if (!row) return;
+  const id = row.dataset.invBeer;
+  if (openBeers.has(id)) openBeers.delete(id); else openBeers.add(id);
+  renderInventory();
+});
+document.getElementById("open-inventory").addEventListener("click", () => { showView("inventory"); renderInventory(); });
+
+// ----- A count sheet for one place -----
+const countDialog = document.getElementById("count-editor");
+const countForm = document.getElementById("count-form");
+let countBeers = []; // beers on the sheet (those with stock there, plus any added)
+
+// The brewery's reasons for stock changes, offered in Count / Move / Remove (and required if it says so)
+function prepareReason(input) {
+  document.getElementById("stock-reason-list").innerHTML = (brewery.stockReasons || []).map((r) => `<option value="${esc(r)}">`).join("");
+  input.required = !!brewery.requireStockReason;
+  input.closest("label").firstChild.textContent = brewery.requireStockReason ? "Reason (required) " : "Reason ";
+}
+const reasonsForm = document.getElementById("reasons-form");
+function renderReasons() {
+  const allowed = can("manage_settings");
+  if (document.activeElement !== reasonsForm.reasons) reasonsForm.reasons.value = (brewery.stockReasons || []).join("\n");
+  reasonsForm.required.checked = !!brewery.requireStockReason;
+  for (const el of reasonsForm.elements) el.disabled = !allowed;
+  document.getElementById("reasons-note").hidden = allowed;
+}
+reasonsForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const reasons = [...new Set(reasonsForm.reasons.value.split("\n").map((r) => r.trim()).filter(Boolean))];
+  await save(async () => {
+    const saved = await must(db.from("breweries").update({ stock_reasons: reasons, require_stock_reason: reasonsForm.required.checked })
+      .eq("id", brewery.id).select("id"));
+    if (!saved.length) throw new Error("You don't have permission to change these.");
+  });
+});
+
+function openCountSheet() {
+  const places = activePlaces();
+  if (!places.length) { alert("Add a stock place first (Settings → Equipment)."); return; }
+  countForm.reset();
+  countForm.placeId.innerHTML = places.map((p) => `<option value="${p.id}">${esc(placeName(p.id))}</option>`).join("");
+  countForm.placeId.value = inventoryPlace !== "all" ? inventoryPlace : places[0].id;
+  countForm.occurredOn.value = today();
+  prepareReason(countForm.reason);
+  startCountSheet();
+  countDialog.showModal();
+}
+function startCountSheet() {
+  const place = (data.places || []).find((p) => p.id === countForm.placeId.value);
+  countForm.drop.value = place?.kind === "taproom" ? "taproom" : "unknown";
+  countBeers = [...new Set(stockOnHand().filter((r) => r.placeId === place.id && r.count > 0).map((r) => r.beerId))];
+  renderCountSheet();
+}
+const expectedAt = (placeId, beerId, typeId) =>
+  sumCount(stockOnHand().filter((r) => r.placeId === placeId && r.beerId === beerId && r.typeId === typeId));
+
+function renderCountSheet() {
+  const placeId = countForm.placeId.value;
+  const types = (data.packageTypes || []).filter((t) => t.active || countBeers.some((b) => expectedAt(placeId, b, t.id)));
+  const beers = countBeers.map(findBeer).filter(Boolean).sort((a, b) => a.name.localeCompare(b.name));
+  document.getElementById("count-sheet").innerHTML = beers.length ? `<table class="inv-table">
+    <tr><th>Beer</th>${types.map((t) => `<th>${esc(t.name)}</th>`).join("")}</tr>
+    ${beers.map((beer) => `<tr><td>${esc(beer.name)}</td>${types.map((t) => {
+      const n = +expectedAt(placeId, beer.id, t.id).toFixed(2);
+      return `<td><input type="number" min="0" step="any" inputmode="decimal" value="${n}" data-expected="${n}" data-beer="${beer.id}" data-type="${t.id}" aria-label="${esc(beer.name)}, ${esc(t.name)}"></td>`;
+    }).join("")}</tr>`).join("")}
+  </table>` : `<p class="muted">Nothing expected here. Add the beers you find below.</p>`;
+  const others = data.beers.filter((b) => !countBeers.includes(b.id)).sort((a, b) => a.name.localeCompare(b.name));
+  document.getElementById("count-add").innerHTML = `<option value="">Choose a beer…</option>` + others.map((b) => `<option value="${b.id}">${esc(b.name)}</option>`).join("");
+  updateCountSummary();
+}
+function countChanges() {
+  return [...document.querySelectorAll("#count-sheet input")]
+    .filter((i) => i.value !== "" && Math.abs(Number(i.value) - Number(i.dataset.expected)) > 1e-9)
+    .map((i) => ({ beer: i.dataset.beer, type: i.dataset.type, counted: Number(i.value), expected: Number(i.dataset.expected) }));
+}
+function updateCountSummary() {
+  document.querySelectorAll("#count-sheet input").forEach((i) => i.classList.toggle("changed", i.value !== "" && Number(i.value) !== Number(i.dataset.expected)));
+  const changes = countChanges();
+  document.getElementById("count-summary").textContent = changes.length
+    ? `${changes.length} ${changes.length === 1 ? "difference" : "differences"}: ` + changes.map((c) =>
+        `${c.counted > c.expected ? "+" : "−"}${+Math.abs(c.counted - c.expected).toFixed(2)} ${typeOf(c.type)?.name} ${findBeer(c.beer)?.name}`).join(", ")
+    : "Everything matches so far.";
+}
+countForm.addEventListener("input", updateCountSummary);
+countForm.placeId.addEventListener("change", startCountSheet);
+document.getElementById("count-add").addEventListener("change", (e) => {
+  if (!e.target.value) return;
+  countBeers.push(e.target.value);
+  renderCountSheet();
+});
+document.getElementById("inv-count").addEventListener("click", openCountSheet);
+
+countForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const changes = countChanges();
+  if (!changes.length) { countDialog.close(); return; }
+  const placeId = countForm.placeId.value;
+  const ok = await saveOrKeep("count", {
+    p_id: newId(), p_brewery_id: brewery.id, p_place_id: placeId, p_date: countForm.occurredOn.value,
+    p_lines: changes.map(({ beer, type, counted }) => ({ beer, type, counted })), p_drop: countForm.drop.value,
+    p_notes: countForm.reason.value.trim() || "count",
+  }, `Count of ${placeName(placeId)} (${changes.length} ${changes.length === 1 ? "difference" : "differences"})`);
+  if (ok) countDialog.close();
+});
+
+// ----- Moving and removing stock -----
+const stockDialog = document.getElementById("stock-editor");
+const stockForm = document.getElementById("stock-form");
+let stockMode = "move";
+
+function openStockEditor(mode) {
+  const places = activePlaces();
+  if (!places.length) { alert("Add a stock place first (Settings → Equipment)."); return; }
+  stockMode = mode;
+  stockForm.reset();
+  document.getElementById("stock-title").textContent = mode === "move" ? "Move stock" : "Remove stock";
+  document.getElementById("stock-to-field").hidden = mode !== "move";
+  document.getElementById("stock-kind-field").hidden = mode !== "remove";
+  const options = places.map((p) => `<option value="${p.id}">${esc(placeName(p.id))}</option>`).join("");
+  stockForm.fromPlaceId.innerHTML = options;
+  stockForm.toPlaceId.innerHTML = options;
+  // From: the place being looked at, or the first storage place; to: a taproom if there is one
+  stockForm.fromPlaceId.value = inventoryPlace !== "all" ? inventoryPlace : (places.find((p) => p.kind === "storage") || places[0]).id;
+  const to = places.find((p) => p.id !== stockForm.fromPlaceId.value && p.kind === "taproom") || places.find((p) => p.id !== stockForm.fromPlaceId.value);
+  if (to) stockForm.toPlaceId.value = to.id;
+  stockForm.occurredOn.value = today();
+  prepareReason(stockForm.reason);
+  fillStockBeers();
+  stockDialog.showModal();
+}
+function fillStockBeers() {
+  const from = stockForm.fromPlaceId.value;
+  const ids = [...new Set(stockOnHand().filter((r) => r.placeId === from && r.count > 0).map((r) => r.beerId))];
+  const beers = ids.map(findBeer).filter(Boolean).sort((a, b) => a.name.localeCompare(b.name));
+  stockForm.beerId.innerHTML = beers.map((b) => `<option value="${b.id}">${esc(b.name)}</option>`).join("") || `<option value="">Nothing on hand here</option>`;
+  fillStockRows();
+}
+function fillStockRows() {
+  const from = stockForm.fromPlaceId.value, beer = stockForm.beerId.value;
+  const here = stockOnHand().filter((r) => r.placeId === from && r.beerId === beer && r.count > 0);
+  const types = [...new Set(here.map((r) => r.typeId))].map((id) => typeOf(id)).filter(Boolean);
+  document.getElementById("stock-rows").innerHTML = types.map((t) => `<label class="package-row"><span>${esc(t.name)}
+      <span class="muted">${+sumCount(here.filter((r) => r.typeId === t.id)).toFixed(2)} on hand</span></span>
+      <input type="number" min="0" step="any" inputmode="decimal" placeholder="0" data-stock-type="${t.id}" aria-label="How many ${esc(t.name)}"></label>`).join("");
+  updateStockSummary();
+}
+const stockLines = () => [...document.querySelectorAll("[data-stock-type]")]
+  .map((i) => ({ beer: stockForm.beerId.value, type: i.dataset.stockType, count: Number(i.value) || 0 })).filter((l) => l.count > 0);
+function updateStockSummary() {
+  const lines = stockLines();
+  const bbl = lines.reduce((sum, l) => sum + l.count * (typeOf(l.type)?.volumeBbl || 0), 0);
+  document.getElementById("stock-summary").textContent = lines.length ? `= ${showUnit("volume", bbl)}` : "";
+}
+stockForm.fromPlaceId.addEventListener("change", fillStockBeers);
+stockForm.beerId.addEventListener("change", fillStockRows);
+stockForm.addEventListener("input", updateStockSummary);
+document.getElementById("inv-move").addEventListener("click", () => openStockEditor("move"));
+document.getElementById("inv-remove").addEventListener("click", () => openStockEditor("remove"));
+
+stockForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const lines = stockLines();
+  if (!lines.length) { alert("Enter how many."); return; }
+  const from = stockForm.fromPlaceId.value, to = stockMode === "move" ? stockForm.toPlaceId.value : null;
+  if (to && to === from) { alert("Choose two different places."); return; }
+  for (const l of lines) {
+    const have = sumCount(stockOnHand().filter((r) => r.placeId === from && r.beerId === l.beer && r.typeId === l.type));
+    if (l.count > have + 1e-9) { alert(`There are only ${+have.toFixed(2)} × ${typeOf(l.type).name} there. Count the place first if the numbers are off.`); return; }
+  }
+  const removal = stockMode === "remove" ? stockForm.removal.value : null;
+  const ok = await saveOrKeep("stock", {
+    p_id: newId(), p_brewery_id: brewery.id, p_date: stockForm.occurredOn.value, p_from: from, p_to: to, p_removal: removal,
+    p_lines: lines, p_account: stockForm.account.value.trim(), p_notes: stockForm.reason.value.trim(),
+  }, `${to ? "Move" : REMOVAL_KINDS[removal]}: ${summarizeStock(lines.map((l) => ({ beerId: l.beer, packageTypeId: l.type, count: l.count })))}`);
+  if (ok) stockDialog.close();
+});
+
+// ----- Stock places (Settings → Equipment) -----
+function renderPlaces() {
+  const allowed = can("manage_equipment");
+  document.getElementById("place-list").innerHTML = (data.places || []).map((p) => `
+    <li class="item"><span class="who">${esc(placeName(p.id))} <span class="muted">· ${p.kind === "taproom" ? "Taproom" : "Storage"}${p.active ? "" : " · hidden"}</span></span>
+      ${allowed ? `<span class="actions"><button type="button" class="btn small" data-rename-place="${p.id}">Rename</button>
+        <button type="button" class="btn small" data-toggle-place="${p.id}">${p.active ? "Hide" : "Show"}</button></span>` : ""}</li>`).join("");
+  const form = document.getElementById("place-form");
+  form.locationId.innerHTML = data.locations.map((l) => `<option value="${l.id}">${esc(l.name)}</option>`).join("") + `<option value="">No location</option>`;
+}
+document.getElementById("place-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const f = e.target;
+  const ok = await save(() => must(db.from("stock_places").insert({
+    brewery_id: brewery.id, name: f.name.value.trim(), location_id: f.locationId.value || null, kind: f.kind.value })));
+  if (ok) f.name.value = "";
+});
+document.getElementById("place-list").addEventListener("click", async (e) => {
+  const rename = e.target.closest("[data-rename-place]"), toggle = e.target.closest("[data-toggle-place]");
+  if (rename) {
+    const place = data.places.find((p) => p.id === rename.dataset.renamePlace);
+    const name = prompt("Name for this place:", place.name)?.trim();
+    if (name && name !== place.name) await save(() => must(db.from("stock_places").update({ name }).eq("id", place.id)));
+  }
+  if (toggle) {
+    const place = data.places.find((p) => p.id === toggle.dataset.togglePlace);
+    await save(() => must(db.from("stock_places").update({ active: !place.active }).eq("id", place.id)));
+  }
 });
 
 // ----- A batch's numbers: OG, gravity now, ABV, attenuation, and the fermentation chart -----

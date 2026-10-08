@@ -127,6 +127,15 @@ These shape every decision, even for features that come later:
 - **Volumes are optional.** A batch with none recorded says "volume not recorded" and everything still works.
 - The batch page shows what's in the tank, and its history lists every movement with its volume.
 
+### Inventory: finished goods (Phase 6, step 1)
+- **Stock places:** each location starts with a **Storage** place; add a **taproom** or more (Settings → Equipment).
+- **Packaging puts kegs and cases into stock** (the tank location's storage, or a chosen place). Runs from before inventory existed were added too.
+- **Inventory** (button on the tank board): each beer by package size, per place or all places, with a barrel total; tap a beer to see the batches behind it (oldest first, and "from before the app" for opening counts).
+- **Count a place:** a count sheet like the paper one, starting from what the app expects; the differences are recorded. Less than expected at a taproom is **poured**; elsewhere you say what it was. A beer from before the app can be counted in as opening stock.
+- **Move** (up to the taproom, to the other location) and **Remove** (sold, taproom, transferred, donated, dumped, with an account name). Taking stock out uses the **oldest batch first**.
+- **Reasons** ("Stocked the taproom", "Dock sale"...): a brewery's own list, offered on every count, move, and removal, and **required** if the admin turns that on (Settings → Packages).
+- Everything works offline, and a new permission, **"Count and move finished goods"**, is part of Cellar and up by default.
+
 ### Splits and blends (moving beer, step 4)
 - **"Split / blend…"** on a batch page makes a **new batch** from part or all of this one, and optionally other batches (a blend). Each part is its own batch, with its own stage, additions, and packaging, so a tank always holds one batch.
 - A source keeps what's left in its tank, unless it's **all used**: then what's left is a loss, the source becomes **"Used in another batch"** (out of its tank, not packaged), and its tank goes to cleaning. A blend can go into one of its sources' own tanks if that source is all used.
@@ -449,7 +458,8 @@ Beer is tracked by **volume, not just location**: a batch has barrels in places,
 
 ### Phase 6: Inventory
 **Design draft:** [docs/inventory-design.md](docs/inventory-design.md) (stock worked out from records, like volumes: packaged in, removals out).
-- [ ] **Finished goods:** kegs and cases on hand per beer and batch, and removals (sold, transferred, donated, dumped).
+- [x] **Finished goods:** stock places, packaging into stock, count sheets, moves, removals by kind (oldest batch first), opening counts, and optional required reasons.
+- [ ] **Pars, restocking, and "on deck"** (from the review of a real inventory workbook).
 - [ ] **Keg tracking:** which kegs are full, empty, or out at accounts.
 - [ ] **Raw materials:** malt, hops, yeast, and chemicals on hand, used up by batches as they're brewed.
 

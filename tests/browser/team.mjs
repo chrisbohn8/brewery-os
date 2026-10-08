@@ -106,7 +106,7 @@ try {
   check(email?.text.includes(`${ADMIN} invited you`) && email.text.includes("as Cellar") && email.text.includes(`sign in with this email address (${CREW})`),
     "it says who invited them, the level, and which address to sign in with");
   check(email?.reply_to === ADMIN, "replies go to the admin who invited");
-  await admin.waitForFunction(() => document.getElementById("invite-list").textContent.includes("emailed"));
+  await admin.waitForFunction(() => document.getElementById("invite-list").textContent.includes("Email again"), null, { timeout: 15000 }).catch(() => {});
   check((await admin.textContent("#invite-list")).includes("Email again"), "the invite shows it was emailed, with 'Email again'");
   const before = sentEmails.length;
   await admin.click("[data-email-invite]");

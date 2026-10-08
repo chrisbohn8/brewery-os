@@ -13,7 +13,7 @@ const browser = await chromium.launch({ executablePath: "/Applications/Google Ch
 async function signIn(email) {
   const page = await (await browser.newContext({ viewport: { width: 420, height: 900 } })).newPage();
   page.errors = [];
-  page.on("dialog", (d) => d.accept());
+  page.on("dialog", (d) => { if (/couldn|wrong|error|isn|violat|null/i.test(d.message())) console.log("DIALOG:", d.message()); d.accept(); });
   page.on("pageerror", (e) => page.errors.push(e.message));
   await page.goto(APP);
   await page.waitForSelector("#signin-screen:not([hidden])", { timeout: 20000 });
@@ -34,7 +34,7 @@ async function signIn(email) {
   return page;
 }
 const counts = (page) => page.evaluate(() => ({
-  tanks: data.tanks.length, batches: data.batches.length, events: data.events.length, movements: data.movements.length, packageCounts: data.packageCounts.length,
+  tanks: data.tanks.length, batches: data.batches.length, events: data.events.length, movements: data.movements.length, packageCounts: data.packageCounts.length, stockMoves: data.stockMoves.length, onHand: stockOnHand().length,
   cellar: data.cellar.length, additions: data.additions.length, readings: data.readings.length,
   ownFields: (brewery.sheetCustomFields || []).length, sheetFields: (brewery.sheetFields || []).length,
 }));
@@ -56,6 +56,8 @@ try {
   await second.evaluate(() => clearBrewery());
   await second.evaluate(() => refresh());
   check(await second.evaluate(() => isEmptyBrewery()), "the second brewery starts empty");
+  await second.evaluate(() => { const original = explain; window.explain = (e) => (console.log("RAW", JSON.stringify(e)), original(e)); });
+  second.on("console", (m) => { if (m.text().startsWith("RAW")) console.log(m.text()); });
   await second.evaluate((d) => loadIntoBrewery(d, "the test backup"), backup);
   await second.evaluate(() => refresh());
   const restored = await counts(second);
