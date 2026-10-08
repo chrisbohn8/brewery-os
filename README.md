@@ -547,6 +547,13 @@ The user's idea. Watching only, never controlling equipment (controllers already
 - [ ] **Pulling from vendors' clouds,** one at a time as real customers need them: RAPT, Precision Fermentation's BrewMonitor, Sennos, Plaato Pro, glycol and cooler monitors.
 - [ ] **A short buying guide:** floating hydrometers' radios struggle through jacketed stainless tanks, so for those a wired probe in the tank's thermowell, connected to a small Wi-Fi sensor or bridge outside the tank, is the practical low-tech option.
 
+### Later: a planning calendar
+The user's idea (2026-10-08): see the week ahead, tank by tank.
+- [ ] **Week view:** days across the top, tanks down the side, and in each square what's due on that tank that day: brew day, dry hop, crash, transfer, package, clean, acid cycle. Swipe to the next week; tap an item to open the batch or tank. A phone shows fewer days at a time.
+- [ ] **Planned vs. done, kept apart:** a plan is never a record. Planned items come from dates the brewer sets (a brew day, a planned transfer), and "expected" items from simple, visible rules (the usual days in each stage, the acid rules), drawn lighter and labeled "expected". Doing the work on the floor records it as usual and the plan item is ticked off; nothing is ever recorded from the calendar on its own.
+- [ ] **Plan ahead:** put a future brew on an empty tank, and see a clash (two batches planned into one tank, a tank still full on the planned brew day) before it happens.
+- [ ] **In Google or Apple Calendar:** a private calendar link each person can subscribe to (read-only, one-way, revocable like an API key), with all tanks or just chosen ones. Note: Google Calendar refreshes subscribed calendars only every several hours, so the app stays the live view.
+
 ### Later: the official app, and a feature tour
 - [ ] **Installable web app** (home-screen icon, full screen): quick, any time.
 - [ ] **App Store app** (the user's idea: an "official" app earns respect): the same code in a native shell (Capacitor), so no rewrite. Needs an Apple Developer account ($99/year), icons and screenshots, and Apple's review; native features make the case for it (camera QR scanning, push reminders like "acid due" or "under par", keeping the screen awake on the brew deck). A few days of work plus about a week of review. **Android** from the same project later ($25 one-time). Best timed before the pilots, with onboarding.
