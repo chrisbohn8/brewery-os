@@ -99,7 +99,7 @@ try {
   await admin.click("#invite-form button[type=submit]");
   await settle(admin);
   check((await admin.textContent("#invite-list")).includes(CREW), "the invite is listed");
-  await admin.waitForFunction(() => /Emailed|couldn't|aren't/.test(document.getElementById("invite-message").textContent), null, { timeout: 20000 });
+  await admin.waitForFunction(() => /Emailed|couldn't|aren't/.test(document.getElementById("invite-message").textContent), null, { timeout: 60000 }); // the email function may start cold
   check((await admin.textContent("#invite-message")).startsWith(`Emailed ${CREW}`), `message: "${await admin.textContent("#invite-message")}"`);
   const email = sentEmails.find((m) => m.to?.[0] === CREW);
   check(!!email && email.subject === "You're invited to join Example Brewing on Brewery OS", `email sent: "${email?.subject}"`);
@@ -110,7 +110,7 @@ try {
   check((await admin.textContent("#invite-list")).includes("Email again"), "the invite shows it was emailed, with 'Email again'");
   const before = sentEmails.length;
   await admin.click("[data-email-invite]");
-  await admin.waitForFunction(() => /moment ago/.test(document.getElementById("invite-message").textContent), null, { timeout: 20000 });
+  await admin.waitForFunction(() => /moment ago/.test(document.getElementById("invite-message").textContent), null, { timeout: 60000 }); // the email function may start cold
   check(sentEmails.length === before, "a second email right away is held back (a double tap doesn't send twice)");
 
   console.log("2. The cellar person can move beer but not start batches or change setup");
