@@ -311,7 +311,7 @@ function explain(error) {
 let serverData = null;
 async function loadAll() {
   const b = brewery.id;
-  const [locations, beers, tanks, batches, events, cleanings, settings, members, invites, permissions, memberRows, levels, cellar, additions, readings, movements, packageTypes, packageCounts, places, stockMoves, pars, rawItems, rawReceipts, rawAdjustments, lines] = await Promise.all([
+  const [locations, beers, tanks, batches, events, cleanings, settings, members, invites, permissions, memberRows, levels, cellar, additions, readings, movements, packageTypes, packageCounts, places, stockMoves, pars, rawItems, rawReceipts, rawAdjustments, lines, inventoryViews] = await Promise.all([
     must(db.from("locations").select("*").eq("brewery_id", b).order("created_at")),
     must(db.from("beers").select("*").eq("brewery_id", b)),
     must(db.from("tanks").select("*").eq("brewery_id", b).order("created_at")),
@@ -338,6 +338,7 @@ async function loadAll() {
     must(db.from("raw_receipts").select("*").eq("brewery_id", b).order("received_on").order("recorded_at")),
     must(db.from("raw_adjustments").select("*").eq("brewery_id", b).order("adjusted_on").order("recorded_at")),
     must(db.from("draft_lines").select("*").eq("brewery_id", b)),
+    must(db.from("inventory_views").select("*").eq("brewery_id", b)),
   ]);
   // Each member: email and level (from brewery_members) plus their personal adjustments
   const adjustments = Object.fromEntries(memberRows.map((r) => [r.user_id, r]));
@@ -406,6 +407,8 @@ async function loadAll() {
     pars: pars.map((p) => ({ id: p.id, placeId: p.place_id, beerId: p.beer_id, parBbl: num(p.par_bbl), parCases: num(p.par_cases) })),
     places: places.map((p) => ({ id: p.id, locationId: p.location_id, name: p.name, kind: p.kind, active: p.active,
       sortMode: p.sort_mode, beerOrder: p.beer_order || [] })),
+    views: inventoryViews.map((v) => ({ id: v.id, name: v.name, placeIds: v.place_ids || [], splitByPlace: v.split_by_place,
+      typeIds: v.type_ids || [], show: v.show || [], beers: v.beers, sortMode: v.sort_mode, position: v.position })),
     lines: lines.map((l) => ({ id: l.id, placeId: l.place_id, lineNo: l.line_no, status: l.status, beerId: l.beer_id, label: l.label })),
     stockMoves: stockMoves.map((m) => ({
       id: m.id, groupId: m.group_id, occurredOn: m.occurred_on, kind: m.kind, removalKind: m.removal_kind, beerId: m.beer_id,
@@ -862,6 +865,7 @@ function withWaitingChanges(base) {
   d.rawReceipts ??= [];
   d.rawAdjustments ??= [];
   d.lines ??= [];
+  d.views ??= [];
   for (const change of outbox) SHOW[change.kind](d, change.args);
   return d;
 }
@@ -1973,6 +1977,10 @@ async function loadIntoBrewery(source, description) {
           if (d.rawAdjustments?.length) await must(db.from("raw_adjustments").insert(d.rawAdjustments.map((a) => ({ brewery_id: b, item_id: idFor(a.itemId),
             lot: a.lot || "", adjusted_on: a.adjustedOn, change: a.change, reason: a.reason || "", ...(a.recordedAt && { recorded_at: a.recordedAt }) }))));
         }
+        if (d.views?.length) {
+          await must(db.from("inventory_views").insert(d.views.map((v) => ({ brewery_id: b, name: v.name, place_ids: v.placeIds.map(idFor),
+            split_by_place: v.splitByPlace, type_ids: v.typeIds.map(idFor), show: v.show, beers: v.beers, sort_mode: v.sortMode, position: v.position }))));
+        }
         if (d.lines?.length) {
           await must(db.from("draft_lines").insert(d.lines.map((l) => ({ brewery_id: b, place_id: idFor(l.placeId), line_no: l.lineNo,
             status: l.status, beer_id: idFor(l.beerId), label: l.label || "" }))));
@@ -2938,7 +2946,10 @@ const PACKAGE_CATALOG = [
 function packageSize(volumeBbl) {
   return prefs().volumeUnit === "hl" ? `${+(volumeBbl / LITER).toFixed(2)} L` : `${+(volumeBbl * 31).toFixed(2)} gal`;
 }
-const activePackageTypes = () => (data.packageTypes || []).filter((t) => t.active);
+// In a sensible order: kegs and casks largest first, then cases, then single containers, then the rest
+const PACKAGE_KIND_ORDER = ["keg", "cask", "case", "single", "other"];
+const byPackageOrder = (a, b) => PACKAGE_KIND_ORDER.indexOf(a.kind) - PACKAGE_KIND_ORDER.indexOf(b.kind) || b.volumeBbl - a.volumeBbl || a.name.localeCompare(b.name);
+const activePackageTypes = () => (data.packageTypes || []).filter((t) => t.active).sort(byPackageOrder);
 
 function renderPackageTypes() {
   const allowed = can("manage_settings");
@@ -3319,6 +3330,111 @@ function takeStock(d, { group, date, kind, removal, beer, batch, type, count, fr
   }
 }
 
+// ----- Inventory views: the brewery's own sheets (like a master sheet) -----
+// A view adds up chosen places, with columns per size (or per place and size), totals, pars, and
+// the pipeline: what's still in tanks for each beer.
+let inventoryView = null; // a view's id while one is chosen
+const VIEW_COLUMNS = { total_bbl: "Total (barrels)", total_cases: "Total cases", par_bbl: "Par (barrels)", par_cases: "Par (cases)", pipeline: "Pipeline (in tanks)" };
+const views = () => [...(data.views || [])].sort((a, b) => a.position - b.position || a.name.localeCompare(b.name));
+
+// Beer still in tanks: [{ batch, tankId, stage, bbl }] (bbl null when not recorded)
+function pipelineFor(beerId) {
+  return data.batches.filter((b) => b.beerId === beerId && isInTank(b) && b.tankId)
+    .map((b) => ({ batch: b, tankId: b.tankId, stage: b.stage, bbl: tankBalance(b.id, b.tankId) }));
+}
+
+function renderViewTable(view) {
+  const placeIds = view.placeIds.filter((id) => (data.places || []).some((p) => p.id === id));
+  const rows = stockOnHand().filter((r) => placeIds.includes(r.placeId) && r.count > 0);
+  const types = (view.typeIds.length ? view.typeIds : [...new Set(rows.map((r) => r.typeId))]).map((id) => typeOf(id)).filter(Boolean);
+  const show = new Set(view.show);
+  const bbl = (rs) => rs.reduce((sum, r) => sum + r.count * (typeOf(r.typeId)?.volumeBbl || 0), 0);
+  const cases = (rs) => sumCount(rs.filter((r) => typeOf(r.typeId)?.kind === "case"));
+  const brewerPar = (id) => parFor(null, id);
+  // Which beers: with stock, or a par, or everything (and anything coming down the pipeline, when it's shown)
+  let ids = new Set(rows.map((r) => r.beerId));
+  if (view.beers !== "stock") (data.pars || []).filter((p) => !p.placeId).forEach((p) => ids.add(p.beerId));
+  if (view.beers === "all") data.beers.forEach((b) => ids.add(b.id));
+  if (show.has("pipeline")) data.batches.filter((b) => isInTank(b) && b.tankId).forEach((b) => ids.add(b.beerId));
+  const name = (id) => findBeer(id)?.name || "";
+  const oldest = (id) => (rows.filter((r) => r.beerId === id).map((r) => (r.batchId ? findBatchById(r.batchId)?.brewDate || "~" : "")).sort()[0] ?? "~");
+  const beers = [...ids].filter(findBeer).sort((a, b) => (view.sortMode === "oldest" ? oldest(a).localeCompare(oldest(b)) : 0) || name(a).localeCompare(name(b)));
+
+  const cols = view.splitByPlace ? placeIds.flatMap((p) => types.map((t) => ({ place: p, type: t }))) : types.map((t) => ({ place: null, type: t }));
+  const n = (v, digits = 2) => (v ? +v.toFixed(digits) : "–");
+  const cell = (v, extra = "") => `<td class="${v ? "" : "zero"} ${extra}">${n(v)}</td>`;
+  const extras = Object.keys(VIEW_COLUMNS).filter((k) => show.has(k));
+  const extraHead = { total_bbl: "Total bbl", total_cases: "Cases", par_bbl: "Par bbl", par_cases: "Case par", pipeline: "In tanks" };
+  const groupHead = view.splitByPlace ? `<tr><th></th>${placeIds.map((p) => `<th colspan="${types.length}" class="group">${esc(placeName(p))}</th>`).join("")}${extras.map(() => "<th></th>").join("")}</tr>` : "";
+  const head = `${groupHead}<tr><th>Beer</th>${cols.map((c) => `<th>${esc(c.type.name)}</th>`).join("")}${extras.map((k) => `<th>${extraHead[k]}</th>`).join("")}</tr>`;
+  const body = beers.map((id) => {
+    const mine = rows.filter((r) => r.beerId === id);
+    const par = brewerPar(id);
+    const totalBbl = bbl(mine), totalCases = cases(mine);
+    const pipe = pipelineFor(id);
+    const pipeBbl = pipe.reduce((sum, p) => sum + (p.bbl || 0), 0);
+    const under = (par?.parBbl != null && totalBbl < par.parBbl - 1e-9) || (par?.parCases != null && totalCases < par.parCases - 1e-9);
+    const value = {
+      total_bbl: `<td><strong>${n(totalBbl)}</strong></td>`, total_cases: cell(totalCases),
+      par_bbl: `<td class="${under ? "under" : ""}">${par?.parBbl != null ? n(par.parBbl) : ""}</td>`,
+      par_cases: `<td class="${under ? "under" : ""}">${par?.parCases != null ? n(par.parCases) : ""}</td>`,
+      pipeline: `<td>${pipe.length ? `${n(pipeBbl)}${pipe.some((p) => p.bbl == null) ? "+" : ""}` : "–"}</td>`,
+    };
+    let html = `<tr class="beer-row${under ? " under" : ""}" data-inv-beer="${id}"><td><strong>${esc(name(id))}</strong></td>
+      ${cols.map((c) => cell(sumCount(mine.filter((r) => r.typeId === c.type.id && (!c.place || r.placeId === c.place))))).join("")}
+      ${extras.map((k) => value[k]).join("")}</tr>`;
+    if (openBeers.has(id) && pipe.length) {
+      html += pipe.map((p) => `<tr class="batches"><td colspan="${1 + cols.length + extras.length}">${esc(batchLabel(p.batch))} in ${esc(tankName(p.tankId))} · ${stageLabel(p.stage)} · ${p.bbl == null ? "volume not recorded" : showUnit("volume", p.bbl)}</td></tr>`).join("");
+    }
+    return html;
+  }).join("");
+  const totalRow = `<tr><td><strong>Total</strong></td>${cols.map((c) => cell(sumCount(rows.filter((r) => r.typeId === c.type.id && (!c.place || r.placeId === c.place))))).join("")}
+    ${extras.map((k) => ({ total_bbl: `<td><strong>${n(bbl(rows))}</strong></td>`, total_cases: cell(cases(rows)),
+      pipeline: `<td>${n(beers.reduce((sum, id) => sum + pipelineFor(id).reduce((s, p) => s + (p.bbl || 0), 0), 0))}</td>` }[k] || "<td></td>")).join("")}</tr>`;
+  document.getElementById("inv-table").innerHTML = beers.length
+    ? `<table class="inv-table view-table">${head}${body}${totalRow}</table>`
+    : `<p class="muted">Nothing to show in this view yet.</p>`;
+}
+
+// ----- Making and changing views -----
+const viewDialog = document.getElementById("view-editor");
+const viewForm = document.getElementById("view-form");
+let editingView = null;
+function openViewEditor(view) {
+  editingView = view;
+  viewForm.reset();
+  document.getElementById("view-editor-title").textContent = view ? `View: ${view.name}` : "New view";
+  document.getElementById("delete-view").hidden = !view;
+  document.getElementById("view-places").innerHTML = (data.places || []).filter((p) => p.active || view?.placeIds.includes(p.id)).map((p) => `
+    <label class="choice"><input type="checkbox" value="${p.id}" ${view ? (view.placeIds.includes(p.id) ? "checked" : "") : (p.kind === "storage" ? "checked" : "")}> ${esc(placeName(p.id))}</label>`).join("");
+  document.getElementById("view-types").innerHTML = (data.packageTypes || []).filter((t) => t.active || view?.typeIds.includes(t.id)).map((t) => `
+    <label class="choice"><input type="checkbox" value="${t.id}" ${view?.typeIds.includes(t.id) ? "checked" : ""}> ${esc(t.name)}</label>`).join("");
+  document.getElementById("view-show").innerHTML = Object.entries(VIEW_COLUMNS).map(([k, label]) => `
+    <label class="choice"><input type="checkbox" value="${k}" ${(view ? view.show : ["total_bbl", "par_bbl", "pipeline"]).includes(k) ? "checked" : ""}> ${label}</label>`).join("");
+  viewForm.name.value = view?.name ?? "";
+  viewForm.split.checked = view ? view.splitByPlace : true;
+  viewForm.beers.value = view?.beers ?? "stock_or_par";
+  viewForm.sort.value = view?.sortMode ?? "az";
+  viewDialog.showModal();
+}
+const checked = (box) => [...document.querySelectorAll(`#${box} input:checked`)].map((i) => i.value);
+viewForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const row = { name: viewForm.name.value.trim(), place_ids: checked("view-places"), split_by_place: viewForm.split.checked,
+    type_ids: checked("view-types"), show: checked("view-show"), beers: viewForm.beers.value, sort_mode: viewForm.sort.value };
+  if (!row.place_ids.length) { alert("Choose at least one place for this view."); return; }
+  const id = editingView?.id ?? newId();
+  const ok = await save(() => editingView
+    ? must(db.from("inventory_views").update(row).eq("id", id))
+    : must(db.from("inventory_views").insert({ id, brewery_id: brewery.id, position: views().length, ...row })));
+  if (ok) { inventoryView = id; viewDialog.close(); renderInventory(); }
+});
+document.getElementById("delete-view").addEventListener("click", async () => {
+  if (!confirm(`Delete the view "${editingView.name}"? (No stock changes; it's only a way of looking.)`)) return;
+  const ok = await save(() => must(db.from("inventory_views").delete().eq("id", editingView.id)));
+  if (ok) { inventoryView = null; viewDialog.close(); renderInventory(); }
+});
+
 // ----- The Inventory screen -----
 let inventoryPlace = "all";
 const openBeers = new Set(); // beers whose batches are showing
@@ -3326,8 +3442,23 @@ const openBeers = new Set(); // beers whose batches are showing
 function renderInventory() {
   const places = activePlaces();
   if (inventoryPlace !== "all" && !places.some((p) => p.id === inventoryPlace)) inventoryPlace = "all";
-  document.getElementById("inv-places").innerHTML = [{ id: "all", label: "All places" }, ...places.map((p) => ({ id: p.id, label: placeName(p.id) }))]
-    .map((p) => `<button type="button" role="tab" aria-selected="${p.id === inventoryPlace}" data-place="${p.id}">${esc(p.label)}</button>`).join("");
+  if (inventoryView && !views().some((v) => v.id === inventoryView)) inventoryView = null;
+  document.getElementById("inv-places").innerHTML =
+    views().map((v) => `<button type="button" role="tab" class="view-chip" aria-selected="${v.id === inventoryView}" data-view="${v.id}">${esc(v.name)}</button>`).join("") +
+    [{ id: "all", label: "All places" }, ...places.map((p) => ({ id: p.id, label: placeName(p.id) }))]
+      .map((p) => `<button type="button" role="tab" aria-selected="${!inventoryView && p.id === inventoryPlace}" data-place="${p.id}">${esc(p.label)}</button>`).join("") +
+    (can("inventory") ? `<button type="button" class="add-view" data-view-edit="${inventoryView || ""}">${inventoryView ? "Edit view" : "+ View"}</button>` : "");
+  // A view: its own sheet, instead of the place sections
+  const view = views().find((v) => v.id === inventoryView);
+  for (const id of ["inv-lines", "inv-pars", "inv-deck"]) if (view) document.getElementById(id).hidden = true;
+  document.querySelector(".sort-bar").hidden = !!view;
+  if (view) {
+    renderViewTable(view);
+    renderRecent();
+    if (inventoryTab === "raw") renderRaw();
+    return;
+  }
+  document.getElementById("inv-pars").hidden = false;
 
   const rows = stockOnHand().filter((r) => inventoryPlace === "all" || r.placeId === inventoryPlace);
   const typeIds = [...new Set(rows.map((r) => r.typeId))];
@@ -3362,8 +3493,11 @@ function renderInventory() {
   renderLines();
   renderPars();
   if (inventoryTab === "raw") renderRaw();
+  renderRecent();
+}
 
-  // Recent: one line per action (a count sheet or a move is one action)
+// Recent: one line per action (a count sheet or a move is one action)
+function renderRecent() {
   const groups = new Map();
   for (const m of [...(data.stockMoves || [])].reverse()) {
     const key = m.groupId || m.id;
@@ -3396,7 +3530,11 @@ function summarizeStock(moves) {
 
 document.getElementById("inv-places").addEventListener("click", (e) => {
   const chip = e.target.closest("[data-place]");
-  if (chip) { inventoryPlace = chip.dataset.place; renderInventory(); }
+  if (chip) { inventoryPlace = chip.dataset.place; inventoryView = null; renderInventory(); }
+  const viewChip = e.target.closest("[data-view]");
+  if (viewChip) { inventoryView = viewChip.dataset.view; inventoryPlace = "all"; renderInventory(); }
+  const edit = e.target.closest("[data-view-edit]");
+  if (edit) openViewEditor(views().find((v) => v.id === edit.dataset.viewEdit) || null);
 });
 document.getElementById("inv-table").addEventListener("click", (e) => {
   const row = e.target.closest("[data-inv-beer]");

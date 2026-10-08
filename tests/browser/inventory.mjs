@@ -279,6 +279,36 @@ try {
   await page.selectOption("#inv-sort", "az");
   await allSent();
 
+  console.log("9c. An inventory view: storage places, a column per place and size, pars, and the pipeline");
+  await page.click("[data-view-edit]");
+  await page.waitForSelector("#view-editor[open]");
+  await page.fill('#view-form [name="name"]', `Master ${run}`);
+  // Just this location's storage, so the numbers are this run's
+  await page.evaluate((keep) => document.querySelectorAll("#view-places input").forEach((i) => { i.checked = i.value === keep; }), storage);
+  await page.evaluate((t) => document.querySelectorAll("#view-types input").forEach((i) => { i.checked = i.value === t; }),
+    await page.evaluate(() => data.packageTypes.find((t) => t.catalogKey === "keg_half").id));
+  for (const k of ["total_bbl", "par_bbl", "pipeline"]) await page.check(`#view-show input[value="${k}"]`);
+  await page.click("#view-form button[type=submit]");
+  await allSent();
+  const viewId = await page.evaluate((n) => data.views.find((v) => v.name === n).id, `Master ${run}`);
+  check(await page.getAttribute(`[data-view="${viewId}"]`, "aria-selected") === "true", "the new view is chosen");
+  const head = await text("#inv-table tr");
+  check(head.includes("Storage"), `a column group for the place: "${head}"`);
+  const row = await page.evaluate((b) => [...document.querySelector(`#inv-table [data-inv-beer="${b}"]`).cells].map((c) => c.innerText), beerId);
+  // Columns: beer, ½ bbl at storage, total bbl, par bbl (brewery-wide 20 from step 9), in tanks (30 knocked out - 10 packaged)
+  check(row[1] === "7" && row[2] === "3.5" && row[3] === "20" && row[4] === "20", `row: ${JSON.stringify(row)}`);
+  check(await page.evaluate((b) => document.querySelector(`#inv-table [data-inv-beer="${b}"]`).classList.contains("under"), beerId), "under its par: highlighted");
+  await page.evaluate((b) => openBeers.delete(b), beerId); // (opened in an earlier step)
+  await page.click(`#inv-table [data-inv-beer="${beerId}"]`);
+  check((await text("#inv-table")).includes(`#I${run} in ${tank}`), "tapping it shows what's in the pipeline");
+  check((await text("#view-title")) === "Inventory", "the page heading stays 'Inventory'");
+  await page.screenshot({ path: SHOTS + "view.png" });
+  await page.click("[data-view-edit]");
+  await page.waitForSelector("#view-editor[open]");
+  await page.click("#delete-view");
+  await allSent();
+  check(!(await page.evaluate((id) => data.views.some((v) => v.id === id), viewId)), "a view can be deleted");
+
   console.log("10. Raw materials: an item, a delivery, use on a batch, a count, and traceability");
   await page.click('#inv-tabs [data-inv-tab="raw"]');
   await page.click("#raw-items-open");

@@ -137,6 +137,10 @@ These shape every decision, even for features that come later:
 - Everything works offline, and a new permission, **"Count and move finished goods"**, is part of Cellar and up by default.
 - **Pars** (step 2): how much of each beer a place should have, in barrels and/or cases (a taproom's pars), plus a **brewery-wide par** per beer. Each place shows **over / under**, and what to **bring up** ("Bring up 3 × ½ bbl keg from Storage", one tap fills in the move). A taproom also shows what's **on deck**: beers in storage that aren't there yet.
 
+### Inventory views (the brewery's own sheets)
+- **Views** (chips next to the places, "+ View" to make one): a sheet that adds up the places you choose (a master sheet might be the storage places only), with a column for each **package size**, or **each place and size**, and optional **totals** (barrels, cases), **brewery-wide pars** (highlighted when under), and the **pipeline**: what's still in tanks for each beer. Tap a beer to see the batches in its pipeline (tank, stage, volume).
+- Which beers (with stock, with stock or a par, or every beer) and the order (A–Z or oldest batch first) are part of the view.
+
 ### Draft lines and the order beers are listed in
 - **A taproom's draft lines** (Inventory → a taproom): numbered lines, each pouring a beer, something else (wine, cider, a guest beer), empty, or out of order. Tap a line to change it; add or remove lines. The beer picker lists beers here first, then those in storage.
 - **Each place lists its beers in its own order:** A–Z, **oldest batch first**, **our own order** (arranged with up and down), or, for a taproom, **draft line order** (the default). Count sheets follow it, so counting a taproom walks the bar, line by line. "All places" remembers its choice on each device.
@@ -487,6 +491,11 @@ The user's idea (API-first): outside tools and AI agents read and write through 
 - [ ] **Import from spreadsheets:** CSV upload or a Google Sheets link, for tanks, beers, batches, and cellar logs, with a preview of what will be created and a column mapping before anything is saved.
 - [ ] **Recipe import from all the major tools** via **BeerXML** (BeerSmith, Brewfather, Brewer's Friend, and others export it); later, Brewfather's own API. Recipes stay simple (decided): a beer's targets and ingredient list, which the brew-day sheet copies like "copy from the last batch".
 - Later, when someone besides us holds a key: rate limits and public API docs.
+
+### Later: the official app, and a feature tour
+- [ ] **Installable web app** (home-screen icon, full screen): quick, any time.
+- [ ] **App Store app** (the user's idea: an "official" app earns respect): the same code in a native shell (Capacitor), so no rewrite. Needs an Apple Developer account ($99/year), icons and screenshots, and Apple's review; native features make the case for it (camera QR scanning, push reminders like "acid due" or "under par", keeping the screen awake on the brew deck). A few days of work plus about a week of review. **Android** from the same project later ($25 one-time). Best timed before the pilots, with onboarding.
+- [ ] **A video tour of every feature and way to customize the app** (the user's idea): Claude compiles the feature list and a short script for each feature; the user records the videos.
 
 ### Phase 7: TTB reporting
 The payoff for keeping accurate volumes at every step.

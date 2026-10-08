@@ -7,7 +7,7 @@ set local role postgres;
 create extension if not exists pgtap with schema extensions;
 set search_path = public, extensions;
 
-select plan(29);
+select plan(31);
 
 insert into auth.users (id, email) values
   ('00000000-0000-0000-0000-0000000000aa', 'admin@example.test'),
@@ -115,6 +115,13 @@ delete from beers where id = 'aa000000-0000-0000-0000-0000000000b9';
 select is((select status from draft_lines where line_no = 3), 'empty', 'deleting a beer that''s on a line leaves the line empty');
 select public.set_place_order(pg_temp.storage(), 'custom', array['aa000000-0000-0000-0000-0000000000bf', 'aa000000-0000-0000-0000-0000000000be']::uuid[]);
 select is((select sort_mode || ':' || array_length(beer_order, 1) from stock_places where id = pg_temp.storage()), 'custom:2', 'a place can have its own order');
+
+-- 5e. Inventory views
+insert into inventory_views (brewery_id, name, place_ids, split_by_place, show, beers)
+select b, 'Master', array[pg_temp.storage()], true, array['total_bbl', 'total_cases', 'par_bbl', 'pipeline'], 'stock_or_par' from ids;
+select is((select name || ':' || array_length(show, 1) from inventory_views), 'Master:4', 'a brewery can save its own inventory view');
+select throws_ok($$ insert into inventory_views (brewery_id, name, show) select b, 'Odd', array['colour'] from ids $$, '23514', null,
+  'only known columns');
 
 -- 6. A brewery that asks for a reason on every stock change
 update breweries set require_stock_reason = true, stock_reasons = array['Stocked the taproom', 'Dock sale'];

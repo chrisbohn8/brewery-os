@@ -943,6 +943,26 @@
     </form>
   </dialog>
 
+  <!-- An inventory view: the brewery's own sheet -->
+  <dialog id="view-editor" class="wide">
+    <form id="view-form">
+      <h2 id="view-editor-title" tabindex="-1" autofocus>New view</h2>
+      <label>Name <input name="name" required maxlength="60" placeholder="Like: Master"></label>
+      <fieldset class="group"><legend>Add up these places</legend><div id="view-places" class="check-grid"></div></fieldset>
+      <label class="choice"><input type="checkbox" name="split"> A column for each place and size (instead of sizes combined)</label>
+      <fieldset class="group"><legend>Sizes to show <span class="muted">(none ticked: every size in stock)</span></legend><div id="view-types" class="check-grid"></div></fieldset>
+      <fieldset class="group"><legend>Other columns</legend><div id="view-show" class="check-grid"></div></fieldset>
+      <div class="two-col">
+        <label>Beers <select name="beers">
+          <option value="stock">With stock</option><option value="stock_or_par">With stock or a par</option><option value="all">Every beer</option></select></label>
+        <label>Order <select name="sort"><option value="az">A–Z</option><option value="oldest">Oldest batch first</option></select></label>
+      </div>
+      <div class="actions">
+        <button type="button" id="delete-view" class="btn danger">Delete</button><span class="spacer"></span>
+        <button type="button" class="btn cancel">Cancel</button><button type="submit" class="btn primary">Save view</button></div>
+    </form>
+  </dialog>
+
   <!-- A draft line: what's pouring on it -->
   <dialog id="line-editor">
     <form id="line-form">

@@ -575,3 +575,13 @@ dialog.wide { max-width: 720px; width: calc(100vw - 32px); }
 #line-editor label.choice input { width: 22px; height: 22px; }
 #line-editor select, #line-editor input[name=label] { font: inherit; font-size: 16px; padding: 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--card); color: var(--text); width: 100%; }
 .arrange-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+
+/* Inventory views */
+.place-chips .view-chip { border-style: dashed; }
+.place-chips .add-view { font: inherit; font-size: 0.9rem; padding: 6px 12px; border-radius: 999px; border: 1px dashed var(--muted); background: transparent; color: var(--muted); }
+.view-table th.group { text-align: center; border-bottom: 1px solid var(--border); color: var(--text); }
+.inv-table th:first-child, .inv-table td:first-child { position: sticky; left: 0; background: var(--bg); z-index: 1; }
+.inv-table tr.under td:first-child strong, .inv-table td.under { color: var(--acid-due); font-weight: 700; }
+.check-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 4px 12px; }
+#view-editor label.choice { display: flex; gap: 8px; align-items: center; color: var(--text); margin: 4px 0; }
+#view-editor label.choice input { width: 20px; height: 20px; flex: none; }
