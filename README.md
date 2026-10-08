@@ -163,6 +163,7 @@ These shape every decision, even for features that come later:
 - **A plan is never a record:** nothing on the calendar changes batches, tanks, or stock. A planned brew counts as done once a batch of that beer is started in that tank within a few days.
 - **Late steps and "push the rest back"** (step 2): a step a batch is behind on shows on today, marked late; one tap pushes its remaining steps back (asking first if that clashes with a planned brew). A planned item left undone shows as late too.
 - **Will there be enough?** (step 3): each planned brew's needs (its recipe per turn × the brewhouse's turns, or per batch; or the last batch's ingredients), against what's on hand plus deliveries **on order** (Inventory → Raw materials), brew by brew in date order. A short brew is marked on the calendar with how much, in packs; **dismiss** one that's dealt with (it comes back if it grows); a **shopping list** with order-by dates (each item's lead time); and the **Short for a planned brew** alert. The arithmetic is one database function (`plan_shortfalls`), used by the calendar and the alert alike. Ingredients count only by matching a raw material's name.
+- **Gravity triggers** (step 4): a schedule step can go off at a gravity ("dry hop at 4 °P"); when a logged reading reaches it (one reading, or two in a row, by the brewery's choice), it's **due now** on the calendar and the **Gravity step due** alert, until the records show it done (`gravity_due` in the database). **Suggest from past batches** fills in a beer's schedule from its history, for a person to check.
 - Two permissions: **Plan the schedule** (head brewers and admins) and **Move items** (brewers too). Backups and the spreadsheet export include the plan.
 
 ### Alerts
@@ -429,7 +430,7 @@ The shared database (Phase 3) was pulled ahead of the brew log: real crews can o
 7. ~~Alerts from the records~~ (Phase 6¾, done); the sensor inbox later.
 8. ~~Problem reports and all-or-nothing backup loading~~ (done).
 9. **TTB reporting** (Phase 7, [design draft](docs/ttb-design.md)): waiting on answers to its five "(confirm)" questions.
-10. The planning calendar ([design](docs/calendar-design.md)): steps 1–3 done; next gravity triggers, then the calendar subscription. Then the rest in order; **onboarding last** (Phase 11).
+10. The planning calendar ([design](docs/calendar-design.md)): steps 1–4 done; next the calendar subscription, people on items, sheet import, and the printable week. Then the rest in order; **onboarding last** (Phase 11).
 
 ### ✅ Phase 0: Foundation (done)
 - [x] Tank dashboard with stage and days in stage
@@ -563,7 +564,7 @@ The user's idea. Watching only, never controlling equipment (controllers already
 ### Later: a planning calendar
 The user's idea (2026-10-08): see the week ahead, tank by tank, and know before brew day whether there's enough malt and hops.
 **Design draft:** [docs/calendar-design.md](docs/calendar-design.md) (week view, beer schedules from recipes and past batches, gravity triggers, push the rest back, raw materials look ahead with on-order deliveries and a shopping list, and the questions to confirm).
-- [x] **Step 1 built** (2026-10-08): week view, planned items and someday plans, beer schedules (days), clashes, and the two permissions. Steps 2 (late steps, "push the rest back") and 3 (the raw-materials look ahead) built the same day. Next: gravity triggers.
+- [x] **Step 1 built** (2026-10-08): week view, planned items and someday plans, beer schedules (days), clashes, and the two permissions. Steps 2 (late steps, "push the rest back"), 3 (the raw-materials look ahead), and 4 (gravity triggers, suggested schedules) built the same day. Next: step 5 (calendar subscription, people on items, import from the Google Sheet, the printable week).
 - [x] **Week view:** days across the top, tanks down the side, and in each square what's due on that tank that day: brew day, dry hop, crash, transfer, package, clean, acid cycle. Swipe to the next week; tap an item to open the batch or tank. A phone shows fewer days at a time.
 - [x] **Planned vs. done, kept apart:** a plan is never a record. Planned items come from dates the brewer sets (a brew day, a planned transfer), and "expected" items from simple, visible rules (the usual days in each stage, the acid rules), drawn lighter and labeled "expected". Doing the work on the floor records it as usual and the plan item is ticked off; nothing is ever recorded from the calendar on its own.
 - [x] **Plan ahead:** put a future brew on an empty tank, and see a clash (two batches planned into one tank, a tank still full on the planned brew day) before it happens.

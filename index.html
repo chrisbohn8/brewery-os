@@ -762,7 +762,20 @@
         <select name="beerId"></select>
       </label>
       <ul id="schedule-steps" class="plain"></ul>
-      <button type="button" class="btn small" id="add-step">+ Step</button>
+      <div class="actions wrap">
+        <button type="button" class="btn small" id="add-step">+ Step</button>
+        <button type="button" class="btn small" id="suggest-steps">Suggest from past batches</button>
+      </div>
+      <p id="schedule-suggested" class="muted" hidden></p>
+      <p class="muted">A step can also go off at a gravity ("dry hop at 4 °P"): it stays on its day, and when a logged
+        reading reaches it, it's <strong>due now</strong> on the calendar (and an alert). For dry hop, crash, carbonate,
+        transfer, and package, which the records can tell are done.</p>
+      <label>A gravity step goes off after
+        <select id="gravity-readings">
+          <option value="1">one reading at or below it</option>
+          <option value="2">two readings in a row at or below it</option>
+        </select>
+      </label>
       <p id="schedule-note" class="muted" hidden></p>
       <div class="actions">
         <span class="spacer"></span>

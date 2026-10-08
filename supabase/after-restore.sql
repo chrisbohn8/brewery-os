@@ -37,6 +37,7 @@ revoke execute on function public.delete_brewery(uuid) from anon;
 revoke execute on function public.load_into_brewery(uuid, jsonb) from anon;
 revoke execute on function public.plan_needs(uuid) from anon;
 revoke execute on function public.plan_shortfalls(uuid) from anon;
+revoke execute on function public.gravity_due(uuid) from anon;
 
 -- Alerts: the 15-minute check is a scheduled job in the database (not in backups' tables). In a new
 -- project, set the alerts function's ALERTS_SECRET and run supabase/schedule-alerts.sql with it.

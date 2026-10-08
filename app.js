@@ -456,14 +456,14 @@ async function loadAll() {
   // Bring the alerts up to date first, so the list below is current (a gravity just logged clears
   // its alert right away). A failed check never stops the data loading; the server checks too.
   await db.rpc("check_alerts", { p_brewery_id: b }).then(() => {}, () => {});
-  const [locations, beers, tanks, batches, events, cleanings, settings, members, invites, permissions, memberRows, levels, cellar, additions, readings, movements, packageTypes, packageCounts, places, stockMoves, pars, rawItems, rawReceipts, rawAdjustments, lines, inventoryViews, recipes, recipeIngredientRows, alertRules, alerts, planItems, schedules, shifts, rawOrders, shortfalls, needs] = await Promise.all([
+  const [locations, beers, tanks, batches, events, cleanings, settings, members, invites, permissions, memberRows, levels, cellar, additions, readings, movements, packageTypes, packageCounts, places, stockMoves, pars, rawItems, rawReceipts, rawAdjustments, lines, inventoryViews, recipes, recipeIngredientRows, alertRules, alerts, planItems, schedules, shifts, rawOrders, shortfalls, needs, gravityDue] = await Promise.all([
     must(db.from("locations").select("*").eq("brewery_id", b).order("created_at")),
     must(db.from("beers").select("*").eq("brewery_id", b)),
     must(db.from("tanks").select("*").eq("brewery_id", b).order("created_at")),
     must(db.from("batch_status").select("*").eq("brewery_id", b)),
     must(db.from("batch_events").select("*").eq("brewery_id", b).order("effective_date").order("recorded_at")),
     must(db.from("tank_cleanings").select("*").eq("brewery_id", b).order("cleaned_on").order("recorded_at")),
-    must(db.from("breweries").select("acid_after_styles, temperature_unit, gravity_unit, volume_unit, time_zone, target_limits, sheet_fields, sheet_custom_fields, sheet_field_settings, stock_reasons, require_stock_reason, alert_quiet_start, alert_quiet_end, plan_lookahead_days, recipes_per").eq("id", b).single()),
+    must(db.from("breweries").select("acid_after_styles, temperature_unit, gravity_unit, volume_unit, time_zone, target_limits, sheet_fields, sheet_custom_fields, sheet_field_settings, stock_reasons, require_stock_reason, alert_quiet_start, alert_quiet_end, plan_lookahead_days, recipes_per, gravity_trigger_readings").eq("id", b).single()),
     must(db.rpc("brewery_members", { p_brewery_id: b })),
     must(db.from("invites").select("*").eq("brewery_id", b).order("created_at")), // admins only; others get none
     must(db.rpc("my_permissions", { b })),
@@ -495,6 +495,8 @@ async function loadAll() {
     // Will there be enough for the planned brews? Worked out by the database (plan_shortfalls), one place for the arithmetic
     must(db.rpc("plan_shortfalls", { p_brewery_id: b })),
     must(db.rpc("plan_needs", { p_brewery_id: b })),
+    // Schedule steps a logged gravity has reached ("dry hop at 4 °P"): gravity_due in the database
+    must(db.rpc("gravity_due", { p_brewery_id: b })),
   ]);
   // Each member: email and level (from brewery_members) plus their personal adjustments
   const adjustments = Object.fromEntries(memberRows.map((r) => [r.user_id, r]));
@@ -577,6 +579,8 @@ async function loadAll() {
     // Recipe ingredients that match no raw material (by name), per planned brew
     unmatched: needs.filter((n) => !n.item_id).map((n) => ({ planId: n.plan_id, plannedOn: n.planned_on, beerName: n.beer_name, ingredient: n.ingredient })),
     planLookaheadDays: settings.plan_lookahead_days ?? 14, recipesPer: settings.recipes_per || "turn",
+    gravityReadings: settings.gravity_trigger_readings || 1,
+    gravityDue: gravityDue.map((g) => ({ batchId: g.batch_id, kind: g.kind, triggerSg: num(g.trigger_sg), latestSg: num(g.latest_sg) })),
     recipes: recipes.map((r) => ({ id: r.id, beerId: r.beer_id, locationId: r.location_id, name: r.name, batchSizeBbl: num(r.batch_size_bbl),
       targetOg: num(r.target_og), targetFg: num(r.target_fg), ibu: num(r.ibu), notes: r.notes, source: r.source })),
     recipeIngredients: recipeIngredientRows.map((i) => ({ id: i.id, recipeId: i.recipe_id, position: i.position, kind: i.kind, name: i.name,
@@ -1060,6 +1064,7 @@ function withWaitingChanges(base) {
   d.rawOrders ??= [];
   d.shortfalls ??= [];
   d.unmatched ??= [];
+  d.gravityDue ??= [];
   for (const change of outbox) SHOW[change.kind](d, change.args);
   return d;
 }
@@ -2224,7 +2229,8 @@ async function loadIntoBrewery(source, description) {
       done_at: p.doneAt ?? null })));
     insert("beer_schedules", Object.entries(d.schedules || {}).map(([beerId, steps]) => ({ beer_id: idFor(beerId), steps })));
     insert("plan_shifts", Object.entries(d.shifts || {}).map(([batchId, days]) => ({ batch_id: idFor(batchId), days })));
-    if (d.planLookaheadDays || d.recipesPer) update("breweries", brewery.id, { plan_lookahead_days: d.planLookaheadDays ?? 14, recipes_per: d.recipesPer || "turn" });
+    if (d.planLookaheadDays || d.recipesPer) update("breweries", brewery.id, { plan_lookahead_days: d.planLookaheadDays ?? 14,
+      recipes_per: d.recipesPer || "turn", gravity_trigger_readings: d.gravityReadings || 1 });
   }
   // Deliveries on order (raw materials; matched to items above)
   if (can("inventory") && d.rawItems?.length && d.batches.length) { // (items load with the batches, above)
@@ -5254,6 +5260,7 @@ const ALERT_KINDS = [
   { kind: "acid_due", label: "Acid due", help: "An empty tank that needs an acid cycle (the same rule as on the tank board)." },
   { kind: "under_par", label: "Under par", help: "A beer below its par, at a place or across the brewery (Inventory → pars)." },
   { kind: "low_stock", label: "Low on a raw material", help: "Below the item's reorder level (Inventory → Raw materials → Items)." },
+  { kind: "gravity_due", label: "Gravity step due", help: "A batch whose logged gravity reached a step in its beer's schedule (\"dry hop at 4 °P\"), until the step is done (Calendar → Beer schedules)." },
   { kind: "short_for_brew", label: "Short for a planned brew", help: "A brew on the calendar that there won't be enough of a raw material for (on hand, plus deliveries on order, minus earlier planned brews), unless someone dismissed it." },
 ];
 const ALERT_DEFAULTS = { no_gravity: { days: 3, stages: ["fermenting", "dry-hopping"] },
@@ -6462,17 +6469,22 @@ function expectedItems() {
     if (p.kind !== "brew" || !p.plannedOn || !p.beerId || planDone(p)) continue;
     for (const s of scheduleOf(p.beerId)) {
       const date = addDays(p.plannedOn, s.day);
-      if (date >= t0) out.push({ kind: s.kind, date, tankId: p.tankId, beerId: p.beerId, planId: p.id });
+      if (date >= t0) out.push({ kind: s.kind, date, tankId: p.tankId, beerId: p.beerId, planId: p.id, trigger: s.gravity ?? null });
     }
   }
   for (const b of data.batches) {
     if (!isInTank(b) || !b.brewDate) continue;
-    for (const s of scheduleOf(b.beerId)) {
+    for (const s of scheduleOf(b.beerId)) { // (s.gravity, if any: the step's trigger, in SG)
       const date = addDays(b.brewDate, s.day + shiftOf(b.id));
       if ((data.planItems || []).some((p) => p.batchId === b.id && p.kind === s.kind)) continue; // planned by hand instead
       const reached = stepReached(b, s.kind);
       if (reached) continue;
-      if (date >= t0) out.push({ kind: s.kind, date, tankId: b.tankId, beerId: b.beerId, batchId: b.id });
+      const gravity = (data.gravityDue || []).find((g) => g.batchId === b.id && g.kind === s.kind);
+      if (gravity) { // a logged gravity reached the step's trigger: due now, on today
+        out.push({ kind: s.kind, date: t0, dueNow: true, gravity, tankId: b.tankId, beerId: b.beerId, batchId: b.id });
+        continue;
+      }
+      if (date >= t0) out.push({ kind: s.kind, date, tankId: b.tankId, beerId: b.beerId, batchId: b.id, trigger: s.gravity ?? null });
       else if (reached === false) out.push({ kind: s.kind, date: t0, due: date, late: true, tankId: b.tankId, beerId: b.beerId, batchId: b.id });
     }
   }
@@ -6564,11 +6576,15 @@ function renderCalendar() {
     return `<button type="button" class="cal-chip${p.kind === "brew" ? " brew" : ""}${planDone(p) ? " done" : ""}${short.length ? " short" : ""}${clash ? " clash" : ""}${late ? " late" : ""}"
       data-plan="${p.id}" title="${esc(why)}">${esc(planText(p))}${late ? ` · late (${formatDate(p.plannedOn)})` : ""}${short.length ? " · short" : ""}${clash ? " ⚠" : ""}</button>`;
   };
-  const expectedChip = (e) => e.late
+  const gravityLabel = (sg) => showUnit("gravity", sg);
+  const expectedChip = (e) => e.dueNow
+    ? `<button type="button" class="cal-chip due" data-expected-batch="${e.batchId}"
+        title="Its gravity reached the step's trigger">${esc(labelFrom(PLAN_KINDS, e.kind))}: ${esc(findBeer(e.beerId)?.name || "")} · due now (${esc(gravityLabel(e.gravity.latestSg))})</button>`
+    : e.late
     ? `<button type="button" class="cal-chip expected late" data-late-batch="${e.batchId}"
         title="Late: due ${formatDate(e.due)}. Tap to push the rest back.">${esc(labelFrom(PLAN_KINDS, e.kind))}: ${esc(findBeer(e.beerId)?.name || "")} · late (${formatDate(e.due)})</button>`
     : `<button type="button" class="cal-chip expected" ${e.batchId ? `data-expected-batch="${e.batchId}"` : `data-plan="${e.planId}"`}
-        title="Expected, from the beer's schedule">${esc(labelFrom(PLAN_KINDS, e.kind))}: ${esc(findBeer(e.beerId)?.name || "")}</button>`;
+        title="Expected, from the beer's schedule">${esc(labelFrom(PLAN_KINDS, e.kind))}: ${esc(findBeer(e.beerId)?.name || "")}${e.trigger ? ` · at ${esc(gravityLabel(e.trigger))}` : ""}</button>`;
   // A planned item left undone in the past shows on today, marked late, so nothing quietly drops off
   const isLate = (p) => p.plannedOn && p.plannedOn < t0 && !planDone(p);
   const cell = (tankId, date) => {
@@ -6797,16 +6813,26 @@ document.getElementById("shopping-copy").addEventListener("click", async () => {
 // ----- Beers' schedules -----
 const scheduleDialog = document.getElementById("schedule-editor");
 const scheduleForm = document.getElementById("schedule-form");
+const GRAVITY_KINDS = ["dry_hop", "crash", "carbonate", "transfer", "package"]; // the records can tell these are done
 const stepRow = (s = { kind: "dry_hop", day: "" }) => `<li class="schedule-step">
     <select aria-label="Step">${SCHEDULE_KINDS.map((k) => `<option value="${k}" ${k === s.kind ? "selected" : ""}>${labelFrom(PLAN_KINDS, k)}</option>`).join("")}</select>
-    <label class="inline-label">day <input type="number" min="0" max="365" step="1" inputmode="numeric" value="${s.day}" aria-label="Days after brewing"></label>
+    <label class="inline-label">day <input type="number" min="0" max="365" step="1" inputmode="numeric" value="${s.day}" aria-label="Days after brewing" data-day></label>
+    <label class="inline-label">or at <input type="number" step="any" min="0" inputmode="decimal" data-gravity value="${s.gravity != null ? toShown("gravity", s.gravity) : ""}"
+      aria-label="Gravity that sets it off" placeholder="—" ${GRAVITY_KINDS.includes(s.kind) ? "" : "disabled"}> <span class="gravity-unit">${UNIT_INFO.gravity[prefs().gravityUnit].label}</span></label>
     <button type="button" class="btn small" data-remove-step aria-label="Remove this step">×</button></li>`;
 function renderScheduleSteps() {
   const canPlan = can("plan_schedule");
   const steps = [...scheduleOf(scheduleForm.beerId.value)].sort((a, b) => a.day - b.day);
   document.getElementById("schedule-steps").innerHTML = steps.map(stepRow).join("") ||
     (canPlan ? "" : `<li class="muted">No schedule for this beer yet.</li>`);
-  scheduleForm.querySelectorAll("#schedule-steps select, #schedule-steps input, [data-remove-step]").forEach((el) => { el.disabled = !canPlan; });
+  scheduleForm.querySelectorAll("#schedule-steps select, #schedule-steps input, [data-remove-step]").forEach((el) => {
+    el.disabled = !canPlan || (el.matches("[data-gravity]") && !GRAVITY_KINDS.includes(el.closest("li").querySelector("select").value));
+  });
+  document.getElementById("suggest-steps").hidden = !canPlan;
+  document.getElementById("schedule-suggested").hidden = true;
+  const readings = document.getElementById("gravity-readings");
+  readings.value = String(data.gravityReadings || 1);
+  readings.disabled = !canPlan;
   document.getElementById("add-step").hidden = !canPlan;
   document.getElementById("save-schedule").hidden = !canPlan;
   const note = document.getElementById("schedule-note");
@@ -6827,17 +6853,67 @@ document.getElementById("add-step").addEventListener("click", () => {
 document.getElementById("schedule-steps").addEventListener("click", (e) => {
   if (e.target.closest("[data-remove-step]")) e.target.closest("li").remove();
 });
+// Only steps the records can tell are done take a gravity
+document.getElementById("schedule-steps").addEventListener("change", (e) => {
+  if (!e.target.matches("select")) return;
+  const gravity = e.target.closest("li").querySelector("[data-gravity]");
+  gravity.disabled = !GRAVITY_KINDS.includes(e.target.value);
+  if (gravity.disabled) gravity.value = "";
+});
+document.getElementById("gravity-readings").addEventListener("change", async (e) => {
+  const ok = await save(() => must(db.from("breweries").update({ gravity_trigger_readings: Number(e.target.value) }).eq("id", brewery.id)));
+  if (!ok) e.target.value = String(data.gravityReadings || 1);
+});
+
+// "Suggest from past batches": how many days after brewing each step really happened, on average,
+// in this beer's past batches (from their history). Filled in for a person to check and Save.
+function pastStepDays(beerId) {
+  const found = {}; // kind -> [days]
+  const add = (kind, b, date) => {
+    if (!date || !b.brewDate || date < b.brewDate) return;
+    (found[kind] ??= []).push(Math.round((parseDate(date) - parseDate(b.brewDate)) / 86400000));
+  };
+  for (const b of data.batches.filter((x) => x.beerId === beerId && x.brewDate)) {
+    const events = data.events.filter((e) => e.batchId === b.id);
+    const firstStage = (stage) => events.filter((e) => e.stage === stage).map((e) => e.effectiveDate).sort()[0];
+    const moves = data.movements.filter((m) => m.batchId === b.id);
+    const firstMove = (kind) => moves.filter((m) => m.kind === kind).map((m) => m.occurredOn).sort()[0];
+    const dryHopAdded = data.additions.filter((a) => a.batchId === b.id && /^dry hop/i.test(a.timing || "")).map((a) => a.addedOn).sort()[0];
+    add("dry_hop", b, [firstStage("dry-hopping"), dryHopAdded].filter(Boolean).sort()[0]);
+    add("crash", b, firstStage("conditioning"));
+    add("carbonate", b, firstStage("carbonating"));
+    add("transfer", b, firstMove("transfer"));
+    add("package", b, firstStage("packaged") || firstMove("package"));
+  }
+  return Object.entries(found).map(([kind, days]) => ({ kind, day: Math.round(days.reduce((x, y) => x + y, 0) / days.length), batches: days.length }))
+    .sort((a, b) => a.day - b.day);
+}
+document.getElementById("suggest-steps").addEventListener("click", () => {
+  const beerId = scheduleForm.beerId.value;
+  const suggested = pastStepDays(beerId);
+  const note = document.getElementById("schedule-suggested");
+  note.hidden = false;
+  if (!suggested.length) { note.textContent = "No past batches of this beer with history to go by."; return; }
+  const current = scheduleOf(beerId);
+  document.getElementById("schedule-steps").innerHTML = suggested.map((x) =>
+    stepRow({ kind: x.kind, day: x.day, gravity: current.find((c) => c.kind === x.kind)?.gravity ?? null })).join("");
+  note.textContent = "Suggested from this beer's past batches (average days after brewing): " +
+    suggested.map((x) => `${labelFrom(PLAN_KINDS, x.kind).toLowerCase()} day ${x.day} (${count(x.batches, "batch", "batches")})`).join(", ") +
+    ". Check them, then Save.";
+});
 scheduleForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   const steps = [...document.querySelectorAll("#schedule-steps li.schedule-step")].map((li) => ({
-    kind: li.querySelector("select").value, day: li.querySelector("input").value,
+    kind: li.querySelector("select").value, day: li.querySelector("[data-day]").value, gravity: li.querySelector("[data-gravity]").value,
   }));
   if (steps.some((s) => s.day === "" || !Number.isInteger(Number(s.day)) || Number(s.day) < 0)) {
     warn("Give each step its day after brewing (0 or more, whole days).");
     return;
   }
   const beerId = scheduleForm.beerId.value;
-  const sorted = steps.map((s) => ({ kind: s.kind, day: Number(s.day) })).sort((a, b) => a.day - b.day);
+  const sorted = steps.map((s) => ({ kind: s.kind, day: Number(s.day),
+    ...(s.gravity !== "" && GRAVITY_KINDS.includes(s.kind) && { gravity: +fromShown("gravity", s.gravity).toFixed(5) }) }))
+    .sort((a, b) => a.day - b.day);
   const ok = await save(() => must(db.from("beer_schedules").upsert({ brewery_id: brewery.id, beer_id: beerId, steps: sorted })));
   if (ok) {
     renderScheduleSteps();

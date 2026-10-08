@@ -2,7 +2,8 @@
 // a second brew in the same tank too soon is a clash, shown before it happens; moving an item,
 // ticking it done, someday plans, and deleting; a batch behind its schedule shows its late step,
 // and "push the rest back" moves its steps (asking first if that clashes); will there be enough malt:
-// a brew short of a raw material, dismissing it, the shopping list, ordering and receiving.
+// a brew short of a raw material, dismissing it, the shopping list, ordering and receiving; gravity
+// triggers ("dry hop at 4 °P": due now once a reading reaches it) and suggesting a schedule from past batches.
 // Real Chrome, local test copy.
 import { chromium } from "playwright-core";
 import { floor, onDialog } from "./helpers.mjs";
@@ -289,6 +290,63 @@ try {
   check(await page.evaluate(([i, lot]) => !data.rawOrders.some((o) => o.itemId === i) && data.rawReceipts.some((r) => r.itemId === i && r.lot === lot),
     [setup.itemId, `L-${run}`]), "received: a delivery with its lot, and no longer on order");
 
+  console.log("11. Gravity triggers, and suggesting a schedule from past batches");
+  await floor(page);
+  await page.click("#open-calendar");
+  await page.click("#cal-schedules");
+  await page.waitForSelector("#schedule-editor[open]");
+  await page.selectOption("#schedule-form [name=beerId]", ids.beerId);
+  await page.click("#suggest-steps");
+  const suggested = await page.textContent("#schedule-suggested");
+  check(suggested.includes("dry hop day 8 (1 batch)"), `suggested from the past batch (dry hopping 8 days after brewing): "${suggested}"`);
+  // Back to the saved schedule; give its dry hop a gravity (1.016 SG, in the brewery's unit)
+  await page.selectOption("#schedule-form [name=beerId]", ids.beerId);
+  await page.evaluate(() => renderScheduleSteps());
+  const shown = await page.evaluate(() => toShown("gravity", 1.016));
+  const dryRow = page.locator("#schedule-steps li", { has: page.locator('select >> option[value="dry_hop"]:checked') });
+  await dryRow.locator("[data-gravity]").fill(String(shown));
+  check(await page.isDisabled('#schedule-steps li:has(select option[value="package"]:checked) [data-gravity]') === false
+    && !(await page.evaluate(() => GRAVITY_KINDS.includes("diacetyl_rest"))), "gravity is for steps the records can tell are done");
+  await page.click("#save-schedule");
+  await settle();
+  check(Math.abs((await page.evaluate((b) => data.schedules[b].find((x) => x.kind === "dry_hop").gravity, ids.beerId)) - 1.016) < 0.0005,
+    "saved in SG (as every gravity is)");
+  await page.click("#schedule-editor .cancel");
+
+  const TANK4 = `C4-${run}`;
+  const b4 = await page.evaluate(async ([tank, beerId]) => {
+    const tankId = newId(), batchId = newId();
+    await save(async () => {
+      await must(db.from("tanks").insert({ id: tankId, brewery_id: brewery.id, name: tank, capacity_bbl: 10, location_id: data.locations[0].id }));
+      await must(db.rpc("save_batch", { p_id: batchId, p_brewery_id: brewery.id, p_batch_number: `G-${tank}`, p_beer_id: beerId,
+        p_brew_date: addDays(today(), -2), p_size_bbl: 7, p_stage: "fermenting", p_stage_started_on: addDays(today(), -2),
+        p_tank_id: tankId, p_action_date: today(), p_volume_bbl: null }));
+    });
+    return { tankId, batchId };
+  }, [TANK4, ids.beerId]);
+  await page.click("#cal-today");
+  await page.click("#cal-next");
+  const at = (await chips()).find((c) => c.tank === b4.tankId && c.text.startsWith("Dry hop"));
+  check(at?.text.includes(`· at ${await page.evaluate(() => showUnit("gravity", 1.016))}`), `the expected dry hop says its gravity: "${at?.text}"`);
+  await page.evaluate(async (id) => save(() => must(db.from("cellar_entries").insert({ brewery_id: brewery.id, batch_id: id, occurred_on: today(), gravity_sg: 1.015 }))), b4.batchId);
+  await page.click("#cal-today");
+  const due = (await chips()).find((c) => c.tank === b4.tankId && c.cls.includes("due"));
+  check(due?.date === await plusDays(0) && due.text.includes("due now"), `a reading at or below it: due now, on today: "${due?.text}"`);
+  await page.click("#cal-schedules");
+  await page.waitForSelector("#schedule-editor[open]");
+  await page.selectOption("#gravity-readings", "2");
+  await settle();
+  await page.click("#schedule-editor .cancel");
+  check(!(await chips()).some((c) => c.tank === b4.tankId && c.cls.includes("due")), "set to two readings in a row: one isn't enough");
+  await page.click("#cal-schedules");
+  await page.waitForSelector("#schedule-editor[open]");
+  await page.selectOption("#gravity-readings", "1");
+  await settle();
+  await page.click("#schedule-editor .cancel");
+
+  // Clean up
+  await page.evaluate(async (id) => save(() => must(db.from("batches").delete().eq("id", id))), b4.batchId);
+  await page.evaluate(async (id) => save(() => must(db.from("tanks").delete().eq("id", id))), b4.tankId);
   // Clean up
   await page.evaluate(async ([t, t2, t3, b, batchId, item]) => {
     await save(async () => {

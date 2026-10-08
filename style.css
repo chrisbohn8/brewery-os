@@ -710,3 +710,6 @@ button.cal-cell { cursor: pointer; }
 .short-list { margin: 0 0 12px; padding-left: 18px; }
 .short-list li { margin-bottom: 6px; }
 .order-late { color: var(--maintenance); font-weight: 600; }
+.cal-chip.due { border: 2px solid var(--ready); background: color-mix(in srgb, var(--ready) 15%, var(--card)); color: var(--text); font-weight: 600; }
+.schedule-step { flex-wrap: wrap; }
+.schedule-step [data-gravity] { width: 5em; }
