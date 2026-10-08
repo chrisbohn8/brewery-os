@@ -96,6 +96,23 @@ try {
   await importPasted("cellar", log);
   check((await text("#import-preview")).includes("0 to import") && await page.isDisabled("#import-go"), "the same rows again: nothing to import");
 
+  console.log("4b. A calendar plan from a sheet: days, someday, the sheet's own words, who; a missing beer is a problem");
+  const plan = [`Day\tWhat\tTank\tBeer\tWho\tNotes`, `10/20/2026\tBrew\tI1-${run}\tImp Ale ${run}\tbrewer1\tfrom a sheet ${run}`,
+    `10/21/2026\tGlycol service ${run}\t\t\t\t`, `Fall\t\t\tImp Ale ${run}\t\t`, `10/22/2026\tBrew\t\tNo Such Beer ${run}\t\t`].join("\n");
+  await importPasted("plan", plan);
+  const planPreview = await text("#import-preview");
+  check(planPreview.includes("3 to import") && planPreview.includes(`no beer called "No Such Beer ${run}"`) && planPreview.includes('someday: "Fall"'),
+    `preview: "${planPreview.slice(0, 120)}"`);
+  await go();
+  const imported = await page.evaluate((r) => data.planItems.filter((p) => (p.notes || "").includes(r) || (p.title || "").includes(r) || findBeer(p.beerId)?.name.endsWith(r))
+    .map((p) => `${p.kind}|${p.plannedOn || p.someday}|${p.title}|${p.assignedTo ? "who" : ""}`).sort(), run);
+  check(imported.includes("brew|2026-10-20||who") && imported.includes(`other|2026-10-21|Glycol service ${run}|`) && imported.includes("brew|Fall||"),
+    `on the calendar: ${imported.join(", ")}`);
+  await importPasted("plan", plan);
+  check((await text("#import-preview")).includes("0 to import"), "the same sheet again: nothing new");
+  await page.evaluate(async (r) => save(() => must(db.from("plan_items").delete().in("id",
+    data.planItems.filter((p) => (p.notes || "").includes(r) || (p.title || "").includes(r) || findBeer(p.beerId)?.name.endsWith(r)).map((p) => p.id)))), run);
+
   console.log("5. A Google Sheets link that isn't one");
   dialogs.length = 0;
   await page.fill("#import-sheet-url", "https://example.com/not-a-sheet");

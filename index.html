@@ -273,6 +273,8 @@
       <button type="button" class="btn small" id="cal-next" aria-label="Later">›</button>
       <strong id="cal-range"></strong>
       <span class="spacer"></span>
+      <button type="button" class="btn small" id="cal-mine" aria-pressed="false">My week</button>
+      <button type="button" class="btn small" id="cal-print">Print</button>
       <button type="button" class="btn small" id="cal-shopping">Shopping list</button>
       <button type="button" class="btn small" id="cal-schedules">Beer schedules</button>
       <button type="button" class="btn small primary" id="cal-add" data-needs="plan_schedule">+ Plan</button>
@@ -694,6 +696,9 @@
       </label>
       <label>Tank
         <select name="tankId"></select>
+      </label>
+      <label>Who <span class="muted">(optional)</span>
+        <select name="assignedTo"></select>
       </label>
       <fieldset class="group">
         <legend>When</legend>

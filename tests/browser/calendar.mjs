@@ -344,13 +344,40 @@ try {
   await settle();
   await page.click("#schedule-editor .cancel");
 
+  console.log("12. Who's on an item, \"My week\", and the printable week");
+  await page.click(`[data-cell-tank="${ids.tankId}"][data-cell-date="${await plusDays(0)}"]`);
+  await page.waitForSelector("#plan-editor[open]");
+  await page.selectOption("#plan-form [name=kind]", "clean");
+  await page.selectOption("#plan-form [name=assignedTo]", await page.evaluate(() => myUserId()));
+  await page.click("#save-plan");
+  await settle();
+  const mine = (await chips()).find((c) => c.tank === ids.tankId && c.text.startsWith("Clean"));
+  check(mine?.text.includes(`· ${EMAIL.split("@")[0]}`), `the item shows who's on it: "${mine?.text}"`);
+  await page.click("#cal-mine");
+  const only = await chips();
+  check(only.length > 0 && only.every((c) => c.text.includes(EMAIL.split("@")[0])), `"My week" shows only what I'm on (${only.length})`);
+  await page.click("#cal-mine");
+  check((await chips()).length > only.length, "and off again, everything");
+  await page.evaluate(() => { window.print = () => { window.printed = true; }; });
+  await page.click("#cal-print");
+  check(await page.evaluate(() => window.printed && document.querySelector("#print-sheet.print-week table.pw-table thead th:nth-child(2)").textContent.startsWith("Mon")),
+    "Print lays out the week, Monday to Sunday");
+  check((await page.textContent("#print-sheet")).includes(`Clean (${EMAIL.split("@")[0]})`), "with what's planned and who's on it");
+  await page.emulateMedia({ media: "print" });
+  await page.pdf({ path: SHOTS + "calendar-week.pdf", landscape: true, format: "Letter", pageRanges: "1" });
+  await page.setViewportSize({ width: 1100, height: 850 });
+  await page.screenshot({ path: SHOTS + "calendar-week.png" });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.emulateMedia({ media: "screen" });
+
   // Clean up
   await page.evaluate(async (id) => save(() => must(db.from("batches").delete().eq("id", id))), b4.batchId);
-  await page.evaluate(async (id) => save(() => must(db.from("tanks").delete().eq("id", id))), b4.tankId);
+  await page.evaluate(async (id) => save(async () => { await must(db.from("plan_items").delete().eq("tank_id", id)); await must(db.from("tanks").delete().eq("id", id)); }), b4.tankId);
   // Clean up
   await page.evaluate(async ([t, t2, t3, b, batchId, item]) => {
     await save(async () => {
       await must(db.from("plan_items").delete().eq("beer_id", b));
+      await must(db.from("plan_items").delete().in("tank_id", [t, t2, t3])); // (and ones with no beer, like a cleaning)
       await must(db.from("batches").delete().eq("id", batchId));
       await must(db.from("tanks").delete().in("id", [t, t2, t3]));
       await must(db.from("beers").delete().eq("id", b));

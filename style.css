@@ -713,3 +713,18 @@ button.cal-cell { cursor: pointer; }
 .cal-chip.due { border: 2px solid var(--ready); background: color-mix(in srgb, var(--ready) 15%, var(--card)); color: var(--text); font-weight: 600; }
 .schedule-step { flex-wrap: wrap; }
 .schedule-step [data-gravity] { width: 5em; }
+
+/* The printable week (Calendar → Print) */
+@media print {
+  @page week { size: letter landscape; margin: 0.35in; }
+  #print-sheet.print-week { page: week; }
+  .pw-table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 8pt; }
+  .pw-table th, .pw-table td { border: 1px solid #000; padding: 3px; vertical-align: top; text-align: left; }
+  .pw-table thead th { background: #eee; }
+  .pw-table tbody th { width: 11%; }
+  .pw-table td { height: 28px; }
+  .pw-item { margin-bottom: 2px; }
+  .pw-item.expected { font-style: italic; color: #444; }
+  .pw-item.done { text-decoration: line-through; color: #444; }
+}
+#cal-mine[aria-pressed="true"] { background: var(--text); color: var(--bg); }

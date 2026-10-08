@@ -6,7 +6,7 @@ set local role postgres;
 create extension if not exists pgtap with schema extensions;
 set search_path = public, extensions;
 
-select plan(12);
+select plan(15);
 
 insert into auth.users (id, email) values
   ('00000000-0000-0000-0000-0000000000a1', 'alice@example.test'),  -- admin
@@ -55,6 +55,18 @@ select throws_ok($$ insert into plan_items (brewery_id, kind, planned_on) select
   '42501', null, 'or add one');
 update beer_schedules set steps = '[]';  -- the rules hide the row from this change, so nothing changes
 select is((select jsonb_array_length(steps) from beer_schedules), 2, 'or change a beer''s schedule');
+
+-- Who's on it: a brewer can hand it to someone in the brewery, not to someone outside it
+select lives_ok($$ update plan_items set assigned_to = '00000000-0000-0000-0000-0000000000c1' where id = '22222222-0000-0000-0000-000000000001' $$,
+  'a brewer can put someone from the brewery on an item');
+set local role postgres;
+insert into auth.users (id, email) values ('00000000-0000-0000-0000-0000000000e1', 'eve@example.test');
+select pg_temp.act_as('00000000-0000-0000-0000-0000000000b1', 'bob@example.test');
+select throws_like($$ update plan_items set assigned_to = '00000000-0000-0000-0000-0000000000e1' where id = '22222222-0000-0000-0000-000000000001' $$,
+  'That person isn''t in this brewery%', 'but not someone outside it');
+select pg_temp.act_as('00000000-0000-0000-0000-0000000000a1', 'alice@example.test');
+select throws_like($$ insert into plan_items (brewery_id, kind, planned_on, assigned_to) select brewery_id, 'clean', '2026-11-05', '00000000-0000-0000-0000-0000000000e1' from ids $$,
+  'That person isn''t in this brewery%', 'also when adding an item');
 
 -- Someone at Cellar can look, not move
 select pg_temp.act_as('00000000-0000-0000-0000-0000000000c1', 'carol@example.test');

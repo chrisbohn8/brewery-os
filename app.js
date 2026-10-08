@@ -569,7 +569,7 @@ async function loadAll() {
     alertRules: alertRules.map((r) => ({ kind: r.kind, enabled: r.enabled, params: r.params || {}, recipients: r.recipients || [] })),
     alerts: alerts.map(mapAlert),
     planItems: planItems.map((i) => ({ id: i.id, kind: i.kind, title: i.title, plannedOn: i.planned_on, someday: i.someday,
-      tankId: i.tank_id, beerId: i.beer_id, batchId: i.batch_id, notes: i.notes, doneAt: i.done_at })),
+      tankId: i.tank_id, beerId: i.beer_id, batchId: i.batch_id, notes: i.notes, doneAt: i.done_at, assignedTo: i.assigned_to })),
     schedules: Object.fromEntries(schedules.map((s) => [s.beer_id, s.steps || []])),
     shifts: Object.fromEntries(shifts.map((s) => [s.batch_id, s.days])), // days a batch's schedule was pushed back
     rawOrders: rawOrders.map((o) => ({ id: o.id, itemId: o.item_id, amount: num(o.amount), expectedOn: o.expected_on, supplier: o.supplier, notes: o.notes })),
@@ -635,7 +635,8 @@ async function refresh() {
     await loadAll();
     render();
     saveOfflineCopy();
-    showOnline();
+    // (a load that was already on its way can finish just after the signal drops: still offline)
+    if (navigator.onLine) showOnline(); else showOffline();
   } finally {
     reloading--;
   }
@@ -2226,7 +2227,7 @@ async function loadIntoBrewery(source, description) {
   if (can("plan_schedule")) {
     insert("plan_items", (d.planItems || []).map((p) => ({ id: idFor(p.id), kind: p.kind, title: p.title || "", planned_on: p.plannedOn,
       someday: p.someday || "", tank_id: idFor(p.tankId), beer_id: idFor(p.beerId), batch_id: idFor(p.batchId), notes: p.notes || "",
-      done_at: p.doneAt ?? null })));
+      done_at: p.doneAt ?? null })));  // (who was on an item isn't restored: people belong to the brewery, not the backup)
     insert("beer_schedules", Object.entries(d.schedules || {}).map(([beerId, steps]) => ({ beer_id: idFor(beerId), steps })));
     insert("plan_shifts", Object.entries(d.shifts || {}).map(([batchId, days]) => ({ batch_id: idFor(batchId), days })));
     if (d.planLookaheadDays || d.recipesPer) update("breweries", brewery.id, { plan_lookahead_days: d.planLookaheadDays ?? 14,
@@ -4793,6 +4794,7 @@ function exportLists() {
     }),
     "plan": (data.planItems || []).map((p) => ({ "Day": p.plannedOn || "", "Someday": p.someday, "What": labelFrom(PLAN_KINDS, p.kind), "Name": p.title,
       "Beer": findBeer(p.beerId)?.name ?? "", "Tank": p.tankId ? tankName(p.tankId) : "", "Batch": p.batchId ? label(p.batchId) : "",
+      "Who": p.assignedTo ? (data.members || []).find((m) => m.userId === p.assignedTo)?.email ?? "" : "",
       "Done": planDone(p) ? "yes" : "", "Notes": p.notes })),
   };
 }
@@ -4867,6 +4869,13 @@ const IMPORT_KINDS = {
     { key: "ph", label: "pH", names: ["ph"] },
     { key: "temp", label: "Temperature", unit: "temperature", names: ["temp", "temperature"] },
     { key: "change", label: "Cellar change", names: ["cellar change", "cc", "change"] },
+    { key: "notes", label: "Notes", names: ["notes", "comment"] }] },
+  plan: { label: "Calendar plan", needs: "plan_schedule", fields: [
+    { key: "date", label: "Day", required: true, names: ["date", "day", "when"] },
+    { key: "what", label: "What", names: ["what", "task", "action", "item", "kind"] },
+    { key: "tank", label: "Tank", names: ["tank", "fv", "vessel"] },
+    { key: "beer", label: "Beer", names: ["beer", "brand"] },
+    { key: "who", label: "Who", names: ["who", "person", "brewer", "assigned"] },
     { key: "notes", label: "Notes", names: ["notes", "comment"] }] },
 };
 let importTable = null; // { headers: [...], rows: [[...]] }
@@ -4965,6 +4974,28 @@ function importPlan(kind) {
       seen.add(norm(number)); seen.add(`tank:${tank.id}`);
       return { status: "create", note: beer ? "" : `new beer "${get("beer")}"`, values: { number, beerName: get("beer"), beerId: beer?.id, tankId: tank.id,
         brewed, sizeBbl: get("size") ? fromShown("volume", readNumber(get("size"))) : null, stage, since: (get("since") && readDate(get("since"))) || brewed } };
+    }
+    if (kind === "plan") {
+      // A day, or rough words ("Fall") for a someday plan; what (one of the calendar's kinds, or
+      // the sheet's own words as the item's name); the tank and beer must already be in the app
+      const date = readDate(get("date"));
+      const tank = get("tank") ? byName(data.tanks, get("tank")) : null;
+      if (get("tank") && !tank) return { status: "problem", note: `no tank called "${get("tank")}"` };
+      const beer = get("beer") ? byName(data.beers, get("beer")) : null;
+      if (get("beer") && !beer) return { status: "problem", note: `no beer called "${get("beer")}"` };
+      const what = get("what");
+      const known = what ? importChoice(what, PLAN_KINDS) : null;
+      const planKind = known || (beer && !what ? "brew" : "other");
+      const title = known || (!what && beer) ? "" : what;
+      if (!what && !beer) return { status: "problem", note: "says neither what nor which beer" };
+      const who = get("who") ? (data.members || []).find((m) => m.email && (norm(m.email) === norm(get("who")) || norm(m.email.split("@")[0]) === norm(get("who")))) : null;
+      const key = `${planKind}|${date || get("date")}|${tank?.id || ""}|${beer?.id || ""}|${norm(title)}`;
+      const already = (data.planItems || []).some((p) => `${p.kind}|${p.plannedOn || p.someday}|${p.tankId || ""}|${p.beerId || ""}|${norm(p.title || "")}` === key);
+      if (already || seen.has(key)) return { status: "skip", note: "already on the calendar" };
+      seen.add(key);
+      return { status: "create", note: [date ? "" : `someday: "${get("date")}"`, get("who") && !who ? `"${get("who")}" isn't on the team (left empty)` : ""].filter(Boolean).join("; "),
+        values: { kind: planKind, title, plannedOn: date, someday: date ? "" : get("date").slice(0, 40), tankId: tank?.id || null, beerId: beer?.id || null,
+          assignedTo: who?.userId || null, notes: get("notes") } };
     }
     // cellar log
     const number = get("number").replace(/^#/, "");
@@ -5088,6 +5119,11 @@ document.getElementById("import-go").addEventListener("click", async () => {
           p_gravity_sg: r.gravitySg, p_ph: r.ph, p_temp_c: r.tempC, p_cellar_change: r.change, p_notes: r.notes, p_new_stage: null }));
         progress.textContent = `Imported ${++done} of ${rows.length}…`;
       }
+    }
+    if (kind === "plan") {
+      await must(db.from("plan_items").insert(rows.map((r) => ({ brewery_id: b, kind: r.kind, title: r.title, planned_on: r.plannedOn,
+        someday: r.someday, tank_id: r.tankId, beer_id: r.beerId, assigned_to: r.assignedTo, notes: r.notes }))));
+      done = rows.length;
     }
   });
   progress.textContent = ok ? `Imported ${done} ${done === 1 ? "row" : "rows"}.` : `Imported ${done} before a problem; the rest weren't. Fix it and import again (what's in is skipped).`;
@@ -6538,6 +6574,11 @@ function packsText(x) {
   return ` (${n} ${x.packName || "pack"}${n === 1 || !x.packName ? "" : "s"})`;
 }
 
+// Who's on an item: the first part of their email ("sam" for sam@brewery.com)
+const personName = (userId) => (data.members || []).find((m) => m.userId === userId)?.email.split("@")[0] || "";
+const myUserId = () => (data.members || []).find((m) => m.email === signedInEmail)?.userId;
+let calMine = (() => { try { return localStorage.getItem("brewery-os.cal-mine") === "1"; } catch { return false; } })();
+
 function planText(p) {
   const beer = p.beerId ? findBeer(p.beerId)?.name : "";
   const what = p.title || labelFrom(PLAN_KINDS, p.kind);
@@ -6565,8 +6606,11 @@ function renderCalendar() {
   document.getElementById("cal-range").textContent = `${formatDate(days[0])} – ${formatDate(days.at(-1))}`;
   const grid = document.getElementById("cal-grid");
   grid.style.setProperty("--days", n);
-  const expected = expectedItems();
-  const items = data.planItems || [];
+  // "My week": only what I'm on (and none of the expected steps)
+  const me = myUserId();
+  document.getElementById("cal-mine").setAttribute("aria-pressed", String(calMine));
+  const expected = calMine ? [] : expectedItems();
+  const items = (data.planItems || []).filter((p) => !calMine || p.assignedTo === me);
 
   const planChip = (p) => {
     const clash = planClash(p);
@@ -6574,7 +6618,7 @@ function renderCalendar() {
     const short = shortsFor(p.id).filter((x) => !x.dismissed);
     const why = clash || (short.length ? `Short of ${short.map((x) => x.itemName).join(", ")}` : planText(p));
     return `<button type="button" class="cal-chip${p.kind === "brew" ? " brew" : ""}${planDone(p) ? " done" : ""}${short.length ? " short" : ""}${clash ? " clash" : ""}${late ? " late" : ""}"
-      data-plan="${p.id}" title="${esc(why)}">${esc(planText(p))}${late ? ` · late (${formatDate(p.plannedOn)})` : ""}${short.length ? " · short" : ""}${clash ? " ⚠" : ""}</button>`;
+      data-plan="${p.id}" title="${esc(why)}">${esc(planText(p))}${p.assignedTo ? ` · ${esc(personName(p.assignedTo))}` : ""}${late ? ` · late (${formatDate(p.plannedOn)})` : ""}${short.length ? " · short" : ""}${clash ? " ⚠" : ""}</button>`;
   };
   const gravityLabel = (sg) => showUnit("gravity", sg);
   const expectedChip = (e) => e.dueNow
@@ -6627,6 +6671,38 @@ document.getElementById("calendar-view").addEventListener("click", (e) => {
   if (cellEl && can("plan_schedule")) openPlanEditor(null, { tankId: cellEl.dataset.cellTank || null, plannedOn: cellEl.dataset.cellDate });
 });
 document.getElementById("cal-add").addEventListener("click", () => openPlanEditor(null, { plannedOn: today() }));
+document.getElementById("cal-mine").addEventListener("click", () => {
+  calMine = !calMine;
+  try { localStorage.setItem("brewery-os.cal-mine", calMine ? "1" : "0"); } catch {}
+  renderCalendar();
+});
+
+// ----- The printable week (for the brewhouse wall): Monday to Sunday of the week shown -----
+function printWeek() {
+  const first = mondayOf(calStart ?? today());
+  const days = Array.from({ length: 7 }, (_, i) => addDays(first, i));
+  const expected = expectedItems();
+  const line = (text, cls = "") => `<div class="pw-item ${cls}">${esc(text)}</div>`;
+  const cellFor = (tankId, date) => (data.planItems || [])
+      .filter((p) => (p.tankId ?? null) === tankId && p.plannedOn === date)
+      .map((p) => line(`${planDone(p) ? "✓ " : ""}${planText(p)}${p.assignedTo ? ` (${personName(p.assignedTo)})` : ""}${planClash(p) ? " ⚠" : ""}`, planDone(p) ? "done" : ""))
+    .concat(expected.filter((e) => (e.tankId ?? null) === tankId && e.date === date)
+      .map((e) => line(`${labelFrom(PLAN_KINDS, e.kind)}: ${findBeer(e.beerId)?.name || ""}${e.dueNow ? " (due now)" : e.late ? " (late)" : " (expected)"}`, "expected")))
+    .join("");
+  const rows = [["Whole brewery", null], ...tankGroups().flatMap((g) => g.tanks.map((t) => [t.name, t.id]))];
+  const sheet = document.getElementById("print-sheet");
+  sheet.className = "print-week";
+  sheet.innerHTML = `
+    <header class="print-head"><div><div class="muted">${esc(brewery.name)} · Plan</div>
+      <h1>Week of ${esc(parseDate(first).toLocaleDateString(undefined, { month: "long", day: "numeric", year: "numeric" }))}</h1></div></header>
+    <table class="pw-table">
+      <thead><tr><th></th>${days.map((d) => `<th>${parseDate(d).toLocaleDateString(undefined, { weekday: "short" })} ${formatDate(d)}</th>`).join("")}</tr></thead>
+      <tbody>${rows.map(([name, id]) => `<tr><th>${esc(name)}</th>${days.map((d) => `<td>${cellFor(id, d)}</td>`).join("")}</tr>`).join("")}</tbody>
+    </table>
+    <p class="muted">Expected items come from beers' schedules. A plan is never a record: log the work in the app.</p>`;
+  window.print();
+}
+document.getElementById("cal-print").addEventListener("click", printWeek);
 
 // ----- Push the rest back: a batch behind its schedule -----
 // Moves its remaining steps later by a number of days (kept as the batch's push, never on the
@@ -6675,6 +6751,11 @@ function openPlanEditor(item, preset = {}) {
     beersByName().map((b) => `<option value="${b.id}">${esc(b.name)}</option>`).join("");
   planForm.tankId.innerHTML = `<option value="">Whole brewery (no tank)</option>` + tankGroups().map((g) =>
     `<optgroup label="${esc(g.name)}">${g.tanks.map((t) => `<option value="${t.id}">${esc(t.name)}</option>`).join("")}</optgroup>`).join("");
+  const me = myUserId();
+  planForm.assignedTo.innerHTML = `<option value="">—</option>` + (data.members || []).filter((m) => m.email)
+    .sort((a, b) => a.email.localeCompare(b.email))
+    .map((m) => `<option value="${m.userId}">${esc(m.email)}${m.userId === me ? " (you)" : ""}</option>`).join("");
+  planForm.assignedTo.value = p.assignedTo || "";
   planForm.kind.value = p.kind;
   planForm.title.value = p.title || "";
   planForm.beerId.value = p.beerId || "";
@@ -6687,7 +6768,7 @@ function openPlanEditor(item, preset = {}) {
   // Planning changes anything; moving changes the day, the tank, and "done"; otherwise look only
   for (const name of ["kind", "title", "beerId", "notes", "someday"]) planForm[name].disabled = !canPlan;
   planForm.querySelectorAll('[name="when"]').forEach((r) => { r.disabled = !canPlan; });
-  for (const name of ["tankId", "plannedOn", "done"]) planForm[name].disabled = !canMove;
+  for (const name of ["tankId", "plannedOn", "done", "assignedTo"]) planForm[name].disabled = !canMove;
   document.getElementById("save-plan").hidden = !canMove;
   document.getElementById("delete-plan").hidden = !item || !canPlan;
   document.getElementById("plan-done-field").hidden = !item;
@@ -6740,6 +6821,7 @@ planForm.addEventListener("submit", async (e) => {
     tank_id: planForm.tankId.value || null, planned_on: onDay ? planForm.plannedOn.value : null,
     someday: onDay ? "" : planForm.someday.value.trim(), notes: planForm.notes.value.trim(),
     done_at: planForm.done.checked ? (editingPlan?.doneAt || new Date().toISOString()) : null,
+    assigned_to: planForm.assignedTo.value || null,
   };
   if (editingPlan && !can("plan_schedule")) { // moving only: send just what may change
     for (const k of ["kind", "title", "beer_id", "someday", "notes"]) delete row[k];
