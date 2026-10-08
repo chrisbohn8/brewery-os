@@ -558,6 +558,13 @@ The user's idea (2026-10-08): see the week ahead, tank by tank, and know before 
 ### Later: the official app, and a feature tour
 - [ ] **Installable web app** (home-screen icon, full screen): quick, any time.
 - [ ] **App Store app** (the user's idea: an "official" app earns respect): the same code in a native shell (Capacitor), so no rewrite. Needs an Apple Developer account ($99/year), icons and screenshots, and Apple's review; native features make the case for it (camera QR scanning, push reminders like "acid due" or "under par", keeping the screen awake on the brew deck). A few days of work plus about a week of review. **Android** from the same project later ($25 one-time). Best timed before the pilots, with onboarding.
+- [ ] **An Apple Watch app for brew days** (the user's idea, 2026-10-08): the brew-day sheet on the wrist, hands free on the brew deck.
+    - **Where you are:** the current step (mash in, rest, vorlauf, sparge, boil, whirlpool, knockout) and what's next, from the brew-day sheet and the recipe, with a tap to move on.
+    - **Timers that tap your wrist:** mash rest, boil, and each hop addition ("15 min: 4 lb Citra"), so nobody misses one while cleaning out the mash tun.
+    - **Entering readings** with a couple of presses (the number dial) or by voice ("gravity 12.4"). Voice is read by simple, fixed patterns, never a guess, and every value is shown for a one-tap confirm before it's saved (product principles 1 and 2).
+    - Goes through the phone, so no signal on the brew deck is handled like the app's offline changes: kept, sent in order, nothing dropped.
+    - Needs the App Store app first (a watch app is a small native companion to it, written separately from the web app's code).
+    - **Smart glasses** (Meta and similar) are the same idea with the screen in front of your eyes; not until they're more common.
 - [ ] **A video tour of every feature and way to customize the app** (the user's idea): Claude compiles the feature list and a short script for each feature; the user records the videos.
 
 ### Phase 7: TTB reporting
