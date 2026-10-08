@@ -311,7 +311,7 @@ function explain(error) {
 let serverData = null;
 async function loadAll() {
   const b = brewery.id;
-  const [locations, beers, tanks, batches, events, cleanings, settings, members, invites, permissions, memberRows, levels, cellar, additions, readings, movements, packageTypes, packageCounts, places, stockMoves, pars, rawItems, rawReceipts, rawAdjustments] = await Promise.all([
+  const [locations, beers, tanks, batches, events, cleanings, settings, members, invites, permissions, memberRows, levels, cellar, additions, readings, movements, packageTypes, packageCounts, places, stockMoves, pars, rawItems, rawReceipts, rawAdjustments, lines] = await Promise.all([
     must(db.from("locations").select("*").eq("brewery_id", b).order("created_at")),
     must(db.from("beers").select("*").eq("brewery_id", b)),
     must(db.from("tanks").select("*").eq("brewery_id", b).order("created_at")),
@@ -337,6 +337,7 @@ async function loadAll() {
     must(db.from("raw_items").select("*").eq("brewery_id", b).order("created_at")),
     must(db.from("raw_receipts").select("*").eq("brewery_id", b).order("received_on").order("recorded_at")),
     must(db.from("raw_adjustments").select("*").eq("brewery_id", b).order("adjusted_on").order("recorded_at")),
+    must(db.from("draft_lines").select("*").eq("brewery_id", b)),
   ]);
   // Each member: email and level (from brewery_members) plus their personal adjustments
   const adjustments = Object.fromEntries(memberRows.map((r) => [r.user_id, r]));
@@ -403,7 +404,9 @@ async function loadAll() {
     rawAdjustments: rawAdjustments.map((a) => ({ id: a.id, itemId: a.item_id, lot: a.lot, adjustedOn: a.adjusted_on, change: num(a.change),
       reason: a.reason, recordedAt: a.recorded_at })),
     pars: pars.map((p) => ({ id: p.id, placeId: p.place_id, beerId: p.beer_id, parBbl: num(p.par_bbl), parCases: num(p.par_cases) })),
-    places: places.map((p) => ({ id: p.id, locationId: p.location_id, name: p.name, kind: p.kind, active: p.active })),
+    places: places.map((p) => ({ id: p.id, locationId: p.location_id, name: p.name, kind: p.kind, active: p.active,
+      sortMode: p.sort_mode, beerOrder: p.beer_order || [] })),
+    lines: lines.map((l) => ({ id: l.id, placeId: l.place_id, lineNo: l.line_no, status: l.status, beerId: l.beer_id, label: l.label })),
     stockMoves: stockMoves.map((m) => ({
       id: m.id, groupId: m.group_id, occurredOn: m.occurred_on, kind: m.kind, removalKind: m.removal_kind, beerId: m.beer_id,
       batchId: m.batch_id, packageTypeId: m.package_type_id, count: num(m.count), fromPlaceId: m.from_place_id,
@@ -858,6 +861,7 @@ function withWaitingChanges(base) {
   d.rawItems ??= [];
   d.rawReceipts ??= [];
   d.rawAdjustments ??= [];
+  d.lines ??= [];
   for (const change of outbox) SHOW[change.kind](d, change.args);
   return d;
 }
@@ -1934,6 +1938,8 @@ async function loadIntoBrewery(source, description) {
             const same = current.find((c) => c.name.toLowerCase() === p.name.toLowerCase() && (c.location_id ?? null) === (idFor(p.locationId) ?? null));
             if (same) ids.set(p.id, same.id);
             else await must(db.from("stock_places").insert({ id: idFor(p.id), brewery_id: b, location_id: idFor(p.locationId), name: p.name, kind: p.kind, active: p.active }));
+            await must(db.from("stock_places").update({ sort_mode: p.sortMode || (p.kind === "taproom" ? "lines" : "az"),
+              beer_order: (p.beerOrder || []).map(idFor) }).eq("id", idFor(p.id)));
           }
         }
 
@@ -1966,6 +1972,10 @@ async function loadIntoBrewery(source, description) {
             ...(r.recordedAt && { recorded_at: r.recordedAt }) }))));
           if (d.rawAdjustments?.length) await must(db.from("raw_adjustments").insert(d.rawAdjustments.map((a) => ({ brewery_id: b, item_id: idFor(a.itemId),
             lot: a.lot || "", adjusted_on: a.adjustedOn, change: a.change, reason: a.reason || "", ...(a.recordedAt && { recorded_at: a.recordedAt }) }))));
+        }
+        if (d.lines?.length) {
+          await must(db.from("draft_lines").insert(d.lines.map((l) => ({ brewery_id: b, place_id: idFor(l.placeId), line_no: l.lineNo,
+            status: l.status, beer_id: idFor(l.beerId), label: l.label || "" }))));
         }
         if (d.pars?.length) {
           await must(db.from("stock_pars").insert(d.pars.map((p) => ({
@@ -3322,7 +3332,7 @@ function renderInventory() {
   const rows = stockOnHand().filter((r) => inventoryPlace === "all" || r.placeId === inventoryPlace);
   const typeIds = [...new Set(rows.map((r) => r.typeId))];
   const types = (data.packageTypes || []).filter((t) => typeIds.includes(t.id) || (t.active && !rows.length));
-  const beers = [...new Set(rows.map((r) => r.beerId))].map(findBeer).filter(Boolean).sort((a, b) => a.name.localeCompare(b.name));
+  const beers = orderBeers(inventoryPlace === "all" ? null : inventoryPlace, [...new Set(rows.map((r) => r.beerId))]).map(findBeer).filter(Boolean);
   const bbl = (rs) => rs.reduce((sum, r) => sum + r.count * (typeOf(r.typeId)?.volumeBbl || 0), 0);
   const cell = (n) => `<td class="${n ? "" : "zero"}">${n ? +n.toFixed(2) : "–"}</td>`;
   const head = `<tr><th>Beer</th>${types.map((t) => `<th>${esc(t.name)}</th>`).join("")}<th>Total</th></tr>`;
@@ -3348,6 +3358,8 @@ function renderInventory() {
     ? `<table class="inv-table">${head}${body}${foot}</table>`
     : `<p class="muted">Nothing on hand${inventoryPlace === "all" ? "" : " here"}. Packaging puts kegs and cases into stock; a count adds what's already on the shelf.</p>`;
 
+  renderSortChoice();
+  renderLines();
   renderPars();
   if (inventoryTab === "raw") renderRaw();
 
@@ -3438,7 +3450,9 @@ function openCountSheet() {
 function startCountSheet() {
   const place = (data.places || []).find((p) => p.id === countForm.placeId.value);
   countForm.drop.value = place?.kind === "taproom" ? "taproom" : "unknown";
-  countBeers = [...new Set(stockOnHand().filter((r) => r.placeId === place.id && r.count > 0).map((r) => r.beerId))];
+  // Beers with stock here, plus (a taproom) every beer on a line, so the sheet walks the bar
+  countBeers = [...new Set([...stockOnHand().filter((r) => r.placeId === place.id && r.count > 0).map((r) => r.beerId),
+    ...placeLines(place.id).filter((l) => l.beerId).map((l) => l.beerId)])];
   renderCountSheet();
 }
 const expectedAt = (placeId, beerId, typeId) =>
@@ -3447,10 +3461,11 @@ const expectedAt = (placeId, beerId, typeId) =>
 function renderCountSheet() {
   const placeId = countForm.placeId.value;
   const types = (data.packageTypes || []).filter((t) => t.active || countBeers.some((b) => expectedAt(placeId, b, t.id)));
-  const beers = countBeers.map(findBeer).filter(Boolean).sort((a, b) => a.name.localeCompare(b.name));
+  const beers = orderBeers(placeId, countBeers).map(findBeer).filter(Boolean);
+  const lineNos = (id) => placeLines(placeId).filter((l) => l.beerId === id).map((l) => l.lineNo).join(", ");
   document.getElementById("count-sheet").innerHTML = beers.length ? `<table class="inv-table">
     <tr><th>Beer</th>${types.map((t) => `<th>${esc(t.name)}</th>`).join("")}</tr>
-    ${beers.map((beer) => `<tr><td>${esc(beer.name)}</td>${types.map((t) => {
+    ${beers.map((beer) => `<tr><td>${lineNos(beer.id) ? `<span class="line-no">${lineNos(beer.id)}</span> ` : ""}${esc(beer.name)}</td>${types.map((t) => {
       const n = +expectedAt(placeId, beer.id, t.id).toFixed(2);
       return `<td><input type="number" min="0" step="any" inputmode="decimal" value="${n}" data-expected="${n}" data-beer="${beer.id}" data-type="${t.id}" aria-label="${esc(beer.name)}, ${esc(t.name)}"></td>`;
     }).join("")}</tr>`).join("")}
@@ -3609,7 +3624,7 @@ function renderPars() {
   const placeId = inventoryPlace === "all" ? null : inventoryPlace;
   const place = (data.places || []).find((p) => p.id === placeId);
   const canSet = can("inventory");
-  const beers = data.beers.filter((b) => parFor(placeId, b.id)).sort((a, b) => a.name.localeCompare(b.name));
+  const beers = orderBeers(placeId, data.beers.filter((b) => parFor(placeId, b.id)).map((b) => b.id)).map(findBeer);
   const signed = (n, unit) => `${n > 0 ? "+" : n < 0 ? "−" : ""}${unit(Math.abs(n))}`;
   const bblText = (n) => showUnit("volume", n);
   const caseText = (n) => `${+n.toFixed(2)} cases`;
@@ -3638,7 +3653,9 @@ function renderPars() {
   deck.hidden = place?.kind !== "taproom";
   if (deck.hidden) return;
   const inStorage = stockOnHand().filter((r) => r.count > 0 && (data.places || []).find((p) => p.id === r.placeId)?.kind === "storage");
-  const here = new Set(stockOnHand().filter((r) => r.placeId === placeId && r.count > 0).map((r) => r.beerId));
+  // Already here: kegs on hand, or on one of its draft lines
+  const here = new Set([...stockOnHand().filter((r) => r.placeId === placeId && r.count > 0).map((r) => r.beerId),
+    ...placeLines(placeId).filter((l) => l.beerId).map((l) => l.beerId)]);
   const waiting = [...new Set(inStorage.map((r) => r.beerId))].filter((id) => !here.has(id)).map(findBeer).filter(Boolean)
     .sort((a, b) => a.name.localeCompare(b.name));
   deck.innerHTML = `<h2>On deck for ${esc(placeName(placeId))}</h2>
@@ -3922,6 +3939,162 @@ function suggestLots() {
     ? rawLots(item).filter((l) => l.lot && l.onHand > 1e-6).map((l) => `<option value="${esc(l.lot)}">${esc(rawAmount(item, l.onHand))} on hand</option>`).join("")
     : "";
 }
+
+// ----- Draft lines and the order beers are listed in -----
+// A taproom's draft lines: numbered, each pouring a beer, something else (a label), empty, or out
+// of order. Each place lists its beers A-Z, oldest batch first, in its own order, or (a taproom) by
+// draft line. "All places" remembers its choice on this device.
+const SORT_MODES = { az: "A–Z", oldest: "Oldest batch first", custom: "Our own order", lines: "Draft line order" };
+const placeLines = (placeId) => (data.lines || []).filter((l) => l.placeId === placeId).sort((a, b) => a.lineNo - b.lineNo);
+function readAllPlacesSort() {
+  try { return localStorage.getItem("brewery-os.inventory-sort") || "az"; } catch { return "az"; }
+}
+function sortModeFor(placeId) {
+  const place = (data.places || []).find((p) => p.id === placeId);
+  if (!place) return readAllPlacesSort();
+  return place.sortMode === "lines" && place.kind !== "taproom" ? "az" : place.sortMode;
+}
+// Beer ids in the place's order; beers without a line or a spot go last, A-Z
+function orderBeers(placeId, beerIds) {
+  const mode = sortModeFor(placeId);
+  const place = (data.places || []).find((p) => p.id === placeId);
+  const name = (id) => findBeer(id)?.name || "";
+  const lineOf = (id) => Math.min(...placeLines(placeId).filter((l) => l.beerId === id).map((l) => l.lineNo), Infinity);
+  const spotOf = (id) => { const i = (place?.beerOrder || []).indexOf(id); return i < 0 ? Infinity : i; };
+  const oldest = (id) => {
+    const dates = stockOnHand().filter((r) => r.beerId === id && r.count > 0 && (!placeId || r.placeId === placeId))
+      .map((r) => (r.batchId ? findBatchById(r.batchId)?.brewDate || "~" : "")); // no batch = from before the app = oldest
+    return dates.length ? dates.sort()[0] : "~";
+  };
+  const key = { lines: lineOf, custom: spotOf, oldest }[mode];
+  return [...beerIds].sort((a, b) => {
+    if (key) {
+      const ka = key(a), kb = key(b);
+      if (ka < kb) return -1;
+      if (ka > kb) return 1;
+    }
+    return name(a).localeCompare(name(b));
+  });
+}
+
+function renderSortChoice() {
+  const placeId = inventoryPlace === "all" ? null : inventoryPlace;
+  const place = (data.places || []).find((p) => p.id === placeId);
+  const select = document.getElementById("inv-sort");
+  select.innerHTML = Object.entries(SORT_MODES).filter(([id]) => id !== "lines" || place?.kind === "taproom")
+    .filter(([id]) => id !== "custom" || place).map(([id, label]) => `<option value="${id}">${label}</option>`).join("");
+  select.value = sortModeFor(placeId);
+  select.disabled = !!place && !can("inventory");
+  document.getElementById("inv-arrange").hidden = !(place && select.value === "custom" && can("inventory"));
+}
+document.getElementById("inv-sort").addEventListener("change", async (e) => {
+  const placeId = inventoryPlace === "all" ? null : inventoryPlace;
+  if (!placeId) {
+    try { localStorage.setItem("brewery-os.inventory-sort", e.target.value); } catch { /* fine: just not remembered */ }
+    renderInventory();
+    return;
+  }
+  await save(() => must(db.rpc("set_place_order", { p_place_id: placeId, p_sort_mode: e.target.value, p_beer_order: null })));
+});
+
+// Arranging a place's own order: up and down
+const arrangeDialog = document.getElementById("arrange-editor");
+let arranging = [];
+function openArrange() {
+  const place = data.places.find((p) => p.id === inventoryPlace);
+  const withStock = [...new Set(stockOnHand().filter((r) => r.placeId === place.id && r.count > 0).map((r) => r.beerId))];
+  arranging = orderBeers(place.id, [...new Set([...place.beerOrder.filter((id) => findBeer(id)), ...withStock])]);
+  renderArrange();
+  arrangeDialog.showModal();
+}
+function renderArrange() {
+  document.getElementById("arrange-list").innerHTML = arranging.map((id, i) => `<li class="item arrange-row">
+    <span>${i + 1}. ${esc(findBeer(id)?.name ?? "")}</span>
+    <span class="actions"><button type="button" class="btn small" data-move="${i}" data-dir="-1" ${i ? "" : "disabled"} aria-label="Up">↑</button>
+      <button type="button" class="btn small" data-move="${i}" data-dir="1" ${i < arranging.length - 1 ? "" : "disabled"} aria-label="Down">↓</button></span></li>`).join("");
+}
+document.getElementById("arrange-list").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-move]");
+  if (!b) return;
+  const i = Number(b.dataset.move), j = i + Number(b.dataset.dir);
+  [arranging[i], arranging[j]] = [arranging[j], arranging[i]];
+  renderArrange();
+});
+document.getElementById("arrange-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const ok = await save(() => must(db.rpc("set_place_order", { p_place_id: inventoryPlace, p_sort_mode: "custom", p_beer_order: arranging })));
+  if (ok) arrangeDialog.close();
+});
+document.getElementById("inv-arrange").addEventListener("click", openArrange);
+
+// The draft lines of the taproom being looked at
+function renderLines() {
+  const place = (data.places || []).find((p) => p.id === inventoryPlace);
+  const box = document.getElementById("inv-lines");
+  box.hidden = place?.kind !== "taproom";
+  if (box.hidden) return;
+  const canEdit = can("inventory");
+  const lines = placeLines(place.id);
+  const here = stockOnHand().filter((r) => r.placeId === place.id && r.count > 0);
+  const what = (l) => {
+    if (l.status === "beer") {
+      const kegs = here.filter((r) => r.beerId === l.beerId);
+      const stock = [...new Set(kegs.map((r) => r.typeId))].map((t) => `${+sumCount(kegs.filter((r) => r.typeId === t)).toFixed(2)} × ${esc(typeOf(t)?.name ?? "")}`).join(", ");
+      return `<strong>${esc(findBeer(l.beerId)?.name ?? "A beer")}</strong>${stock ? ` <span class="muted">· ${stock} here</span>` : ` <span class="muted">· none here</span>`}`;
+    }
+    return { other: esc(l.label || "Something else"), empty: `<span class="muted">Empty</span>`, out: `<span class="muted">Out of order</span>` }[l.status];
+  };
+  const empty = lines.filter((l) => l.status === "empty").length;
+  box.innerHTML = `<div class="section-head"><h2>Draft lines</h2>${empty ? `<span class="muted">${empty} empty</span>` : ""}</div>
+    <ul class="plain log-list">${lines.map((l) => `<li class="item"><button type="button" class="entry ${canEdit ? "" : "static"}" data-line="${l.id}">
+      <span class="line-no">${l.lineNo}</span> ${what(l)}</button></li>`).join("") || `<li class="item muted">No lines yet.</li>`}</ul>
+    ${canEdit ? `<div class="actions"><button type="button" class="btn small" id="add-line">+ Add a line</button>
+      ${lines.length && lines.at(-1).status === "empty" ? `<button type="button" class="btn small" id="remove-line">Remove line ${lines.at(-1).lineNo}</button>` : ""}</div>` : ""}`;
+}
+
+const lineDialog = document.getElementById("line-editor");
+const lineForm = document.getElementById("line-form");
+let editingLine = null;
+function openLineEditor(line) {
+  editingLine = line;
+  const placeId = line.placeId;
+  document.getElementById("line-title").textContent = `Line ${line.lineNo}`;
+  // Beers: those here first, then those in storage (on deck), then the rest
+  const here = new Set(stockOnHand().filter((r) => r.placeId === placeId && r.count > 0).map((r) => r.beerId));
+  const stored = new Set(stockOnHand().filter((r) => r.count > 0).map((r) => r.beerId));
+  const group = (label, ids) => ids.length ? `<optgroup label="${label}">${ids.map((id) => `<option value="${id}">${esc(findBeer(id).name)}</option>`).join("")}</optgroup>` : "";
+  const byName = (ids) => [...ids].filter(findBeer).sort((a, b) => findBeer(a).name.localeCompare(findBeer(b).name));
+  lineForm.beerId.innerHTML = group("Here", byName(here)) + group("In storage", byName([...stored].filter((id) => !here.has(id))))
+    + group("Others", byName(data.beers.map((b) => b.id).filter((id) => !stored.has(id))));
+  lineForm.status.value = line.status;
+  if (line.beerId) lineForm.beerId.value = line.beerId;
+  lineForm.label.value = line.label || "";
+  lineDialog.showModal();
+}
+document.getElementById("inv-lines").addEventListener("click", async (e) => {
+  const row = e.target.closest("[data-line]");
+  if (row && can("inventory")) openLineEditor(data.lines.find((l) => l.id === row.dataset.line));
+  if (e.target.closest("#add-line")) {
+    const next = (placeLines(inventoryPlace).at(-1)?.lineNo || 0) + 1;
+    await save(() => must(db.from("draft_lines").insert({ brewery_id: brewery.id, place_id: inventoryPlace, line_no: next, status: "empty" })));
+  }
+  if (e.target.closest("#remove-line")) {
+    await save(() => must(db.from("draft_lines").delete().eq("id", placeLines(inventoryPlace).at(-1).id)));
+  }
+});
+lineForm.addEventListener("change", (e) => {
+  if (e.target.name === "beerId") lineForm.status.value = "beer";
+});
+lineForm.label.addEventListener("input", () => { lineForm.status.value = "other"; });
+lineForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const status = lineForm.status.value;
+  if (status === "other" && !lineForm.label.value.trim()) { alert("Say what's on this line (like: Wine, Cider)."); return; }
+  const ok = await save(() => must(db.from("draft_lines").update({
+    status, beer_id: status === "beer" ? lineForm.beerId.value : null, label: status === "other" ? lineForm.label.value.trim() : "",
+  }).eq("id", editingLine.id)));
+  if (ok) lineDialog.close();
+});
 
 // ----- Stock places (Settings → Equipment) -----
 function renderPlaces() {

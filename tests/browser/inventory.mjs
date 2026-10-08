@@ -230,6 +230,55 @@ try {
   check(await page.isHidden("#inv-deck"), "no 'on deck' for all places");
   await page.screenshot({ path: SHOTS + "inventory.png" });
 
+  console.log("9b. Draft lines at the taproom, and listing beers in their order");
+  await page.click(`#inv-places [data-place="${taproom}"]`);
+  check((await page.inputValue("#inv-sort")) === "lines", "a taproom lists its beers by draft line");
+  for (let i = 0; i < 3; i++) { await page.click("#add-line"); await allSent(); }
+  const lineIds = await page.evaluate((p) => placeLines(p).map((l) => l.id), taproom);
+  // Line 1: Old Stock; line 2: wine; line 3: the Inv Ale (so line order differs from A-Z)
+  await page.click(`[data-line="${lineIds[0]}"]`);
+  await page.waitForSelector("#line-editor[open]");
+  await page.selectOption('#line-form [name="beerId"]', oldBeer);
+  check(await page.isChecked('#line-form [name="status"][value="beer"]'), "choosing a beer marks the line as pouring it");
+  await page.click("#line-form button[type=submit]");
+  await allSent();
+  await page.click(`[data-line="${lineIds[1]}"]`);
+  await page.waitForSelector("#line-editor[open]");
+  await page.fill('#line-form [name="label"]', "Wine");
+  await page.click("#line-form button[type=submit]");
+  await allSent();
+  await page.click(`[data-line="${lineIds[2]}"]`);
+  await page.waitForSelector("#line-editor[open]");
+  await page.selectOption('#line-form [name="beerId"]', beerId);
+  await page.click("#line-form button[type=submit]");
+  await allSent();
+  await page.screenshot({ path: SHOTS + "lines.png", fullPage: true });
+  const linesText = await text("#inv-lines");
+  check(/1 Old Stock .* none here 2 Wine 3 Inv Ale .* 8 × ½ bbl keg here/.test(linesText), `lines: "${linesText.slice(0, 150)}"`);
+  check(!(await text("#inv-deck")).includes(`Old Stock ${run}`), "a beer on a line isn't 'on deck' any more");
+  await page.click("#inv-count");
+  await page.waitForSelector("#count-editor[open]");
+  await page.selectOption('#count-form [name="placeId"]', taproom);
+  const firstRows = await page.evaluate(() => [...document.querySelectorAll("#count-sheet tr")].slice(1).map((r) => r.cells[0].innerText.replace(/\s+/g, " ")));
+  check(firstRows[0].startsWith("1 Old Stock") && firstRows[1].startsWith("3 Inv Ale"), `the taproom's count sheet walks the lines: ${JSON.stringify(firstRows)}`);
+  await page.click("#count-editor .cancel");
+  // Storage: its own order
+  await page.click(`#inv-places [data-place="${storage}"]`);
+  await page.selectOption("#inv-sort", "custom");
+  await allSent();
+  await page.click("#inv-arrange");
+  await page.waitForSelector("#arrange-editor[open]");
+  const before = await page.evaluate(() => arranging.map((id) => findBeer(id).name));
+  await page.click('#arrange-list [data-move="1"][data-dir="-1"]');
+  await page.click("#arrange-form button[type=submit]");
+  await allSent();
+  const after = await page.evaluate((p) => data.places.find((x) => x.id === p).beerOrder.map((id) => findBeer(id)?.name), storage);
+  check(after[0] === before[1] && after[1] === before[0], "moving a beer up saves the place's own order");
+  const listed = await page.evaluate(() => [...document.querySelectorAll("#inv-table [data-inv-beer]")].map((r) => r.cells[0].innerText));
+  check(listed[0] === after[0], `and the table follows it (${listed.slice(0, 2).join(", ")})`);
+  await page.selectOption("#inv-sort", "az");
+  await allSent();
+
   console.log("10. Raw materials: an item, a delivery, use on a batch, a count, and traceability");
   await page.click('#inv-tabs [data-inv-tab="raw"]');
   await page.click("#raw-items-open");

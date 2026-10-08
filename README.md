@@ -137,6 +137,11 @@ These shape every decision, even for features that come later:
 - Everything works offline, and a new permission, **"Count and move finished goods"**, is part of Cellar and up by default.
 - **Pars** (step 2): how much of each beer a place should have, in barrels and/or cases (a taproom's pars), plus a **brewery-wide par** per beer. Each place shows **over / under**, and what to **bring up** ("Bring up 3 × ½ bbl keg from Storage", one tap fills in the move). A taproom also shows what's **on deck**: beers in storage that aren't there yet.
 
+### Draft lines and the order beers are listed in
+- **A taproom's draft lines** (Inventory → a taproom): numbered lines, each pouring a beer, something else (wine, cider, a guest beer), empty, or out of order. Tap a line to change it; add or remove lines. The beer picker lists beers here first, then those in storage.
+- **Each place lists its beers in its own order:** A–Z, **oldest batch first**, **our own order** (arranged with up and down), or, for a taproom, **draft line order** (the default). Count sheets follow it, so counting a taproom walks the bar, line by line. "All places" remembers its choice on each device.
+- "On deck" leaves out beers that are already on a line.
+
 ### Raw materials (Phase 6, step 3)
 - **Inventory → Raw materials:** items (malt, hops, salts, yeast, chemicals...) with a unit, a pack (a 55 lb sack, a 44 lb box), and a reorder level.
 - **Receive** a delivery by lot, in packs or the item's unit, with the supplier and (optionally) the cost.

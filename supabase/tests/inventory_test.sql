@@ -7,7 +7,7 @@ set local role postgres;
 create extension if not exists pgtap with schema extensions;
 set search_path = public, extensions;
 
-select plan(24);
+select plan(29);
 
 insert into auth.users (id, email) values
   ('00000000-0000-0000-0000-0000000000aa', 'admin@example.test'),
@@ -100,6 +100,21 @@ select is((select sum(amount) from raw_receipts) + (select sum(change) from raw_
 select throws_ok($$ insert into raw_items (brewery_id, name) select b, 'PILSNER MALT' from ids $$, '23505', null, 'item names are unique (any capitals)');
 update raw_adjustments set change = 1;
 select is((select change from raw_adjustments), -55::numeric, 'counts can''t be edited');
+
+-- 5d. Draft lines and the order a place lists its beers
+select is((select sort_mode from stock_places where id = 'aa000000-0000-0000-0000-0000000000f2'), 'lines', 'a taproom lists its beers in draft line order');
+insert into draft_lines (brewery_id, place_id, line_no, status, beer_id) select b, 'aa000000-0000-0000-0000-0000000000f2', 1, 'beer', 'aa000000-0000-0000-0000-0000000000be' from ids;
+insert into draft_lines (brewery_id, place_id, line_no, status, label) select b, 'aa000000-0000-0000-0000-0000000000f2', 2, 'other', 'Wine' from ids;
+select throws_ok($$ insert into draft_lines (brewery_id, place_id, line_no, status) select b, 'aa000000-0000-0000-0000-0000000000f2', 1, 'empty' from ids $$,
+  '23505', null, 'one beer per line number');
+select throws_ok($$ insert into draft_lines (brewery_id, place_id, line_no, status) select b, 'aa000000-0000-0000-0000-0000000000f2', 3, 'beer' from ids $$,
+  '23514', null, 'a line pouring beer names the beer');
+insert into beers (id, brewery_id, code, name) select 'aa000000-0000-0000-0000-0000000000b9', b, 'gone', 'Gone Beer' from ids;
+insert into draft_lines (brewery_id, place_id, line_no, status, beer_id) select b, 'aa000000-0000-0000-0000-0000000000f2', 3, 'beer', 'aa000000-0000-0000-0000-0000000000b9' from ids;
+delete from beers where id = 'aa000000-0000-0000-0000-0000000000b9';
+select is((select status from draft_lines where line_no = 3), 'empty', 'deleting a beer that''s on a line leaves the line empty');
+select public.set_place_order(pg_temp.storage(), 'custom', array['aa000000-0000-0000-0000-0000000000bf', 'aa000000-0000-0000-0000-0000000000be']::uuid[]);
+select is((select sort_mode || ':' || array_length(beer_order, 1) from stock_places where id = pg_temp.storage()), 'custom:2', 'a place can have its own order');
 
 -- 6. A brewery that asks for a reason on every stock change
 update breweries set require_stock_reason = true, stock_reasons = array['Stocked the taproom', 'Dock sale'];

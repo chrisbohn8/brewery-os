@@ -121,9 +121,12 @@
       <button id="inv-remove" class="btn" data-needs="inventory">Remove</button>
     </div>
     <div id="inv-places" class="place-chips" role="tablist" aria-label="Place"></div>
+    <div class="sort-bar"><label class="inline-label">Order <select id="inv-sort"></select></label>
+      <button type="button" id="inv-arrange" class="btn small" hidden>Arrange…</button></div>
     <div id="inv-table" class="inv-table-wrap"></div>
     <p class="muted">Tap a beer to see the batches behind it. Stock comes in from packaging runs and goes out by removals and counts.</p>
   </section>
+  <section class="list-section" id="inv-lines" hidden></section>
   <section class="list-section" id="inv-pars"></section>
   <section class="list-section" id="inv-deck" hidden></section>
   <section class="list-section">
@@ -937,6 +940,31 @@
       <label class="choice"><input type="checkbox" name="active" checked> In use</label>
       <div class="actions"><span class="spacer"></span>
         <button type="button" class="btn cancel">Close</button><button type="submit" class="btn primary" id="raw-item-save">Add item</button></div>
+    </form>
+  </dialog>
+
+  <!-- A draft line: what's pouring on it -->
+  <dialog id="line-editor">
+    <form id="line-form">
+      <h2 id="line-title" tabindex="-1" autofocus>Line</h2>
+      <label class="choice"><input type="radio" name="status" value="beer"> A beer</label>
+      <select name="beerId" aria-label="Beer"></select>
+      <label class="choice"><input type="radio" name="status" value="other"> Something else</label>
+      <input name="label" maxlength="60" placeholder="Like: Wine, Cider, a guest beer" aria-label="What's on it">
+      <label class="choice"><input type="radio" name="status" value="empty"> Empty</label>
+      <label class="choice"><input type="radio" name="status" value="out"> Out of order</label>
+      <div class="actions"><span class="spacer"></span>
+        <button type="button" class="btn cancel">Cancel</button><button type="submit" class="btn primary">Save</button></div>
+    </form>
+  </dialog>
+  <!-- A place's own order -->
+  <dialog id="arrange-editor">
+    <form id="arrange-form">
+      <h2 tabindex="-1" autofocus>Arrange</h2>
+      <p class="muted">The order this place lists its beers in (count sheets too).</p>
+      <ul id="arrange-list" class="plain"></ul>
+      <div class="actions"><span class="spacer"></span>
+        <button type="button" class="btn cancel">Cancel</button><button type="submit" class="btn primary">Save order</button></div>
     </form>
   </dialog>
 
