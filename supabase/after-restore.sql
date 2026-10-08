@@ -24,3 +24,5 @@ revoke execute on function public.record_count(uuid, uuid, uuid, date, jsonb, te
 revoke execute on function public.default_stock_place(uuid, uuid) from anon, authenticated;
 revoke execute on function public.take_stock(uuid, uuid, date, text, text, uuid, uuid, uuid, numeric, uuid, uuid, text, text) from anon, authenticated;
 revoke execute on function public.set_place_order(uuid, text, uuid[]) from anon;
+revoke execute on function public.create_api_key(uuid, text, text[]) from anon;
+revoke execute on function public.revoke_api_key(uuid) from anon;

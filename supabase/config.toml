@@ -465,3 +465,7 @@ max_namespaces = 10
 # with the caller's own sign-in), so the gateway's own token check isn't needed.
 [functions.send-invite]
 verify_jwt = false
+
+# The API: requests carry a Brewery OS API key (not a sign-in token), checked by the function itself.
+[functions.api]
+verify_jwt = false

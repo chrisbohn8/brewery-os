@@ -137,6 +137,10 @@ These shape every decision, even for features that come later:
 - Everything works offline, and a new permission, **"Count and move finished goods"**, is part of Cellar and up by default.
 - **Pars** (step 2): how much of each beer a place should have, in barrels and/or cases (a taproom's pars), plus a **brewery-wide par** per beer. Each place shows **over / under**, and what to **bring up** ("Bring up 3 × ½ bbl keg from Storage", one tap fills in the move). A taproom also shows what's **on deck**: beers in storage that aren't there yet.
 
+### API keys and the API
+- **Settings → API keys:** make a key for an outside tool or an AI assistant, with some or all of your permissions (never more), see it once, and revoke it any time. Admins see every key in the brewery, with when each was last used.
+- **The API** ([docs/api.md](docs/api.md)): tanks (and changing their status), batches and their cellar logs (and logging cellar work, in °P or SG, °F or °C, safe to retry), beers with their targets and latest ingredients, and inventory. Every request acts as the key's owner through the same database rules as the app, limited to the key's permissions.
+
 ### Inventory views (the brewery's own sheets)
 - **Views** (chips next to the places, "+ View" to make one): a sheet that adds up the places you choose (a master sheet might be the storage places only), with a column for each **package size**, or **each place and size**, and optional **totals** (barrels, cases), **brewery-wide pars** (highlighted when under), and the **pipeline**: what's still in tanks for each beer. Tap a beer to see the batches in its pipeline (tank, stage, volume).
 - Which beers (with stock, with stock or a par, or every beer) and the order (A–Z or oldest batch first) are part of the view.
@@ -486,8 +490,8 @@ Beer is tracked by **volume, not just location**: a batch has barrels in places,
 
 ### Phase 6½: API, import, and export
 The user's idea (API-first): outside tools and AI agents read and write through the same endpoints the app uses, spreadsheets come in with a one-shot import, and everything can go out again. "Nobody adopts software they can't leave."
-- [ ] **API keys** made in Settings, shown once, stored hashed, with "last used", and revocable. **Each key belongs to a person and acts with up to all of that person's permissions** (pick some or all when making it), so a key handed to an AI agent can never do more than its maker, and the database's permission checks apply as usual.
-- [ ] **A small first API** (a server function in front of the same database rules and actions the app uses): tanks (list, update status), brew log entries (list; create cellar log entries and readings), beers and recipes (list).
+- [x] **API keys** made in Settings, shown once, stored hashed, with "last used", and revocable. **Each key belongs to a person and acts with up to all of that person's permissions** (pick some or all when making it), so a key handed to an AI agent can never do more than its maker, and the database's permission checks apply as usual.
+- [x] **A small first API** (a server function in front of the same database rules and actions the app uses): tanks (list, update status), batches and their cellar logs (list; log cellar work, safe to retry), beers with targets and latest ingredients, and inventory. **Guide: [docs/api.md](docs/api.md).** A key can only narrow what its owner may do (checked inside the database), and the API checks it's limited before doing anything (fail closed).
 - [ ] **Export everything** as CSV (per list) and JSON (the backup file already exists).
 - [ ] **Import from spreadsheets:** CSV upload or a Google Sheets link, for tanks, beers, batches, and cellar logs, with a preview of what will be created and a column mapping before anything is saved.
 - [ ] **Recipe import from all the major tools** via **BeerXML** (BeerSmith, Brewfather, Brewer's Friend, and others export it); later, Brewfather's own API. Recipes stay simple (decided): a beer's targets and ingredient list, which the brew-day sheet copies like "copy from the last batch".

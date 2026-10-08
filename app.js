@@ -2352,6 +2352,7 @@ function showSettings(open, page = settingsPage) {
       if (b.dataset.page === page) b.setAttribute("aria-current", "page");
     });
     document.querySelectorAll(".settings-page").forEach((p) => { p.hidden = p.dataset.page !== page; });
+    if (page === "api") { document.getElementById("new-key").hidden = true; renderKeyPermissions(); loadApiKeys(); }
   }
 }
 document.getElementById("open-settings").addEventListener("click", () => showSettings(true));
@@ -4232,6 +4233,61 @@ lineForm.addEventListener("submit", async (e) => {
     status, beer_id: status === "beer" ? lineForm.beerId.value : null, label: status === "other" ? lineForm.label.value.trim() : "",
   }).eq("id", editingLine.id)));
   if (ok) lineDialog.close();
+});
+
+// ----- API keys (Settings → API keys) -----
+// A key lets an outside tool or AI agent use the API (docs/api.md) as you, with up to all of your
+// permissions. It's shown once; only a scrambled copy is kept. Admins see (and can revoke) every
+// key in the brewery.
+let apiKeys = [];
+async function loadApiKeys() {
+  try {
+    apiKeys = await must(db.from("api_keys").select("id, user_id, name, prefix, permissions, created_at, last_used_at, revoked_at")
+      .eq("brewery_id", brewery.id).order("created_at", { ascending: false }));
+  } catch { apiKeys = []; }
+  renderApiKeys();
+}
+// The permission boxes are drawn once, when the page opens (redrawing them would undo someone's ticks)
+function renderKeyPermissions() {
+  const mine = brewery.permissions || [];
+  document.getElementById("key-permissions").innerHTML = PERMISSIONS.filter((p) => mine.includes(p.id)).map((p) => `
+    <label class="choice"><input type="checkbox" value="${p.id}" checked> ${p.label}</label>`).join("");
+}
+function renderApiKeys() {
+  const who = (id) => (data.members || []).find((m) => m.userId === id)?.email || "someone";
+  const when = (t) => (t ? new Date(t).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "never");
+  document.getElementById("key-list").innerHTML = apiKeys.map((k) => `
+    <li class="item"><div><strong>${esc(k.name)}</strong> <span class="muted">${esc(k.prefix)}… · ${esc(who(k.user_id))}</span>
+      <div class="muted">${k.revoked_at ? `revoked ${when(k.revoked_at)}` : `made ${when(k.created_at)} · last used ${when(k.last_used_at)}`} ·
+        ${k.permissions.length} ${k.permissions.length === 1 ? "permission" : "permissions"}</div></div>
+      ${k.revoked_at ? "" : `<button type="button" class="btn small" data-revoke-key="${k.id}">Revoke</button>`}</li>`).join("")
+    || `<li class="item muted">No keys yet.</li>`;
+}
+document.getElementById("key-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const permissions = [...document.querySelectorAll("#key-permissions input:checked")].map((i) => i.value);
+  let key = null;
+  const ok = await save(async () => {
+    const { data: made, error } = await db.rpc("create_api_key", { p_brewery_id: brewery.id, p_name: e.target.name.value.trim(), p_permissions: permissions });
+    if (error) throw error;
+    key = made;
+  });
+  if (!ok || !key) return;
+  e.target.reset();
+  renderKeyPermissions();
+  document.getElementById("new-key").hidden = false;
+  document.getElementById("new-key-value").textContent = key;
+  await loadApiKeys();
+});
+document.getElementById("copy-key").addEventListener("click", async () => {
+  try { await navigator.clipboard.writeText(document.getElementById("new-key-value").textContent); document.getElementById("copy-key").textContent = "Copied"; }
+  catch { /* select it instead */ getSelection().selectAllChildren(document.getElementById("new-key-value")); }
+});
+document.getElementById("key-list").addEventListener("click", async (e) => {
+  const b = e.target.closest("[data-revoke-key]");
+  if (!b || !confirm("Revoke this key? Anything using it stops working right away.")) return;
+  const ok = await save(async () => { const { error } = await db.rpc("revoke_api_key", { p_id: b.dataset.revokeKey }); if (error) throw error; });
+  if (ok) await loadApiKeys();
 });
 
 // ----- Stock places (Settings → Equipment) -----

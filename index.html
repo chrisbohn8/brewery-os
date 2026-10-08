@@ -224,6 +224,7 @@
     <button data-page="cleaning">Cleaning</button>
     <button data-page="team">Team &amp; permissions</button>
     <button data-page="backup">Backup</button>
+    <button data-page="api">API keys</button>
     <button data-page="account">My account</button>
   </nav>
 
@@ -335,6 +336,26 @@
       <select name="kind" aria-label="Kind"><option value="storage">Storage</option><option value="taproom">Taproom</option></select>
       <button type="submit" class="btn">Add</button>
     </form>
+  </section>
+  </div>
+
+  <div class="settings-page" data-page="api">
+  <section class="list-section">
+    <h2>API keys</h2>
+    <p class="muted">A key lets an outside tool or an AI assistant read and write here as you, through the API
+      (<a href="https://github.com/chrisbohn8/brewery-os/blob/master/docs/api.md" target="_blank" rel="noopener">what it can do</a>).
+      It can have some or all of your permissions, never more. Treat it like a password: it's shown once, and you can revoke it any time.</p>
+    <form id="key-form">
+      <label>Name <input name="name" required maxlength="60" placeholder="Like: My AI assistant"></label>
+      <fieldset class="group"><legend>What it can do</legend><div id="key-permissions" class="check-grid"></div></fieldset>
+      <button type="submit" class="btn primary">Make a key</button>
+    </form>
+    <div id="new-key" class="new-key" hidden>
+      <p><strong>Your new key</strong> (copy it now; it won't be shown again):</p>
+      <code id="new-key-value"></code>
+      <button type="button" id="copy-key" class="btn small">Copy</button>
+    </div>
+    <ul id="key-list" class="plain log-list"></ul>
   </section>
   </div>
 

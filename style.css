@@ -585,3 +585,11 @@ dialog.wide { max-width: 720px; width: calc(100vw - 32px); }
 .check-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 4px 12px; }
 #view-editor label.choice { display: flex; gap: 8px; align-items: center; color: var(--text); margin: 4px 0; }
 #view-editor label.choice input { width: 20px; height: 20px; flex: none; }
+
+/* API keys */
+#key-form { display: grid; gap: 10px; margin-bottom: 12px; }
+#key-form label.choice { display: flex; gap: 8px; align-items: center; color: var(--text); }
+#key-form label.choice input { width: 20px; height: 20px; flex: none; }
+.new-key { border: 2px solid var(--ready); border-radius: 10px; padding: 10px 12px; margin: 10px 0; display: grid; gap: 8px; }
+.new-key code { word-break: break-all; font-size: 0.95rem; background: var(--card); padding: 8px; border-radius: 6px; }
+#key-list .item { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
