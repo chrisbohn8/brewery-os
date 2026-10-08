@@ -469,3 +469,7 @@ verify_jwt = false
 # The API: requests carry a Brewery OS API key (not a sign-in token), checked by the function itself.
 [functions.api]
 verify_jwt = false
+
+# Google Sheets import: the function checks the person's sign-in itself.
+[functions.fetch-sheet]
+verify_jwt = false

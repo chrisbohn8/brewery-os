@@ -2353,6 +2353,7 @@ function showSettings(open, page = settingsPage) {
     });
     document.querySelectorAll(".settings-page").forEach((p) => { p.hidden = p.dataset.page !== page; });
     if (page === "backup") renderExports();
+    if (page === "import") renderImport();
     if (page === "api") { document.getElementById("new-key").hidden = true; renderKeyPermissions(); loadApiKeys(); }
   }
 }
@@ -4408,6 +4409,266 @@ document.getElementById("export-all").addEventListener("click", async () => {
   const zip = new JSZip();
   for (const [name, rows] of Object.entries(exportLists())) if (rows.length) zip.file(`${name}.csv`, csvText(rows));
   downloadFile(`${slugName(brewery.name)}-everything-${today()}.zip`, await zip.generateAsync({ type: "blob" }));
+});
+
+// ----- Import from a spreadsheet (Settings → Import) -----
+// Most small breweries live in spreadsheets; this is the way in. Paste cells, upload a CSV, or
+// read a Google Sheet; columns are matched by name (and can be changed); a preview shows every row
+// (to create, already there, or a problem) before anything is saved. Numbers are read in the
+// brewery's units.
+const IMPORT_KINDS = {
+  tanks: { label: "Tanks", needs: "manage_equipment", fields: [
+    { key: "name", label: "Tank name", required: true, names: ["tank", "name", "vessel"] },
+    { key: "type", label: "Type", names: ["type", "kind"] },
+    { key: "capacity", label: "Capacity", unit: "volume", names: ["capacity", "size", "volume"] },
+    { key: "location", label: "Location", names: ["location", "site", "building"] },
+    { key: "status", label: "Status", names: ["status"] }] },
+  beers: { label: "Beers", needs: "manage_beers", fields: [
+    { key: "name", label: "Beer name", required: true, names: ["beer", "name"] },
+    { key: "style", label: "Style", names: ["style"] },
+    { key: "og", label: "Target OG", unit: "gravity", names: ["og", "original", "target og"] },
+    { key: "fg", label: "Target FG", unit: "gravity", names: ["fg", "final", "target fg"] }] },
+  batches: { label: "Batches in tanks now", needs: "start_batch", fields: [
+    { key: "number", label: "Batch #", required: true, names: ["batch", "number", "lot"] },
+    { key: "beer", label: "Beer", required: true, names: ["beer", "brand", "name"] },
+    { key: "tank", label: "Tank", required: true, names: ["tank", "fv", "vessel"] },
+    { key: "brewed", label: "Brew date", names: ["brew date", "brewed", "date"] },
+    { key: "size", label: "Size", unit: "volume", names: ["size", "volume", "bbl"] },
+    { key: "stage", label: "Stage", names: ["stage", "status"] },
+    { key: "since", label: "Stage started", names: ["since", "stage date", "started"] }] },
+  cellar: { label: "Cellar log entries", needs: "cellar_log", fields: [
+    { key: "number", label: "Batch #", required: true, names: ["batch", "number"] },
+    { key: "date", label: "Date", required: true, names: ["date", "day"] },
+    { key: "action", label: "Action", names: ["action", "ai", "task"] },
+    { key: "gravity", label: "Gravity", unit: "gravity", names: ["gravity", "plato", "°p", "sg"] },
+    { key: "ph", label: "pH", names: ["ph"] },
+    { key: "temp", label: "Temperature", unit: "temperature", names: ["temp", "temperature"] },
+    { key: "change", label: "Cellar change", names: ["cellar change", "cc", "change"] },
+    { key: "notes", label: "Notes", names: ["notes", "comment"] }] },
+};
+let importTable = null; // { headers: [...], rows: [[...]] }
+let importMap = {};      // field key -> column index (or -1)
+
+// A table from pasted cells (tabs) or CSV (commas or semicolons), quotes and all
+function parseTable(text) {
+  text = text.replace(/^﻿/, "");
+  const first = text.split(/\r?\n/)[0] || "";
+  const sep = first.includes("\t") ? "\t" : (first.split(";").length > first.split(",").length ? ";" : ",");
+  const rows = [];
+  let row = [], cell = "", quoted = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (quoted) {
+      if (ch === '"' && text[i + 1] === '"') { cell += '"'; i++; }
+      else if (ch === '"') quoted = false;
+      else cell += ch;
+    } else if (ch === '"' && cell === "") quoted = true;
+    else if (ch === sep) { row.push(cell); cell = ""; }
+    else if (ch === "\n" || ch === "\r") {
+      if (ch === "\r" && text[i + 1] === "\n") i++;
+      row.push(cell); rows.push(row); row = []; cell = "";
+    } else cell += ch;
+  }
+  if (cell !== "" || row.length) { row.push(cell); rows.push(row); }
+  const kept = rows.map((r) => r.map((c) => c.trim())).filter((r) => r.some((c) => c !== ""));
+  return kept.length ? { headers: kept[0], rows: kept.slice(1) } : null;
+}
+const norm = (s) => s.toLowerCase().replace(/[^a-z0-9°]+/g, " ").trim();
+function guessColumns(kind) {
+  importMap = {};
+  const used = new Set();
+  for (const f of IMPORT_KINDS[kind].fields) {
+    const options = [norm(f.label), ...f.names.map(norm)];
+    let index = importTable.headers.findIndex((h, i) => !used.has(i) && options.includes(norm(h)));
+    if (index < 0) index = importTable.headers.findIndex((h, i) => !used.has(i) && options.some((o) => norm(h).includes(o)));
+    importMap[f.key] = index;
+    if (index >= 0) used.add(index);
+  }
+}
+
+// Reading values: numbers (with units or commas), dates (2026-10-07, 10/7/2026, 10/7/26), and choices
+const readNumber = (s) => { const m = String(s ?? "").replace(/,/g, "").match(/-?\d+(\.\d+)?/); return m ? Number(m[0]) : null; };
+function readDate(s) {
+  s = String(s ?? "").trim();
+  let m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (m) return `${m[1]}-${m[2].padStart(2, "0")}-${m[3].padStart(2, "0")}`;
+  m = s.match(/^(\d{1,2})[/.](\d{1,2})[/.](\d{2,4})$/);
+  if (m) return `${m[3].length === 2 ? "20" + m[3] : m[3]}-${m[1].padStart(2, "0")}-${m[2].padStart(2, "0")}`;
+  return null;
+}
+const importChoice = (s, list) => list.find((x) => norm(x.id) === norm(String(s ?? "")) || norm(x.label) === norm(String(s ?? "")) ||
+  norm(x.label).startsWith(norm(String(s ?? "")).slice(0, 4)) && norm(String(s ?? "")).length >= 3)?.id ?? null;
+const byName = (list, name) => list.find((x) => norm(x.name) === norm(name || ""));
+
+// The plan: one entry per row, { status: "create" | "skip" | "problem", note, values }
+function importPlan(kind) {
+  const value = (row, key) => (importMap[key] >= 0 ? row[importMap[key]] ?? "" : "");
+  const seen = new Set();
+  const createBeers = document.getElementById("import-create-beers")?.checked ?? true;
+  return importTable.rows.map((row) => {
+    const get = (k) => String(value(row, k)).trim();
+    const missing = IMPORT_KINDS[kind].fields.filter((f) => f.required && !get(f.key)).map((f) => f.label);
+    if (missing.length) return { status: "problem", note: `missing ${missing.join(", ")}` };
+    if (kind === "tanks") {
+      const name = get("name");
+      if (byName(data.tanks, name) || seen.has(norm(name))) return { status: "skip", note: `${name} is already there` };
+      seen.add(norm(name));
+      const type = get("type") ? importChoice(get("type"), TANK_TYPES) : "fermenter";
+      if (!type) return { status: "problem", note: `unknown type "${get("type")}"` };
+      const loc = get("location");
+      return { status: "create", note: loc && !byName(data.locations, loc) ? `new location "${loc}"` : "",
+        values: { name, type, capacityBbl: get("capacity") ? fromShown("volume", readNumber(get("capacity"))) : null, location: loc,
+          status: importChoice(get("status"), TANK_STATUSES.filter((s) => s.id !== "occupied")) || "empty" } };
+    }
+    if (kind === "beers") {
+      const name = get("name");
+      if (byName(data.beers, name) || seen.has(norm(name))) return { status: "skip", note: `${name} is already there` };
+      seen.add(norm(name));
+      return { status: "create", note: "", values: { name, style: get("style"),
+        targetOg: get("og") ? fromShown("gravity", readNumber(get("og"))) : null, targetFg: get("fg") ? fromShown("gravity", readNumber(get("fg"))) : null } };
+    }
+    if (kind === "batches") {
+      const number = get("number").replace(/^#/, "");
+      if (data.batches.some((b) => norm(b.batchNumber) === norm(number)) || seen.has(norm(number))) return { status: "skip", note: `#${number} is already there` };
+      const tank = byName(data.tanks, get("tank"));
+      if (!tank) return { status: "problem", note: `no tank called "${get("tank")}" (import tanks first)` };
+      if (batchInTank(tank.id) || seen.has(`tank:${tank.id}`)) return { status: "problem", note: `${tank.name} already has a batch in it` };
+      const beer = byName(data.beers, get("beer"));
+      if (!beer && !createBeers) return { status: "problem", note: `no beer called "${get("beer")}"` };
+      const stage = get("stage") ? importChoice(get("stage"), STAGES.filter((s) => !["packaged", "used"].includes(s.id))) : "fermenting";
+      if (!stage) return { status: "problem", note: `unknown stage "${get("stage")}"` };
+      const brewed = get("brewed") ? readDate(get("brewed")) : today();
+      if (!brewed) return { status: "problem", note: `can't read the date "${get("brewed")}"` };
+      seen.add(norm(number)); seen.add(`tank:${tank.id}`);
+      return { status: "create", note: beer ? "" : `new beer "${get("beer")}"`, values: { number, beerName: get("beer"), beerId: beer?.id, tankId: tank.id,
+        brewed, sizeBbl: get("size") ? fromShown("volume", readNumber(get("size"))) : null, stage, since: (get("since") && readDate(get("since"))) || brewed } };
+    }
+    // cellar log
+    const number = get("number").replace(/^#/, "");
+    const batch = data.batches.find((b) => norm(b.batchNumber) === norm(number));
+    if (!batch) return { status: "problem", note: `no batch #${number} (import batches first)` };
+    const date = readDate(get("date"));
+    if (!date) return { status: "problem", note: `can't read the date "${get("date")}"` };
+    const gravity = readNumber(get("gravity")), ph = readNumber(get("ph")), temp = readNumber(get("temp"));
+    const same = data.cellar.some((c) => c.batchId === batch.id && c.occurredOn === date && (c.notes || "") === get("notes") && (c.action || "") === get("action"));
+    if (same) return { status: "skip", note: "already logged" };
+    return { status: "create", note: "", values: { batchId: batch.id, date, action: get("action"), gravitySg: gravity == null ? null : fromShown("gravity", gravity),
+      ph, tempC: temp == null ? null : fromShown("temperature", temp), change: get("change"), notes: get("notes") } };
+  });
+}
+
+function renderImport() {
+  const kind = document.getElementById("import-kind").value;
+  const def = IMPORT_KINDS[kind];
+  document.getElementById("import-units").textContent = `Numbers are read in your units: ${UNIT_INFO.volume[prefs().volumeUnit].label}, ` +
+    `${UNIT_INFO.gravity[prefs().gravityUnit].label}, ${UNIT_INFO.temperature[prefs().temperatureUnit].label}. The first row should be the column names.`;
+  document.getElementById("import-allowed").hidden = can(def.needs);
+  const mapping = document.getElementById("import-mapping"), preview = document.getElementById("import-preview");
+  if (!importTable) { mapping.innerHTML = ""; preview.innerHTML = ""; document.getElementById("import-go").disabled = true; return; }
+  mapping.innerHTML = `<h3>Columns</h3><div class="import-map">${def.fields.map((f) => `<label>${f.label}${f.required ? " *" : ""}
+    <select data-map="${f.key}"><option value="-1">(none)</option>${importTable.headers.map((h, i) => `<option value="${i}" ${importMap[f.key] === i ? "selected" : ""}>${esc(h || `Column ${i + 1}`)}</option>`).join("")}</select></label>`).join("")}</div>
+    ${kind === "batches" ? `<label class="choice"><input type="checkbox" id="import-create-beers" ${document.getElementById("import-create-beers")?.checked === false ? "" : "checked"}> Create beers that aren't in the app yet</label>` : ""}`;
+  const plan = importPlan(kind);
+  const counts = { create: 0, skip: 0, problem: 0 };
+  plan.forEach((p) => counts[p.status]++);
+  preview.innerHTML = `<h3>Preview</h3>
+    <p><strong>${counts.create} to import</strong> · ${counts.skip} already there (skipped) · ${counts.problem} with a problem (skipped)</p>
+    <div class="inv-table-wrap"><table class="inv-table import-table"><tr><th>Row</th><th>What happens</th>${importTable.headers.map((h) => `<th>${esc(h)}</th>`).join("")}</tr>
+    ${importTable.rows.slice(0, 200).map((r, i) => `<tr class="${plan[i].status}"><td>${i + 2}</td>
+      <td class="outcome">${{ create: "✓ import", skip: "skipped", problem: "✗ not imported" }[plan[i].status]}${plan[i].note ? `: ${esc(plan[i].note)}` : ""}</td>
+      ${importTable.headers.map((_, j) => `<td>${esc(r[j] ?? "")}</td>`).join("")}</tr>`).join("")}</table></div>
+    ${importTable.rows.length > 200 ? `<p class="muted">Showing the first 200 of ${importTable.rows.length} rows.</p>` : ""}`;
+  document.getElementById("import-go").disabled = !counts.create || !can(def.needs);
+  document.getElementById("import-go").textContent = counts.create ? `Import ${counts.create} ${counts.create === 1 ? "row" : "rows"}` : "Import";
+}
+
+function loadImportText(text) {
+  importTable = parseTable(text);
+  if (!importTable) { alert("Couldn't find any rows in that."); return; }
+  guessColumns(document.getElementById("import-kind").value);
+  document.getElementById("import-result").textContent = "";
+  renderImport();
+}
+document.getElementById("import-kind").innerHTML = Object.entries(IMPORT_KINDS).map(([k, d]) => `<option value="${k}">${d.label}</option>`).join("");
+document.getElementById("import-kind").addEventListener("change", () => { if (importTable) guessColumns(document.getElementById("import-kind").value); renderImport(); });
+document.getElementById("import-paste").addEventListener("click", () => loadImportText(document.getElementById("import-text").value));
+document.getElementById("import-csv").addEventListener("change", async (e) => {
+  const file = e.target.files[0];
+  if (file) loadImportText(await file.text());
+  e.target.value = "";
+});
+document.getElementById("import-sheet").addEventListener("click", async () => {
+  const url = document.getElementById("import-sheet-url").value.trim();
+  if (!url) return;
+  const button = document.getElementById("import-sheet");
+  button.disabled = true;
+  try {
+    const { data: result, error } = await db.functions.invoke("fetch-sheet", { body: { url } });
+    if (error) { const body = await error.context?.json?.().catch(() => null); alert(body?.error || "Couldn't read that sheet."); return; }
+    loadImportText(result.csv);
+  } finally { button.disabled = false; }
+});
+document.getElementById("import-mapping").addEventListener("change", (e) => {
+  const select = e.target.closest("[data-map]");
+  if (select) importMap[select.dataset.map] = Number(select.value);
+  renderImport();
+});
+
+// Saving: one row at a time through the same steps as the app's own forms
+document.getElementById("import-go").addEventListener("click", async () => {
+  const kind = document.getElementById("import-kind").value;
+  const rows = importPlan(kind).filter((p) => p.status === "create").map((p) => p.values);
+  if (!confirm(`Import ${rows.length} ${rows.length === 1 ? "row" : "rows"} into ${brewery.name}?`)) return;
+  const b = brewery.id;
+  let done = 0;
+  const progress = document.getElementById("import-result");
+  const ok = await save(async () => {
+    if (kind === "tanks") {
+      const locations = new Map(data.locations.map((l) => [norm(l.name), l.id]));
+      for (const name of [...new Set(rows.map((r) => r.location).filter(Boolean))]) {
+        if (locations.has(norm(name))) continue;
+        const id = newId();
+        await must(db.from("locations").insert({ id, brewery_id: b, name }));
+        locations.set(norm(name), id);
+      }
+      await must(db.from("tanks").insert(rows.map((r) => ({ brewery_id: b, name: r.name, type: r.type, status: r.status,
+        capacity_bbl: r.capacityBbl, location_id: r.location ? locations.get(norm(r.location)) : null }))));
+      done = rows.length;
+    }
+    if (kind === "beers") {
+      const codes = data.beers.map((x) => ({ code: x.code }));
+      await must(db.from("beers").insert(rows.map((r) => {
+        const code = beerCodeFor(r.name, codes);
+        codes.push({ code });
+        return { brewery_id: b, code, name: r.name, style: r.style || "", target_og: r.targetOg, target_fg: r.targetFg };
+      })));
+      done = rows.length;
+    }
+    if (kind === "batches") {
+      const beers = new Map(data.beers.map((x) => [norm(x.name), x.id]));
+      const codes = data.beers.map((x) => ({ code: x.code }));
+      for (const r of rows) {
+        if (!r.beerId && !beers.has(norm(r.beerName))) {
+          const id = newId(), code = beerCodeFor(r.beerName, codes);
+          codes.push({ code });
+          await must(db.from("beers").insert({ id, brewery_id: b, code, name: r.beerName }));
+          beers.set(norm(r.beerName), id);
+        }
+        await must(db.rpc("save_batch", { p_id: newId(), p_brewery_id: b, p_batch_number: r.number, p_beer_id: r.beerId || beers.get(norm(r.beerName)),
+          p_brew_date: r.brewed, p_size_bbl: r.sizeBbl, p_stage: r.stage, p_stage_started_on: r.since, p_tank_id: r.tankId, p_action_date: r.since }));
+        progress.textContent = `Imported ${++done} of ${rows.length}…`;
+      }
+    }
+    if (kind === "cellar") {
+      for (const r of rows) {
+        await must(db.rpc("log_cellar_entry", { p_id: newId(), p_brewery_id: b, p_batch_id: r.batchId, p_occurred_on: r.date, p_action: r.action,
+          p_gravity_sg: r.gravitySg, p_ph: r.ph, p_temp_c: r.tempC, p_cellar_change: r.change, p_notes: r.notes, p_new_stage: null }));
+        progress.textContent = `Imported ${++done} of ${rows.length}…`;
+      }
+    }
+  });
+  progress.textContent = ok ? `Imported ${done} ${done === 1 ? "row" : "rows"}.` : `Imported ${done} before a problem; the rest weren't. Fix it and import again (what's in is skipped).`;
+  renderImport();
 });
 
 // ----- Stock places (Settings → Equipment) -----

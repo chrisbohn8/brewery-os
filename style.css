@@ -593,3 +593,14 @@ dialog.wide { max-width: 720px; width: calc(100vw - 32px); }
 .new-key { border: 2px solid var(--ready); border-radius: 10px; padding: 10px 12px; margin: 10px 0; display: grid; gap: 8px; }
 .new-key code { word-break: break-all; font-size: 0.95rem; background: var(--card); padding: 8px; border-radius: 6px; }
 #key-list .item { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+
+/* Import */
+#import-text { font: inherit; font-size: 14px; font-family: ui-monospace, monospace; width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--card); color: var(--text); }
+.import-map { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px 12px; }
+.import-map select { font: inherit; font-size: 15px; padding: 6px; border: 1px solid var(--border); border-radius: 8px; background: var(--card); color: var(--text); width: 100%; }
+.import-table tr.problem td { color: var(--acid-due); }
+.import-table tr.skip td { color: var(--muted); }
+.import-table td.outcome { text-align: left; white-space: normal; min-width: 150px; }
+#import-kind { font: inherit; font-size: 16px; padding: 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--card); color: var(--text); width: 100%; }
+#import-sheet-url { flex: 1; }
+.import-table th:nth-child(2) { text-align: left; }

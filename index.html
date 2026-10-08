@@ -223,6 +223,7 @@
     <button data-page="packages">Packages</button>
     <button data-page="cleaning">Cleaning</button>
     <button data-page="team">Team &amp; permissions</button>
+    <button data-page="import">Import</button>
     <button data-page="backup">Backup</button>
     <button data-page="api">API keys</button>
     <button data-page="account">My account</button>
@@ -336,6 +337,31 @@
       <select name="kind" aria-label="Kind"><option value="storage">Storage</option><option value="taproom">Taproom</option></select>
       <button type="submit" class="btn">Add</button>
     </form>
+  </section>
+  </div>
+
+  <div class="settings-page" data-page="import">
+  <section class="list-section">
+    <h2>Import from a spreadsheet</h2>
+    <p class="muted">Bring in what's in your spreadsheets. Nothing is saved until you've seen the preview, and rows that are already
+      here are skipped, so importing the same sheet twice is safe. Import tanks and beers first, then batches, then cellar logs.</p>
+    <label>What's in it <select id="import-kind"></select></label>
+    <p id="import-allowed" class="muted" hidden>Your permission level can preview this, but not import it.</p>
+    <p id="import-units" class="muted"></p>
+    <label>Paste cells copied from Excel or Google Sheets (with the header row)
+      <textarea id="import-text" rows="5" placeholder="Tank&#9;Type&#9;Capacity&#10;FV-1&#9;Fermenter&#9;30"></textarea></label>
+    <div class="actions wrap">
+      <button type="button" id="import-paste" class="btn">Use pasted cells</button>
+      <label class="btn">CSV file… <input id="import-csv" type="file" accept=".csv,.tsv,.txt,text/csv" hidden></label>
+    </div>
+    <div class="inline-add">
+      <input id="import-sheet-url" placeholder="Or a Google Sheets link (shared: anyone with the link)" aria-label="Google Sheets link">
+      <button type="button" id="import-sheet" class="btn">Read sheet</button>
+    </div>
+    <div id="import-mapping"></div>
+    <div id="import-preview"></div>
+    <div class="actions"><button type="button" id="import-go" class="btn primary" disabled>Import</button></div>
+    <p id="import-result" class="package-summary"></p>
   </section>
   </div>
 

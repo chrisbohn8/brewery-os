@@ -137,6 +137,11 @@ These shape every decision, even for features that come later:
 - Everything works offline, and a new permission, **"Count and move finished goods"**, is part of Cellar and up by default.
 - **Pars** (step 2): how much of each beer a place should have, in barrels and/or cases (a taproom's pars), plus a **brewery-wide par** per beer. Each place shows **over / under**, and what to **bring up** ("Bring up 3 × ½ bbl keg from Storage", one tap fills in the move). A taproom also shows what's **on deck**: beers in storage that aren't there yet.
 
+### Import from a spreadsheet
+- **Settings → Import:** paste cells copied from Excel or Google Sheets, upload a CSV file, or read a **Google Sheet** by its link (shared as "anyone with the link can view"). Tanks (with new locations made on the way), beers, batches in tanks (with new beers made on the way), and cellar log entries.
+- **Columns are matched by name** (and can be changed); numbers are read in the brewery's units ("15 bbl" works); dates as 2026-10-07, 10/7/2026, or 10/7/26.
+- **A preview** shows every row: imported, already here (skipped), or a problem (and why) before anything is saved. Importing the same sheet twice is safe.
+
 ### Export as spreadsheets
 - **Settings → Backup → Export as spreadsheets:** every list (tanks, beers, batches, batch history, cellar log, brew-day readings, ingredients and additions, volumes, packaging, finished goods on hand, stock moves, pars, draft lines, raw materials on hand, raw material deliveries) as a CSV file that opens in Excel or Google Sheets, with names instead of codes and the brewery's units in the column names; or **Everything** in one zip file.
 
@@ -496,7 +501,7 @@ The user's idea (API-first): outside tools and AI agents read and write through 
 - [x] **API keys** made in Settings, shown once, stored hashed, with "last used", and revocable. **Each key belongs to a person and acts with up to all of that person's permissions** (pick some or all when making it), so a key handed to an AI agent can never do more than its maker, and the database's permission checks apply as usual.
 - [x] **A small first API** (a server function in front of the same database rules and actions the app uses): tanks (list, update status), batches and their cellar logs (list; log cellar work, safe to retry), beers with targets and latest ingredients, and inventory. **Guide: [docs/api.md](docs/api.md).** A key can only narrow what its owner may do (checked inside the database), and the API checks it's limited before doing anything (fail closed).
 - [x] **Export everything** as CSV (per list, or all of them in one zip) and JSON (the backup file).
-- [ ] **Import from spreadsheets:** CSV upload or a Google Sheets link, for tanks, beers, batches, and cellar logs, with a preview of what will be created and a column mapping before anything is saved.
+- [x] **Import from spreadsheets:** pasted cells, a CSV file, or a Google Sheets link, for tanks, beers, batches, and cellar logs, with columns matched by name and a preview of what will be created before anything is saved.
 - [ ] **Recipe import from all the major tools** via **BeerXML** (BeerSmith, Brewfather, Brewer's Friend, and others export it); later, Brewfather's own API. Recipes stay simple (decided): a beer's targets and ingredient list, which the brew-day sheet copies like "copy from the last batch".
 - Later, when someone besides us holds a key: rate limits and public API docs.
 

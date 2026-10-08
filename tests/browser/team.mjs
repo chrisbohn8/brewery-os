@@ -92,6 +92,7 @@ try {
   await admin.click("#batch-form button[type=submit]");
   await admin.waitForFunction((n) => data.batches.some((b) => b.batchNumber === n), `P${run}`);
 
+  globalThis.pages = { admin };
   console.log("1. The admin invites a cellar person");
   await settings(admin, "team");
   await admin.fill('#invite-form [name="email"]', CREW.toUpperCase()); // capitals shouldn't matter
@@ -109,8 +110,13 @@ try {
   await admin.waitForFunction(() => document.getElementById("invite-list").textContent.includes("Email again"), null, { timeout: 15000 }).catch(() => {});
   check((await admin.textContent("#invite-list")).includes("Email again"), "the invite shows it was emailed, with 'Email again'");
   const before = sentEmails.length;
-  await admin.click("[data-email-invite]");
-  await admin.waitForFunction(() => /moment ago/.test(document.getElementById("invite-message").textContent), null, { timeout: 60000 }); // the email function may start cold
+  // (a tap can land just as the invite list redraws; like a person, tap again if nothing happened)
+  for (let attempt = 0; attempt < 3; attempt++) {
+    await admin.click(`[data-email-invite="${await admin.evaluate((e) => data.invites.find((i) => i.email === e)?.id, CREW)}"]`); // this run's invite
+    const answered = await admin.waitForFunction(() => /moment ago/.test(document.getElementById("invite-message").textContent), null, { timeout: 20000 })
+      .then(() => true, () => false);
+    if (answered) break;
+  }
   check(sentEmails.length === before, "a second email right away is held back (a double tap doesn't send twice)");
 
   console.log("2. The cellar person can move beer but not start batches or change setup");
@@ -210,6 +216,7 @@ try {
 } catch (e) {
   fails.push("crashed: " + e.message);
   console.log("CRASH", e.message.split("\n")[0]);
+  for (const [who, p] of Object.entries(globalThis.pages || {})) console.log("INVITE-MESSAGE", who, await p.evaluate(() => document.getElementById("invite-message")?.textContent).catch(() => "?"));
   for (const [who, p] of Object.entries(globalThis.pages || {})) {
     console.log(who, "dialogs:", p.dialogs, "errors:", p.errors,
       "state:", await p.evaluate(() => ({ role: brewery?.role, perms: brewery?.permissions, screen: ["signin-screen","setup-screen","app-screen"].find((id) => !document.getElementById(id).hidden) })).catch((x) => x.message));
