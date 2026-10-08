@@ -13,7 +13,7 @@
 //   GET   /batches                 batches in tanks (?all=true for every batch)
 //   GET   /batches/{id or number}  one batch, with its cellar log
 //   POST  /batches/{id or number}/log   a cellar log entry (gravity, pH, temperature, notes...)
-//   GET   /beers                   beers with targets, and the latest batch's ingredients
+//   GET   /beers                   beers with targets, their recipes, and the latest batch's ingredients
 //   GET   /inventory               finished goods on hand, by beer, place, and package
 import { Pool } from "jsr:@db/postgres@0.19.5";
 
@@ -197,8 +197,15 @@ async function route(tx: Tx, b: string, email: string, method: string, resource?
                                     and bt.id = (select x.id from public.batches x where x.beer_id = bt.beer_id
                                                    and exists (select 1 from public.batch_additions y where y.batch_id = x.id and y.brew_day)
                                                  order by x.brew_date desc nulls last limit 1)`;
+    const recipes = await tx`select r.id, r.beer_id, r.name, r.batch_size_bbl, r.target_og, r.target_fg, r.ibu, l.name as location,
+                                    coalesce((select json_agg(json_build_object('kind', i.kind, 'name', i.name, 'amount', i.amount, 'unit', i.unit, 'timing', i.timing)
+                                                order by i.position) from public.recipe_ingredients i where i.recipe_id = r.id), '[]') as ingredients
+                               from public.recipes r left join public.locations l on l.id = r.location_id where r.brewery_id = ${b}`;
     return { body: beers.map((x: Record<string, unknown>) => ({
       id: x.id, name: x.name, style: x.style, target_og: gravity(x.target_og), target_fg: gravity(x.target_fg),
+      recipes: recipes.filter((r: Record<string, unknown>) => r.beer_id === x.id).map((r: Record<string, unknown>) => ({
+        id: r.id, name: r.name, location: r.location ?? "any", batch_size_bbl: round(num(r.batch_size_bbl), 2), target_og: gravity(r.target_og),
+        target_fg: gravity(r.target_fg), ibu: num(r.ibu), ingredients: r.ingredients })),
       ingredients: ingredients.filter((i: Record<string, unknown>) => i.beer_id === x.id)
         .map((i: Record<string, unknown>) => ({ kind: i.kind, name: i.name, amount: num(i.amount), unit: i.unit, timing: i.timing })),
     })) };

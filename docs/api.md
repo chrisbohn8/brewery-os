@@ -26,7 +26,7 @@ Tanks and batches can be named by their id **or** their name / number (`FV-3`, `
 | `GET /batches` | Batches in tanks (`?all=true` for every batch) |
 | `GET /batches/142` | One batch, with its cellar log |
 | `POST /batches/142/log` | Log cellar work (needs "Log readings and cellar work"), see below |
-| `GET /beers` | Beers with target OG / FG, and the latest batch's brew-day ingredients (the recipe as it's kept here) |
+| `GET /beers` | Beers with target OG / FG, their recipes (size, targets, IBU, ingredients), and the latest batch's brew-day ingredients |
 | `GET /inventory` | Finished goods on hand: beer, place, package, count, barrels |
 
 ### Logging cellar work

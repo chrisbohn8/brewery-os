@@ -437,6 +437,15 @@
     </div>
     <ul id="beer-list"></ul>
   </section>
+  <!-- Recipes: simple (targets and ingredients), imported from recipe software as BeerXML -->
+  <section class="list-section">
+    <div class="section-head">
+      <h2>Recipes</h2>
+      <label class="btn" id="import-beerxml-label">Import BeerXML… <input id="import-beerxml" type="file" accept=".xml,.beerxml,text/xml,application/xml" hidden></label>
+    </div>
+    <p class="muted">From BeerSmith, Brewfather, Brewer's Friend, and other recipe software (export as BeerXML). The brew-day sheet can copy a recipe's ingredients.</p>
+    <ul id="recipe-list" class="plain"></ul>
+  </section>
   </div>
 
   <div class="settings-page" data-page="cleaning">
@@ -853,6 +862,26 @@
         <button type="button" class="btn cancel">Cancel</button>
         <button type="submit" class="btn primary">Save</button>
       </div>
+    </form>
+  </dialog>
+
+  <!-- Recipes: importing a BeerXML file, and looking at one recipe -->
+  <dialog id="recipe-import" class="wide">
+    <form id="recipe-import-form">
+      <h2 tabindex="-1" autofocus>Import recipes</h2>
+      <ul id="recipe-import-list" class="plain"></ul>
+      <div class="actions"><span class="spacer"></span>
+        <button type="button" class="btn cancel">Cancel</button><button type="submit" class="btn primary">Import</button></div>
+    </form>
+  </dialog>
+  <dialog id="recipe-view">
+    <form method="dialog">
+      <h2 id="recipe-title" tabindex="-1" autofocus>Recipe</h2>
+      <p id="recipe-facts" class="muted"></p>
+      <ul id="recipe-ingredients" class="plain log-list"></ul>
+      <p id="recipe-notes" class="muted recipe-notes"></p>
+      <div class="actions"><button type="button" id="delete-recipe" class="btn danger">Delete</button><span class="spacer"></span>
+        <button type="submit" class="btn">Close</button></div>
     </form>
   </dialog>
 

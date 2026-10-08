@@ -311,7 +311,7 @@ function explain(error) {
 let serverData = null;
 async function loadAll() {
   const b = brewery.id;
-  const [locations, beers, tanks, batches, events, cleanings, settings, members, invites, permissions, memberRows, levels, cellar, additions, readings, movements, packageTypes, packageCounts, places, stockMoves, pars, rawItems, rawReceipts, rawAdjustments, lines, inventoryViews] = await Promise.all([
+  const [locations, beers, tanks, batches, events, cleanings, settings, members, invites, permissions, memberRows, levels, cellar, additions, readings, movements, packageTypes, packageCounts, places, stockMoves, pars, rawItems, rawReceipts, rawAdjustments, lines, inventoryViews, recipes, recipeIngredientRows] = await Promise.all([
     must(db.from("locations").select("*").eq("brewery_id", b).order("created_at")),
     must(db.from("beers").select("*").eq("brewery_id", b)),
     must(db.from("tanks").select("*").eq("brewery_id", b).order("created_at")),
@@ -339,6 +339,8 @@ async function loadAll() {
     must(db.from("raw_adjustments").select("*").eq("brewery_id", b).order("adjusted_on").order("recorded_at")),
     must(db.from("draft_lines").select("*").eq("brewery_id", b)),
     must(db.from("inventory_views").select("*").eq("brewery_id", b)),
+    must(db.from("recipes").select("*").eq("brewery_id", b).order("created_at")),
+    must(db.from("recipe_ingredients").select("*").eq("brewery_id", b)),
   ]);
   // Each member: email and level (from brewery_members) plus their personal adjustments
   const adjustments = Object.fromEntries(memberRows.map((r) => [r.user_id, r]));
@@ -407,6 +409,10 @@ async function loadAll() {
     pars: pars.map((p) => ({ id: p.id, placeId: p.place_id, beerId: p.beer_id, parBbl: num(p.par_bbl), parCases: num(p.par_cases) })),
     places: places.map((p) => ({ id: p.id, locationId: p.location_id, name: p.name, kind: p.kind, active: p.active,
       sortMode: p.sort_mode, beerOrder: p.beer_order || [] })),
+    recipes: recipes.map((r) => ({ id: r.id, beerId: r.beer_id, locationId: r.location_id, name: r.name, batchSizeBbl: num(r.batch_size_bbl),
+      targetOg: num(r.target_og), targetFg: num(r.target_fg), ibu: num(r.ibu), notes: r.notes, source: r.source })),
+    recipeIngredients: recipeIngredientRows.map((i) => ({ id: i.id, recipeId: i.recipe_id, position: i.position, kind: i.kind, name: i.name,
+      amount: num(i.amount), unit: i.unit, timing: i.timing })),
     views: inventoryViews.map((v) => ({ id: v.id, name: v.name, placeIds: v.place_ids || [], splitByPlace: v.split_by_place,
       typeIds: v.type_ids || [], show: v.show || [], beers: v.beers, sortMode: v.sort_mode, position: v.position })),
     lines: lines.map((l) => ({ id: l.id, placeId: l.place_id, lineNo: l.line_no, status: l.status, beerId: l.beer_id, label: l.label })),
@@ -866,6 +872,8 @@ function withWaitingChanges(base) {
   d.rawAdjustments ??= [];
   d.lines ??= [];
   d.views ??= [];
+  d.recipes ??= [];
+  d.recipeIngredients ??= [];
   for (const change of outbox) SHOW[change.kind](d, change.args);
   return d;
 }
@@ -1112,6 +1120,7 @@ function render() {
   renderPackageTypes();
   renderPlaces();
   renderReasons();
+  renderRecipes();
   if (currentView === "inventory") renderInventory();
   renderTeam();
   renderTankList();
@@ -1976,6 +1985,12 @@ async function loadIntoBrewery(source, description) {
             ...(r.recordedAt && { recorded_at: r.recordedAt }) }))));
           if (d.rawAdjustments?.length) await must(db.from("raw_adjustments").insert(d.rawAdjustments.map((a) => ({ brewery_id: b, item_id: idFor(a.itemId),
             lot: a.lot || "", adjusted_on: a.adjustedOn, change: a.change, reason: a.reason || "", ...(a.recordedAt && { recorded_at: a.recordedAt }) }))));
+        }
+        if (d.recipes?.length) {
+          await must(db.from("recipes").insert(d.recipes.map((r) => ({ id: idFor(r.id), brewery_id: b, beer_id: idFor(r.beerId), location_id: idFor(r.locationId),
+            name: r.name, batch_size_bbl: r.batchSizeBbl, target_og: r.targetOg, target_fg: r.targetFg, ibu: r.ibu, notes: r.notes || "", source: r.source || "" }))));
+          if (d.recipeIngredients?.length) await must(db.from("recipe_ingredients").insert(d.recipeIngredients.map((i) => ({ brewery_id: b,
+            recipe_id: idFor(i.recipeId), position: i.position, kind: i.kind, name: i.name, amount: i.amount, unit: i.unit, timing: i.timing || "" }))));
         }
         if (d.views?.length) {
           await must(db.from("inventory_views").insert(d.views.map((v) => ({ brewery_id: b, name: v.name, place_ids: v.placeIds.map(idFor),
@@ -4671,6 +4686,163 @@ document.getElementById("import-go").addEventListener("click", async () => {
   renderImport();
 });
 
+// ----- Recipes (Settings → Beers → Recipes) -----
+// Simple, as decided: a beer's targets and ingredient list, optionally for one location, adjusted
+// by hand (no scaling). Imported from the major brewing tools as BeerXML (BeerSmith, Brewfather,
+// Brewer's Friend...). The brew-day sheet copies a recipe's brew-day ingredients.
+const recipesOf = (beerId) => (data.recipes || []).filter((r) => r.beerId === beerId);
+const recipeIngredients = (recipeId) => (data.recipeIngredients || []).filter((i) => i.recipeId === recipeId).sort((a, b) => a.position - b.position);
+// Timings that happen in the cellar, not on brew day (left out when copying to the brew-day sheet)
+const isCellarTiming = (timing) => /^(dry hop|fermenter|packaging)/i.test(timing || "");
+
+// BeerXML (version 1): every recipe in the file, in this brewery's units
+function parseBeerXml(text) {
+  const xml = new DOMParser().parseFromString(text, "application/xml");
+  if (xml.querySelector("parsererror")) throw new Error("That file isn't readable as BeerXML.");
+  const metric = prefs().volumeUnit === "hl";
+  const val = (el, tag) => el.querySelector(`:scope > ${tag}`)?.textContent.trim() ?? "";
+  const n = (el, tag) => { const v = parseFloat(val(el, tag).replace(",", ".")); return Number.isFinite(v) ? v : null; };
+  const weight = (kg, small) => (kg == null ? { amount: null, unit: small ? "oz" : "lb" } : metric
+    ? (kg < 1 ? { amount: +(kg * 1000).toFixed(1), unit: "g" } : { amount: +kg.toFixed(3), unit: "kg" })
+    : (small || kg < 0.4536 ? { amount: +(kg * 35.274).toFixed(2), unit: "oz" } : { amount: +(kg * 2.20462).toFixed(2), unit: "lb" }));
+  const liquid = (l) => (l == null ? { amount: null, unit: "ml" } : l < 1 ? { amount: +(l * 1000).toFixed(0), unit: "ml" } : { amount: +l.toFixed(2), unit: "l" });
+  const recipes = [...xml.querySelectorAll("RECIPE")].map((r) => {
+    const ingredients = [];
+    for (const f of r.querySelectorAll(":scope > FERMENTABLES > FERMENTABLE")) {
+      const type = val(f, "TYPE").toLowerCase();
+      ingredients.push({ kind: type === "grain" ? "malt" : "adjunct", name: val(f, "NAME"), ...weight(n(f, "AMOUNT")),
+        timing: /true/i.test(val(f, "ADD_AFTER_BOIL")) ? "Fermenter" : (type === "grain" || type === "adjunct" ? "Mash" : "Boil") });
+    }
+    for (const h of r.querySelectorAll(":scope > HOPS > HOP")) {
+      const use = val(h, "USE").toLowerCase(), time = n(h, "TIME") || 0;
+      const timing = use === "dry hop" ? `Dry hop ${Math.round(time / 1440) || ""} days`.replace("  ", " ") : use === "mash" ? "Mash"
+        : use === "first wort" ? "First wort" : use === "aroma" ? (time > 0 ? `Whirlpool ${Math.round(time)} min` : "Flameout") : `Boil ${Math.round(time)} min`;
+      ingredients.push({ kind: "hop", name: val(h, "NAME"), ...weight(n(h, "AMOUNT"), true), timing });
+    }
+    for (const m of r.querySelectorAll(":scope > MISCS > MISC")) {
+      const type = val(m, "TYPE").toLowerCase(), use = val(m, "USE").toLowerCase(), time = n(m, "TIME") || 0;
+      const kind = type.includes("water") ? "salt" : type.includes("fining") ? "finings" : /spice|herb|flavor/.test(type) ? "spice" : "other";
+      const timing = use === "boil" ? `Boil ${Math.round(time)} min` : use === "mash" ? "Mash" : /primary|secondary/.test(use) ? "Fermenter" : use === "bottling" ? "Packaging" : "";
+      const amount = /true/i.test(val(m, "AMOUNT_IS_WEIGHT")) ? weight(n(m, "AMOUNT"), true) : liquid(n(m, "AMOUNT"));
+      ingredients.push({ kind, name: val(m, "NAME"), ...amount, timing });
+    }
+    for (const y of r.querySelectorAll(":scope > YEASTS > YEAST")) {
+      const lab = [val(y, "LABORATORY"), val(y, "PRODUCT_ID")].filter(Boolean).join(" ");
+      ingredients.push({ kind: "yeast", name: lab ? `${val(y, "NAME")} (${lab})` : val(y, "NAME"), amount: null, unit: "each", timing: "Knockout" });
+    }
+    const liters = n(r, "BATCH_SIZE");
+    const ibu = parseFloat((val(r, "IBU") || val(r, "EST_IBU")).replace(",", "."));
+    return { name: val(r, "NAME") || "Recipe", style: r.querySelector(":scope > STYLE > NAME")?.textContent.trim() ?? "",
+      batchSizeBbl: liters ? liters / 117.348 : null, og: n(r, "OG"), fg: n(r, "FG"), ibu: Number.isFinite(ibu) ? ibu : null,
+      notes: val(r, "NOTES"), brewer: val(r, "BREWER"), ingredients: ingredients.filter((i) => i.name) };
+  });
+  if (!recipes.length) throw new Error("No recipes found in that file.");
+  return recipes;
+}
+
+function renderRecipes() {
+  const canEdit = can("manage_beers");
+  const beers = [...data.beers].filter((b) => recipesOf(b.id).length).sort((a, b) => a.name.localeCompare(b.name));
+  document.getElementById("recipe-list").innerHTML = beers.flatMap((beer) => recipesOf(beer.id).map((r) => `
+    <li><button class="row" data-recipe="${r.id}"><span><strong>${esc(beer.name)}</strong> <span class="muted">${esc(r.name)}</span></span>
+      <span class="muted">${[r.batchSizeBbl ? showUnit("volume", r.batchSizeBbl) : "", r.locationId ? findLocation(r.locationId)?.name : "",
+        `${recipeIngredients(r.id).length} ingredients`].filter(Boolean).map(esc).join(" · ")}</span></button></li>`)).join("")
+    || `<li class="muted">No recipes yet.${canEdit ? " Import a BeerXML file from your recipe software." : ""}</li>`;
+  document.getElementById("import-beerxml-label").hidden = !canEdit;
+}
+
+// Importing: a preview of the file's recipes, each matched to a beer (or a new one)
+const recipeImportDialog = document.getElementById("recipe-import");
+let pendingRecipes = [];
+document.getElementById("import-beerxml").addEventListener("change", async (e) => {
+  const file = e.target.files[0];
+  e.target.value = "";
+  if (!file) return;
+  try { pendingRecipes = parseBeerXml(await file.text()); } catch (err) { alert(err.message); return; }
+  const beerOptions = (match) => `<option value="new">New beer</option>` + [...data.beers].sort((a, b) => a.name.localeCompare(b.name))
+    .map((b) => `<option value="${b.id}" ${match?.id === b.id ? "selected" : ""}>${esc(b.name)}</option>`).join("");
+  const locationOptions = `<option value="">Any location</option>` + data.locations.map((l) => `<option value="${l.id}">${esc(l.name)}</option>`).join("");
+  document.getElementById("recipe-import-list").innerHTML = pendingRecipes.map((r, i) => {
+    const match = data.beers.find((b) => b.name.trim().toLowerCase() === r.name.trim().toLowerCase());
+    return `<li class="item recipe-preview">
+      <div><strong>${esc(r.name)}</strong> <span class="muted">${esc(r.style)}</span></div>
+      <div class="muted">${[r.batchSizeBbl ? showUnit("volume", r.batchSizeBbl) : "", r.og ? `OG ${showUnit("gravity", r.og)}` : "", r.fg ? `FG ${showUnit("gravity", r.fg)}` : "",
+        r.ibu != null ? `${Math.round(r.ibu)} IBU` : "", `${r.ingredients.length} ingredients`].filter(Boolean).map(esc).join(" · ")}</div>
+      <div class="two-col"><label>For beer <select data-recipe-beer="${i}">${beerOptions(match)}</select></label>
+        <label>Location <select data-recipe-location="${i}">${locationOptions}</select></label></div>
+      <label class="choice"><input type="checkbox" data-recipe-take="${i}" checked> Import this recipe</label></li>`;
+  }).join("");
+  recipeImportDialog.showModal();
+});
+document.getElementById("recipe-import-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const chosen = pendingRecipes.map((r, i) => ({ r, take: document.querySelector(`[data-recipe-take="${i}"]`).checked,
+    beer: document.querySelector(`[data-recipe-beer="${i}"]`).value, location: document.querySelector(`[data-recipe-location="${i}"]`).value || null }))
+    .filter((c) => c.take);
+  const ok = await save(async () => {
+    const codes = data.beers.map((x) => ({ code: x.code }));
+    for (const { r, beer, location } of chosen) {
+      let beerId = beer;
+      if (beer === "new") {
+        beerId = newId();
+        const code = beerCodeFor(r.name, codes);
+        codes.push({ code });
+        await must(db.from("beers").insert({ id: beerId, brewery_id: brewery.id, code, name: r.name, style: r.style || "", target_og: r.og, target_fg: r.fg }));
+      } else {
+        // A beer with no targets yet takes the recipe's
+        const existing = findBeer(beerId);
+        if (existing && existing.targetOg == null && r.og) await must(db.from("beers").update({ target_og: r.og, target_fg: r.fg }).eq("id", beerId));
+      }
+      const recipeId = newId();
+      await must(db.from("recipes").insert({ id: recipeId, brewery_id: brewery.id, beer_id: beerId, location_id: location, name: r.name,
+        batch_size_bbl: r.batchSizeBbl, target_og: r.og, target_fg: r.fg, ibu: r.ibu, notes: r.notes.slice(0, 4000), source: "BeerXML" }));
+      if (r.ingredients.length) await must(db.from("recipe_ingredients").insert(r.ingredients.map((x, position) => ({
+        brewery_id: brewery.id, recipe_id: recipeId, position, kind: x.kind, name: x.name.slice(0, 120), amount: x.amount || null, unit: x.unit, timing: x.timing }))));
+    }
+  });
+  if (ok) recipeImportDialog.close();
+});
+
+// One recipe
+const recipeDialog = document.getElementById("recipe-view");
+let viewingRecipe = null;
+document.getElementById("recipe-list").addEventListener("click", (e) => {
+  const row = e.target.closest("[data-recipe]");
+  if (!row) return;
+  viewingRecipe = data.recipes.find((r) => r.id === row.dataset.recipe);
+  const r = viewingRecipe;
+  document.getElementById("recipe-title").textContent = `${findBeer(r.beerId)?.name ?? ""}: ${r.name}`;
+  document.getElementById("recipe-facts").textContent = [r.batchSizeBbl ? showUnit("volume", r.batchSizeBbl) : "", r.targetOg ? `OG ${showUnit("gravity", r.targetOg)}` : "",
+    r.targetFg ? `FG ${showUnit("gravity", r.targetFg)}` : "", r.ibu != null ? `${Math.round(r.ibu)} IBU` : "",
+    r.locationId ? `for ${findLocation(r.locationId)?.name}` : "any location", r.source].filter(Boolean).join(" · ");
+  document.getElementById("recipe-ingredients").innerHTML = recipeIngredients(r.id).map((i) => `<li class="item">
+    <strong>${esc(i.name)}</strong> <span class="muted">${[i.amount != null ? `${+i.amount} ${i.unit}` : "", i.timing].filter(Boolean).map(esc).join(" · ")}${isCellarTiming(i.timing) ? " · in the cellar" : ""}</span></li>`).join("");
+  document.getElementById("recipe-notes").textContent = r.notes;
+  document.getElementById("delete-recipe").hidden = !can("manage_beers");
+  recipeDialog.showModal();
+});
+document.getElementById("delete-recipe").addEventListener("click", async () => {
+  if (!confirm(`Delete the recipe "${viewingRecipe.name}"? (Batches already brewed keep their ingredients.)`)) return;
+  const ok = await save(() => must(db.from("recipes").delete().eq("id", viewingRecipe.id)));
+  if (ok) recipeDialog.close();
+});
+
+// The brew-day sheet: copy a recipe's brew-day ingredients (the batch's location's recipe first)
+function recipesForBatch(b) {
+  const location = brewLocation(b)?.id;
+  return recipesOf(b.beerId).sort((x, y) => (y.locationId === location) - (x.locationId === location) || (x.locationId ? 1 : 0) - (y.locationId ? 1 : 0));
+}
+function copyRecipe(b, recipe) {
+  const items = recipeIngredients(recipe.id).filter((i) => !isCellarTiming(i.timing));
+  const skipped = recipeIngredients(recipe.id).length - items.length;
+  if (!confirm(`Copy ${items.length} brew-day ingredients from the recipe "${recipe.name}"? Lot numbers start empty.` +
+    (skipped ? ` (${skipped} for the cellar, like dry hops, aren't copied: log them when they go in.)` : ""))) return;
+  for (const i of items) {
+    queueChange("logAddition", { id: newId(), breweryId: brewery.id, batchId: b.id, addedOn: b.brewDate || today(), kind: i.kind, name: i.name,
+      amount: i.amount, unit: i.unit, timing: i.timing, lot: "", notes: "", brewDay: true, turn: null }, `${beerName(b)} ${batchLabel(b)}: ${i.name}`);
+  }
+}
+
 // ----- Stock places (Settings → Equipment) -----
 function renderPlaces() {
   const allowed = can("manage_equipment");
@@ -5206,6 +5378,7 @@ function renderIngredients(b) {
     ${canAdd ? `<div class="actions wrap">
       <button type="button" class="btn small" id="add-ingredient">+ Ingredient</button>
       ${source ? `<button type="button" class="btn small" id="copy-ingredients" data-from="${source.id}">Copy from ${esc(batchLabel(source))} (last ${esc(beerName(source))})</button>` : ""}
+      ${!brewDayIngredients(b).length ? recipesForBatch(b).slice(0, 3).map((r) => `<button type="button" class="btn small" data-copy-recipe="${r.id}">Copy from the recipe ${esc(r.name)}</button>`).join("") : ""}
     </div>` : ""}`;
 }
 
@@ -5216,6 +5389,8 @@ document.getElementById("sheet-ingredients").addEventListener("click", (e) => {
   if (row && can("cellar_log")) openAdditionEditor(data.additions.find((a) => a.id === row.dataset.addition));
   const copy = e.target.closest("#copy-ingredients");
   if (copy) copyIngredients(b, data.batches.find((x) => x.id === copy.dataset.from));
+  const fromRecipe = e.target.closest("[data-copy-recipe]");
+  if (fromRecipe) copyRecipe(b, data.recipes.find((r) => r.id === fromRecipe.dataset.copyRecipe));
 });
 
 // Copy the grain bill, hops, and the rest from an earlier batch: names, amounts, and timing, but

@@ -604,3 +604,10 @@ dialog.wide { max-width: 720px; width: calc(100vw - 32px); }
 #import-kind { font: inherit; font-size: 16px; padding: 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--card); color: var(--text); width: 100%; }
 #import-sheet-url { flex: 1; }
 .import-table th:nth-child(2) { text-align: left; }
+
+/* Recipes */
+.recipe-preview { display: grid; gap: 6px; }
+.recipe-preview label.choice { display: flex; gap: 8px; align-items: center; color: var(--text); }
+.recipe-preview label.choice input { width: 20px; height: 20px; }
+.recipe-preview select { font: inherit; font-size: 15px; padding: 6px; border: 1px solid var(--border); border-radius: 8px; background: var(--card); color: var(--text); width: 100%; }
+.recipe-notes { white-space: pre-wrap; }

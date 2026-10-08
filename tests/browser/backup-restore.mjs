@@ -34,7 +34,7 @@ async function signIn(email) {
   return page;
 }
 const counts = (page) => page.evaluate(() => ({
-  tanks: data.tanks.length, batches: data.batches.length, events: data.events.length, movements: data.movements.length, packageCounts: data.packageCounts.length, stockMoves: data.stockMoves.length, onHand: stockOnHand().length, pars: data.pars.length, rawItems: data.rawItems.length, rawReceipts: data.rawReceipts.length, rawAdjustments: data.rawAdjustments.length, lines: data.lines.length, views: data.views.length,
+  tanks: data.tanks.length, batches: data.batches.length, events: data.events.length, movements: data.movements.length, packageCounts: data.packageCounts.length, stockMoves: data.stockMoves.length, onHand: stockOnHand().length, pars: data.pars.length, rawItems: data.rawItems.length, rawReceipts: data.rawReceipts.length, rawAdjustments: data.rawAdjustments.length, lines: data.lines.length, views: data.views.length, recipes: data.recipes.length, recipeIngredients: data.recipeIngredients.length,
   cellar: data.cellar.length, additions: data.additions.length, readings: data.readings.length,
   ownFields: (brewery.sheetCustomFields || []).length, sheetFields: (brewery.sheetFields || []).length,
 }));
