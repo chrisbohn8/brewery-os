@@ -18,6 +18,18 @@ A simple web app for small craft breweries that replaces the whiteboard, clipboa
 
 When a feature and these three conflict, the three win. Simple beats clever, as long as the result is right.
 
+## Product principles
+
+These constrain every build.
+
+1. **Deterministic core, probabilistic edge.** The system of record (tanks, batches, brew logs, inventory, numbers) is 100% deterministic. No AI model ever sits between the brewer and their data, and no AI-generated value is ever written into a core record silently.
+2. **AI lives only in derived layers:** briefs, suggestions, parsed input, comparisons. Every AI output is visible to a person and correctable before it matters. Anything an AI parser produces (a voice-logged gravity reading, say) needs a one-tap human confirmation before it's saved. Nothing AI touches writes into the record on its own.
+3. **API maximalism.** The API exposes everything the app can do (tanks, batches, log entries, recipes, inventory, orders); it's how outside tools and AI assistants work with the brewery.
+    - **Nothing written through the API is silent:** every change records which key made it, shows in the history as such, and can be undone.
+    - **Keys can be "suggest only":** their changes wait in a "to review" list until a person approves each one. An AI assistant gets a suggest-only key by default; a trusted script (a sensor bridge) can act directly. Reading is open to every key.
+4. **Trust is the product.** Our buyer is often tech-hesitant, and one visible AI error undoes months of trust. When in doubt, leave the AI out and ship the deterministic version.
+5. **Documentation is a feature, and it must be right.** Most breweries should be able to set up and run without opening a manual: empty states that teach, help on every screen, setup that shows rather than tells. The reference documentation is clear, complete, and accurate. **Docs ship with the release, not after it**; a feature isn't done until its help and guide are written and checked against what the app actually does. Stale docs are worse than no docs, and a feature the user doesn't know about doesn't exist.
+
 ---
 
 ## Getting started
