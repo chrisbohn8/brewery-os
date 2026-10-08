@@ -2,10 +2,12 @@
 // 1. Brings every brewery's alerts up to date (check_alerts: new ones open, gone ones clear).
 // 2. Emails each new alert once, to the people chosen for that kind (one email per person, listing
 //    everything new), except during the brewery's quiet hours, when they wait.
+// 3. Emails new problem reports from people's phones (see migrations/..._error_reports.sql) to
+//    ERROR_REPORTS_TO, if it's set, and forgets reports over 90 days old.
 //
 // Settings (secrets): ALERTS_SECRET (required; the scheduled job sends it), RESEND_API_KEY,
-// APP_URL, INVITE_FROM (sender), RESEND_API_URL (tests only).
-import { Pool } from "jsr:@db/postgres@0.19.5";
+// APP_URL, INVITE_FROM (sender), ERROR_REPORTS_TO (whoever fixes problems), RESEND_API_URL (tests only).
+import { Pool, type PoolClient } from "jsr:@db/postgres@0.19.5";
 
 const pool = new Pool(Deno.env.get("SUPABASE_DB_URL")!, 2, true);
 const reply = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -63,7 +65,8 @@ Deno.serve(async (req) => {
       else console.error("alert email not accepted", to, res?.status);
     }
     if (done.length) await client.queryObject`update public.alerts set notified_at = now() where id = any(${done}::uuid[])`;
-    return reply(200, { opened, emailed: sent, waiting: pending.length - done.length });
+    const problems = await emailProblemReports(client, key);
+    return reply(200, { opened, emailed: sent, waiting: pending.length - done.length, problems });
   } catch (e) {
     console.error(e);
     return reply(500, { error: "The alert check didn't finish." });
@@ -71,3 +74,39 @@ Deno.serve(async (req) => {
     client.release();
   }
 });
+
+// New problem reports, in one email to whoever fixes problems (ERROR_REPORTS_TO)
+async function emailProblemReports(client: PoolClient, key: string | undefined) {
+  await client.queryObject`delete from public.error_reports where last_at < now() - interval '90 days'`;
+  const to = Deno.env.get("ERROR_REPORTS_TO");
+  if (!to || !key) return 0;
+  const reports = (await client.queryObject<{
+    id: string; message: string; stack: string; screen: string; app_version: string; browser: string;
+    times: number; reported_at: Date; brewery: string | null; email: string | null;
+  }>`select e.id, e.message, e.stack, e.screen, e.app_version, e.browser, e.times, e.reported_at,
+            b.name as brewery, u.email
+       from public.error_reports e
+       left join public.breweries b on b.id = e.brewery_id
+       left join auth.users u on u.id = e.user_id
+      where e.emailed_at is null order by e.reported_at limit 50`).rows;
+  if (!reports.length) return 0;
+  const line = (r: typeof reports[number]) =>
+    `${r.message}${r.times > 1 ? ` (${r.times} times)` : ""}\n  ${r.reported_at.toISOString()} · ${r.email ?? "signed out"} · ${r.brewery ?? "no brewery"} · ` +
+    `screen: ${r.screen || "?"} · version ${r.app_version || "?"}\n  ${r.browser}${r.stack ? `\n  ${r.stack.split("\n").slice(0, 6).join("\n  ")}` : ""}`;
+  const text = `${reports.length} new problem report${reports.length === 1 ? "" : "s"} from Brewery OS:\n\n${reports.map(line).join("\n\n")}`;
+  const res = await fetch(Deno.env.get("RESEND_API_URL") ?? "https://api.resend.com/emails", {
+    method: "POST", headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      from: Deno.env.get("INVITE_FROM") ?? "Brewery OS <noreply@brew.chrisbohn.org>", to: [to],
+      subject: `Brewery OS: ${reports.length} new problem report${reports.length === 1 ? "" : "s"}`,
+      text, html: `<pre style="white-space:pre-wrap;font:13px ui-monospace,Menlo,monospace">${esc(text)}</pre>`,
+    }),
+  }).catch(() => null);
+  if (!res?.ok) {
+    console.error("problem report email not accepted", res?.status);
+    return 0;
+  }
+  const ids = reports.map((r) => r.id);
+  await client.queryObject`update public.error_reports set emailed_at = now() where id = any(${ids}::uuid[])`;
+  return reports.length;
+}

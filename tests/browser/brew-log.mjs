@@ -132,7 +132,8 @@ try {
 
   console.log("7. Brewhouse settings on a location");
   await settings(page, "equipment");
-  await page.click("#location-list .row >> nth=0");
+  const locationId = await page.getAttribute("#location-list .row >> nth=0", "data-location"); // the one this test edits
+  await page.click(`#location-list [data-location="${locationId}"]`);
   await page.waitForSelector("#location-editor[open]");
   await page.fill('#location-form [name="turnSize"]', "15");
   await page.fill('#location-form [name="usualTurns"]', "2");
@@ -143,7 +144,7 @@ try {
   await page.click("#location-form button[type=submit]");
   await page.waitForSelector("#location-editor:not([open])", { state: "attached" }); // closes once saved
   await settle();
-  const loc = await page.evaluate(() => data.locations[0]);
+  const loc = await page.evaluate((id) => data.locations.find((l) => l.id === id), locationId);
   check(loc.turnSizeBbl === 15 && loc.usualTurns === 2 && loc.kettleFullBbl === 16 && loc.flowTarget === "6.6 - 5.5 - 6.2"
         && loc.waterGristQtLb === 1.234 && loc.absorptionGalLb === 0.125, `brewhouse saved: ${JSON.stringify(loc)}`);
   check(errors.length === 0, `no page errors (${errors.join("; ")})`);

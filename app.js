@@ -292,8 +292,9 @@ async function must(request) {
 
 // Did this fail because there's no connection (rather than the database saying no)?
 // Browsers word it differently: "Failed to fetch" (Chrome), "Load failed" (Safari), "NetworkError" (Firefox).
+const CONNECTION_WORDS = /failed to fetch|load failed|networkerror|network request failed|fetch failed/i;
 function isConnectionProblem(error) {
-  return !navigator.onLine || /failed to fetch|load failed|networkerror|network request failed|fetch failed/i.test(error?.message || String(error));
+  return !navigator.onLine || CONNECTION_WORDS.test(error?.message || String(error));
 }
 
 // Turn a database error into something a person can act on
@@ -304,6 +305,62 @@ function explain(error) {
   if (error.code === "42501") return "You don't have permission to do that.";
   return error.message || String(error);
 }
+
+// ----- Problem reports -----
+// When something goes wrong that isn't the person's doing (a crash, a database error we don't
+// expect), send a short report (see supabase/migrations/..._error_reports.sql), so it's found the
+// same day. The message, where in the code, the screen, and the app's version; never the records.
+// With no signal, reports wait on this device and go when the app next starts or reconnects.
+const REPORTS_KEY = "brewery-os.error-reports";
+// The database saying no for a reason a person can act on isn't a bug: already used, still linked,
+// no permission, a value out of range, or one of our own rules ("A brewery needs at least one admin")
+const EXPECTED_CODES = ["23505", "23503", "42501", "23514", "23502", "P0001"];
+let reportsThisVisit = 0;
+
+function reportError(error, where = "") {
+  try {
+    // (a lost connection isn't a bug; but a crash with no signal is, so it waits to be sent)
+    if (!error || error.expected || CONNECTION_WORDS.test(error.message || String(error)) || EXPECTED_CODES.includes(error.code)) return;
+    if (++reportsThisVisit > 10) return; // one bad loop shouldn't send a hundred
+    const screen = [...document.querySelectorAll("#signin-screen, #setup-screen, #app-screen, [id$='-view'], .settings-page, dialog[open]")]
+      .filter((el) => (el.checkVisibility ? el.checkVisibility() : el.offsetParent !== null))
+      .map((el) => el.id || (el.dataset.page ? `settings:${el.dataset.page}` : "dialog")).join(" ");
+    let version = "";
+    try { version = (loadedVersion || "").slice(0, 12); } catch {}
+    const report = {
+      message: `${where ? `${where}: ` : ""}${error.code ? `[${error.code}] ` : ""}${error.message || String(error)}`,
+      stack: error.stack || (error.details ? `${error.details} ${error.hint || ""}` : ""),
+      screen, app_version: version, browser: navigator.userAgent, brewery_id: brewery?.id || null,
+    };
+    const waiting = readReports();
+    waiting.push(report);
+    try { localStorage.setItem(REPORTS_KEY, JSON.stringify(waiting.slice(-20))); } catch {}
+    sendErrorReports();
+  } catch {
+    // reporting a problem must never cause one
+  }
+}
+function readReports() {
+  try { return JSON.parse(localStorage.getItem(REPORTS_KEY)) || []; } catch { return []; }
+}
+let sendingReports = false;
+async function sendErrorReports() {
+  if (sendingReports || !navigator.onLine) return;
+  sendingReports = true;
+  try {
+    for (let r = readReports()[0]; r; r = readReports()[0]) {
+      const { error } = await db.rpc("report_error", { p_report: r });
+      if (error) break; // try again later
+      try { localStorage.setItem(REPORTS_KEY, JSON.stringify(readReports().slice(1))); } catch { break; }
+    }
+  } catch {
+    // no signal after all: they wait
+  } finally {
+    sendingReports = false;
+  }
+}
+window.addEventListener("error", (e) => reportError(e.error || new Error(e.message), "crash"));
+window.addEventListener("unhandledrejection", (e) => reportError(e.reason, "unhandled"));
 
 // Load everything for the current brewery, in the shape the rest of the page uses.
 // `serverData` is exactly what the database has; `data` (what the screen shows) is that,
@@ -497,6 +554,7 @@ async function save(work) {
       showOffline();
       alert("Lost the connection while saving. Check the screen once you're back online to see whether it went through.");
     } else {
+      reportError(e, "save");
       alert(`Couldn't save: ${explain(e)}`);
     }
     return false;
@@ -2037,7 +2095,7 @@ async function loadIntoBrewery(source, description) {
         23505: "It has two records with the same name or number.",
         42501: "You don't have permission to load all of it; an admin can.",
       }[e.code] || explain(e);
-      throw new Error(`${why} Nothing was loaded.`);
+      throw Object.assign(new Error(`${why} Nothing was loaded.`), { expected: !!e.code && EXPECTED_CODES.includes(e.code), details: e.details });
     }
   });
   if (ok) alert(`Loaded ${summary}.`);
@@ -2177,6 +2235,7 @@ async function start() {
     return;
   }
   starting = true;
+  sendErrorReports(); // any waiting from earlier (no signal then)
   try {
     const { data: { session }, error } = await db.auth.getSession();
     if (!session) {
@@ -2212,6 +2271,7 @@ async function start() {
     openFromLink(); // opened from a printed sheet's QR code
   } catch (e) {
     if (isConnectionProblem(e) && openOfflineCopy()) return;
+    reportError(e, "loading");
     alert(`Something went wrong loading your data: ${explain(e)}`);
   } finally {
     starting = false;

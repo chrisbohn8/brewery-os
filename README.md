@@ -501,7 +501,7 @@ These make the app trustworthy and quick on the floor. They aren't a separate ph
 **Keeping the data safe (Resilient)**
 - [x] **Nightly backups** of the whole database (structure, data, sign-in accounts) to a **private** repository, with every night kept. A full restore was rehearsed into a fresh database: every row matched and all database tests passed. Restoring also runs `supabase/after-restore.sql`, which re-locks the sign-in-only functions (a fresh Supabase project opens them to everyone by default).
 - [ ] **Supabase's paid plan before real records** (decided): it never pauses and adds Supabase's own daily backups.
-- [ ] **Error reporting,** so problems on someone's phone are found right away, not a week later.
+- [x] **Error reporting,** so problems on someone's phone are found right away, not a week later: crashes and unexpected database errors (not the ones a person can act on) are sent as short reports (message, screen, version, browser; never records), queued with no signal, counted rather than repeated, and emailed every 15 minutes to whoever fixes problems (`ERROR_REPORTS_TO` on the alerts function). No outside service: they're kept in the same database ([migration](supabase/migrations/20261027000000_error_reports.sql)).
 - [ ] **Passkey sign-in** (the user's idea, 2026-10-08): Face ID or a fingerprint instead of waiting for an emailed code. Faster on the brew deck, and it sidesteps the email service's hourly limit. The emailed code stays as the fallback (a new phone, a borrowed computer). A passkey belongs to one person's device, so shared floor tablets keep using codes. First check what Supabase's sign-in supports for passkeys today; if it isn't ready, wait rather than build our own.
 
 **Polish**

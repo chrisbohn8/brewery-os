@@ -6,6 +6,8 @@
 -- into a new project quietly gives signed-out visitors access again. Each function also
 -- checks for itself that the person is signed in, so this is a second lock, not the only one.
 --
+-- (report_error is left open to signed-out visitors on purpose: the sign-in screen can break too.)
+--
 -- Safe to run more than once. Afterwards, run the database tests against the restored
 -- project:  supabase test db --db-url "<restored project's connection string>"
 
