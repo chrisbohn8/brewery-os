@@ -626,6 +626,26 @@
     </label>
     <button class="btn sign-out">Sign out</button>
   </section>
+  <!-- A private link to the planning calendar, for Google or Apple Calendar (read-only, one-way) -->
+  <section class="list-section">
+    <h2>The calendar in your phone</h2>
+    <p class="muted">Subscribe to the planning calendar in Google or Apple Calendar with a private link. It's read-only:
+      plans are changed in Brewery OS. Anyone with the link can see the plan, so keep it to yourself; turn it off any
+      time and it stops working at once. Google Calendar refreshes subscribed calendars only every several hours, so the
+      app stays the live view.</p>
+    <label class="choice"><input type="checkbox" id="feed-mine"> Only what I'm on</label>
+    <button type="button" class="btn" id="make-feed">Make a calendar link</button>
+    <div id="new-feed" class="new-key" hidden>
+      <p><strong>Your link</strong> (shown once; make a new one if you lose it):</p>
+      <input id="new-feed-url" readonly aria-label="Calendar link">
+      <div class="actions wrap">
+        <button type="button" class="btn small" id="copy-feed">Copy</button>
+        <a class="btn small" id="open-feed" href="#">Add to Apple Calendar</a>
+      </div>
+      <p class="muted">Google Calendar: on a computer, Other calendars → + → From URL, and paste the link.</p>
+    </div>
+    <ul id="feed-list" class="plain"></ul>
+  </section>
   </div>
   </div>
   </div>

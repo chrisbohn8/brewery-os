@@ -2620,6 +2620,7 @@ function showSettings(open, page = settingsPage) {
     if (page === "import") renderImport();
     if (page === "alerts") { document.getElementById("alerts-saved").textContent = ""; renderAlertSettings(); }
     if (page === "api") { document.getElementById("new-key").hidden = true; renderKeyPermissions(); loadApiKeys(); }
+    if (page === "account") { document.getElementById("new-feed").hidden = true; loadFeeds(); }
   }
 }
 document.getElementById("open-settings").addEventListener("click", () => showSettings(true));
@@ -7001,6 +7002,41 @@ scheduleForm.addEventListener("submit", async (e) => {
     renderScheduleSteps();
     notify(`Saved the schedule for ${findBeer(beerId)?.name}.`);
   }
+});
+
+// ----- The calendar in your phone (Settings → My account) -----
+// A private link to a calendar feed (supabase/functions/calendar), made and turned off here.
+const feedUrl = (token) => `${SUPABASE_URL}/functions/v1/calendar?t=${token}`;
+async function loadFeeds() {
+  const list = document.getElementById("feed-list");
+  const { data: feeds, error } = await db.from("calendar_feeds").select("id, mine_only, prefix, created_at, last_used_at, revoked_at")
+    .eq("brewery_id", brewery.id).is("revoked_at", null).order("created_at");
+  if (error) { list.innerHTML = ""; return; }
+  const when = (t) => (t ? new Date(t).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "not yet");
+  list.innerHTML = feeds.map((f) => `<li class="item"><span class="who">${esc(f.prefix)}… <span class="muted">· ${f.mine_only ? "only what you're on" : "everything"}
+      · made ${when(f.created_at)} · last read ${when(f.last_used_at)}</span></span>
+      <span class="actions"><button type="button" class="btn small" data-revoke-feed="${f.id}">Turn off</button></span></li>`).join("");
+}
+document.getElementById("make-feed").addEventListener("click", async () => {
+  if (offline || !navigator.onLine) { warn("Making a calendar link needs signal."); return; }
+  const { data: token, error } = await db.rpc("create_calendar_feed", { p_brewery_id: brewery.id, p_mine_only: document.getElementById("feed-mine").checked });
+  if (error) { warn(`Couldn't make the link: ${explain(error)}`); return; }
+  const url = feedUrl(token);
+  document.getElementById("new-feed-url").value = url;
+  document.getElementById("open-feed").href = url.replace(/^https?:/, "webcal:");
+  document.getElementById("new-feed").hidden = false;
+  loadFeeds();
+});
+document.getElementById("copy-feed").addEventListener("click", async () => {
+  try { await navigator.clipboard.writeText(document.getElementById("new-feed-url").value); notify("Copied."); }
+  catch { document.getElementById("new-feed-url").select(); warn("Couldn't copy here: it's selected, so copy it by hand."); }
+});
+document.getElementById("feed-list").addEventListener("click", async (e) => {
+  const btn = e.target.closest("[data-revoke-feed]");
+  if (!btn) return;
+  if (!(await ask("Turn off this calendar link? Calendars subscribed to it stop updating, and it can't be turned back on.", { ok: "Turn off", danger: true }))) return;
+  const ok = await save(() => must(db.rpc("revoke_calendar_feed", { p_id: btn.dataset.revokeFeed })));
+  if (ok) loadFeeds();
 });
 
 // ---------- 15. Go ----------

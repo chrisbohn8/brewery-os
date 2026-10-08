@@ -6,7 +6,7 @@
 // triggers ("dry hop at 4 °P": due now once a reading reaches it) and suggesting a schedule from past batches.
 // Real Chrome, local test copy.
 import { chromium } from "playwright-core";
-import { floor, onDialog } from "./helpers.mjs";
+import { floor, settings, onDialog } from "./helpers.mjs";
 
 const APP = "http://localhost:8123/";
 const MAIL = "http://127.0.0.1:54324/api/v1";
@@ -369,6 +369,23 @@ try {
   await page.screenshot({ path: SHOTS + "calendar-week.png" });
   await page.setViewportSize({ width: 390, height: 844 });
   await page.emulateMedia({ media: "screen" });
+
+  console.log("13. The calendar in your phone: a private link, read like a calendar app does, then turned off");
+  await settings(page, "account");
+  await page.click("#make-feed");
+  await page.waitForSelector("#new-feed:not([hidden])");
+  const feed = await page.inputValue("#new-feed-url");
+  check(/\/functions\/v1\/calendar\?t=cal_[0-9a-f]{48}$/.test(feed) && (await page.getAttribute("#open-feed", "href")).startsWith("webcal:"),
+    "a link is made (shown once), with an \"Add to Apple Calendar\" (webcal) version");
+  const ics = await (await fetch(feed)).text(); // no sign-in, like a calendar app
+  check(ics.startsWith("BEGIN:VCALENDAR") && ics.includes("X-WR-CALNAME:Example Brewing plan") && ics.includes(`SUMMARY:${TANK}: Clean · ${EMAIL.split("@")[0]}`),
+    "read without signing in: a calendar with the plan, and who's on what");
+  check(ics.includes(`Dry hop: Cal Lager ${run} (expected)`), "and the expected steps from beers' schedules");
+  check((await page.textContent("#feed-list")).includes("everything"), "the link is listed (never the secret)");
+  await page.click("#feed-list [data-revoke-feed]");
+  await page.waitForFunction(() => !document.querySelector("#feed-list [data-revoke-feed]"), null, { timeout: 10000 }).catch(() => {});
+  check((await fetch(feed)).status === 404, "turned off, it stops working at once");
+  await floor(page);
 
   // Clean up
   await page.evaluate(async (id) => save(() => must(db.from("batches").delete().eq("id", id))), b4.batchId);

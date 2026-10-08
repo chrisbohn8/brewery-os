@@ -1,6 +1,6 @@
 # Planning calendar: design (draft for review)
 
-Status: **proposal, not built yet.** The user answered the open questions on 2026-10-08 (see "Decided" at the end).
+Status: **built** (all five steps, 2026-10-08), after the user answered the open questions (see "Decided" at the end). Still to come: linking an unmatched recipe ingredient to a raw material with one tap; schedules from recipe files; the API for the calendar; AI-proposed plans through suggest-only keys.
 
 ## What it's for
 
@@ -98,7 +98,7 @@ Everything above goes through the API too, under the same permission (product pr
 2. **Push the rest back** and late flags. **Built 2026-10-08.**
 3. **Raw materials look ahead:** needs per planned brew, on order, shortfalls, dismiss, the shopping list, and the alert. **Built 2026-10-08.** (Linking an unmatched ingredient to an item with one tap, remembered, is still to come; for now the name must match.)
 4. **Gravity triggers** (due-now items and alerts from logged readings), and schedules filled in from recipes and past batches. **Built 2026-10-08** (from past batches; recipe files don't carry a schedule we can trust, so not from recipes yet).
-5. **Calendar subscription, people on items, import from the Google Sheet, and the printable week.**
+5. **Calendar subscription, people on items, import from the Google Sheet, and the printable week.** **Built 2026-10-08.**
 
 Each step ships with its help and guide sections, checked against the app, as usual.
 

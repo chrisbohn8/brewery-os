@@ -477,3 +477,8 @@ verify_jwt = false
 # Alerts: called by the scheduled job with a shared secret (checked by the function itself).
 [functions.alerts]
 verify_jwt = false
+
+# The calendar feed: calendar apps fetch it without signing in; the link's secret is checked by
+# the database (calendar_feed).
+[functions.calendar]
+verify_jwt = false
