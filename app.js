@@ -311,7 +311,7 @@ function explain(error) {
 let serverData = null;
 async function loadAll() {
   const b = brewery.id;
-  const [locations, beers, tanks, batches, events, cleanings, settings, members, invites, permissions, memberRows, levels, cellar, additions, readings, movements, packageTypes, packageCounts, places, stockMoves] = await Promise.all([
+  const [locations, beers, tanks, batches, events, cleanings, settings, members, invites, permissions, memberRows, levels, cellar, additions, readings, movements, packageTypes, packageCounts, places, stockMoves, pars] = await Promise.all([
     must(db.from("locations").select("*").eq("brewery_id", b).order("created_at")),
     must(db.from("beers").select("*").eq("brewery_id", b)),
     must(db.from("tanks").select("*").eq("brewery_id", b).order("created_at")),
@@ -333,6 +333,7 @@ async function loadAll() {
     must(db.from("package_counts").select("*").eq("brewery_id", b)),
     must(db.from("stock_places").select("*").eq("brewery_id", b).order("created_at")),
     must(db.from("stock_moves").select("*").eq("brewery_id", b).order("occurred_on").order("recorded_at")),
+    must(db.from("stock_pars").select("*").eq("brewery_id", b)),
   ]);
   // Each member: email and level (from brewery_members) plus their personal adjustments
   const adjustments = Object.fromEntries(memberRows.map((r) => [r.user_id, r]));
@@ -392,6 +393,7 @@ async function loadAll() {
       toTankId: m.to_tank_id, volumeBbl: num(m.volume_bbl), notes: m.notes, recordedAt: m.recorded_at,
       sourceBatchId: m.source_batch_id,
     })),
+    pars: pars.map((p) => ({ id: p.id, placeId: p.place_id, beerId: p.beer_id, parBbl: num(p.par_bbl), parCases: num(p.par_cases) })),
     places: places.map((p) => ({ id: p.id, locationId: p.location_id, name: p.name, kind: p.kind, active: p.active })),
     stockMoves: stockMoves.map((m) => ({
       id: m.id, groupId: m.group_id, occurredOn: m.occurred_on, kind: m.kind, removalKind: m.removal_kind, beerId: m.beer_id,
@@ -829,6 +831,7 @@ function withWaitingChanges(base) {
   d.packageCounts ??= [];
   d.places ??= [];
   d.stockMoves ??= [];
+  d.pars ??= [];
   for (const change of outbox) SHOW[change.kind](d, change.args);
   return d;
 }
@@ -1921,6 +1924,11 @@ async function loadIntoBrewery(source, description) {
           if (d.packageCounts?.length) await must(db.from("package_counts").insert(d.packageCounts.map((c) => ({
             brewery_id: b, movement_id: idFor(c.movementId), package_type_id: idFor(c.packageTypeId),
             count: c.count, unit_volume_bbl: c.unitVolumeBbl,
+          }))));
+        }
+        if (d.pars?.length) {
+          await must(db.from("stock_pars").insert(d.pars.map((p) => ({
+            brewery_id: b, place_id: idFor(p.placeId), beer_id: idFor(p.beerId), par_bbl: p.parBbl ?? null, par_cases: p.parCases ?? null,
           }))));
         }
         if (d.stockMoves?.length) {
@@ -3298,6 +3306,8 @@ function renderInventory() {
     ? `<table class="inv-table">${head}${body}${foot}</table>`
     : `<p class="muted">Nothing on hand${inventoryPlace === "all" ? "" : " here"}. Packaging puts kegs and cases into stock; a count adds what's already on the shelf.</p>`;
 
+  renderPars();
+
   // Recent: one line per action (a count sheet or a move is one action)
   const groups = new Map();
   for (const m of [...(data.stockMoves || [])].reverse()) {
@@ -3511,6 +3521,148 @@ stockForm.addEventListener("submit", async (e) => {
     p_lines: lines, p_account: stockForm.account.value.trim(), p_notes: stockForm.reason.value.trim(),
   }, `${to ? "Move" : REMOVAL_KINDS[removal]}: ${summarizeStock(lines.map((l) => ({ beerId: l.beer, packageTypeId: l.type, count: l.count })))}`);
   if (ok) stockDialog.close();
+});
+
+// ----- Pars, restocking, and "on deck" -----
+// A par says how much of a beer a place should have (barrels and/or cases); with no place, it's the
+// brewery-wide par. Over / under, what to bring up, and what's on deck are worked out from the pars
+// and the stock.
+const parFor = (placeId, beerId) => (data.pars || []).find((p) => (p.placeId ?? null) === (placeId ?? null) && p.beerId === beerId);
+// Barrels and cases of a beer in a place (or everywhere, for null)
+function stockOf(placeId, beerId) {
+  const rows = stockOnHand().filter((r) => r.beerId === beerId && r.count > 0 && (placeId == null || r.placeId === placeId));
+  return {
+    bbl: rows.reduce((sum, r) => sum + r.count * (typeOf(r.typeId)?.volumeBbl || 0), 0),
+    cases: sumCount(rows.filter((r) => typeOf(r.typeId)?.kind === "case")),
+  };
+}
+
+// What to bring to a place to reach its par: from storage places (same location first), the
+// package type there's most of. [{ from, type, count }]
+function restockFor(placeId, beerId, underBbl, underCases) {
+  const place = (data.places || []).find((p) => p.id === placeId);
+  const sources = activePlaces().filter((p) => p.id !== placeId && p.kind === "storage")
+    .sort((a, b) => (b.locationId === place?.locationId) - (a.locationId === place?.locationId));
+  const pick = (isCase, needed, perUnit) => {
+    for (const source of sources) {
+      const rows = stockOnHand().filter((r) => r.placeId === source.id && r.beerId === beerId && r.count > 0 &&
+        ((typeOf(r.typeId)?.kind === "case") === isCase));
+      if (!rows.length) continue;
+      const byType = new Map();
+      for (const r of rows) byType.set(r.typeId, (byType.get(r.typeId) || 0) + r.count);
+      const [type, available] = [...byType].sort((a, b) => b[1] - a[1])[0];
+      const count = Math.min(available, Math.ceil(needed / perUnit(type) - 1e-9));
+      if (count > 0) return { from: source.id, type, count };
+    }
+    return null;
+  };
+  return [
+    underBbl > 0 ? pick(false, underBbl, (t) => typeOf(t).volumeBbl) : null,
+    underCases > 0 ? pick(true, underCases, () => 1) : null,
+  ].filter(Boolean);
+}
+
+function renderPars() {
+  const placeId = inventoryPlace === "all" ? null : inventoryPlace;
+  const place = (data.places || []).find((p) => p.id === placeId);
+  const canSet = can("inventory");
+  const beers = data.beers.filter((b) => parFor(placeId, b.id)).sort((a, b) => a.name.localeCompare(b.name));
+  const signed = (n, unit) => `${n > 0 ? "+" : n < 0 ? "−" : ""}${unit(Math.abs(n))}`;
+  const bblText = (n) => showUnit("volume", n);
+  const caseText = (n) => `${+n.toFixed(2)} cases`;
+  const rows = beers.map((beer) => {
+    const par = parFor(placeId, beer.id), have = stockOf(placeId, beer.id);
+    const overBbl = par.parBbl != null ? have.bbl - par.parBbl : null;
+    const overCases = par.parCases != null ? have.cases - par.parCases : null;
+    const under = (overBbl ?? 0) < -1e-9 || (overCases ?? 0) < -1e-9;
+    const fixes = placeId && under ? restockFor(placeId, beer.id, -(overBbl ?? 0), -(overCases ?? 0)) : [];
+    return `<li class="item par-row${under ? " under" : ""}">
+      <div><strong>${esc(beer.name)}</strong>
+        <span class="muted">${par.parBbl != null ? `${bblText(have.bbl)} of ${bblText(par.parBbl)} (${signed(overBbl, bblText)})` : ""}
+        ${par.parCases != null ? `${par.parBbl != null ? " · " : ""}${caseText(have.cases)} of ${caseText(par.parCases)} (${signed(overCases, caseText)})` : ""}</span></div>
+      ${fixes.map((f) => `<div class="restock">Bring up ${+f.count.toFixed(2)} × ${esc(typeOf(f.type).name)} from ${esc(placeName(f.from))}
+        ${canSet ? `<button type="button" class="btn small" data-bring='${JSON.stringify({ ...f, to: placeId, beer: beer.id })}'>Bring up</button>` : ""}</div>`).join("")}
+      ${placeId && under && !fixes.length ? `<div class="restock muted">None in storage to bring up.</div>` : ""}
+    </li>`;
+  }).join("");
+  document.getElementById("inv-pars").innerHTML = `
+    <div class="section-head"><h2>${placeId ? `Pars at ${esc(placeName(placeId))}` : "Brewery-wide pars"}</h2>
+      ${canSet ? `<button type="button" class="btn small" id="set-pars">Set pars</button>` : ""}</div>
+    <ul class="plain log-list">${rows || `<li class="item muted">No pars set${placeId ? " here" : ""}.${canSet ? " Tap “Set pars” to add some." : ""}</li>`}</ul>`;
+
+  // On deck: for a taproom, what's in storage that isn't here yet
+  const deck = document.getElementById("inv-deck");
+  deck.hidden = place?.kind !== "taproom";
+  if (deck.hidden) return;
+  const inStorage = stockOnHand().filter((r) => r.count > 0 && (data.places || []).find((p) => p.id === r.placeId)?.kind === "storage");
+  const here = new Set(stockOnHand().filter((r) => r.placeId === placeId && r.count > 0).map((r) => r.beerId));
+  const waiting = [...new Set(inStorage.map((r) => r.beerId))].filter((id) => !here.has(id)).map(findBeer).filter(Boolean)
+    .sort((a, b) => a.name.localeCompare(b.name));
+  deck.innerHTML = `<h2>On deck for ${esc(placeName(placeId))}</h2>
+    <p class="muted">Beers in storage that aren't here yet.</p>
+    <ul class="plain log-list">${waiting.map((beer) => {
+      const where = [...new Set(inStorage.filter((r) => r.beerId === beer.id).map((r) => r.placeId))];
+      return `<li class="item"><strong>${esc(beer.name)}</strong> <span class="muted">${showUnit("volume", stockOf(null, beer.id).bbl)} · ${where.map((p) => esc(placeName(p))).join(", ")}</span></li>`;
+    }).join("") || `<li class="item muted">Everything in storage is already here.</li>`}</ul>`;
+}
+
+document.getElementById("inv-pars").addEventListener("click", (e) => {
+  if (e.target.closest("#set-pars")) openParsEditor();
+  const bring = e.target.closest("[data-bring]");
+  if (bring) {
+    const f = JSON.parse(bring.dataset.bring);
+    openStockEditor("move");
+    stockForm.fromPlaceId.value = f.from;
+    fillStockBeers();
+    stockForm.toPlaceId.value = f.to;
+    stockForm.beerId.value = f.beer;
+    fillStockRows();
+    const input = document.querySelector(`[data-stock-type="${f.type}"]`);
+    if (input) input.value = f.count;
+    if (!stockForm.reason.value && (brewery.stockReasons || []).length) stockForm.reason.placeholder = brewery.stockReasons[0];
+    updateStockSummary();
+  }
+});
+
+// Setting pars for a place (or the whole brewery): every beer, with boxes for barrels and cases
+const parsDialog = document.getElementById("pars-editor");
+const parsForm = document.getElementById("pars-form");
+function openParsEditor() {
+  const placeId = inventoryPlace === "all" ? null : inventoryPlace;
+  document.getElementById("pars-title").textContent = placeId ? `Pars at ${placeName(placeId)}` : "Brewery-wide pars";
+  // Beers with stock or a par first, then the rest
+  const relevant = (b) => !!parFor(placeId, b.id) || stockOf(null, b.id).bbl > 0;
+  const beers = [...data.beers].sort((a, b) => relevant(b) - relevant(a) || a.name.localeCompare(b.name));
+  document.getElementById("pars-rows").innerHTML = `<table class="inv-table">
+    <tr><th>Beer</th><th>Par (<span class="volume-unit"></span>)</th><th>Par (cases)</th></tr>
+    ${beers.map((b) => {
+      const par = parFor(placeId, b.id);
+      return `<tr><td>${esc(b.name)}</td>
+        <td><input type="number" min="0" step="any" inputmode="decimal" data-par-beer="${b.id}" data-par="bbl" value="${par?.parBbl != null ? toShown("volume", par.parBbl) : ""}"></td>
+        <td><input type="number" min="0" step="any" inputmode="decimal" data-par-beer="${b.id}" data-par="cases" value="${par?.parCases ?? ""}"></td></tr>`;
+    }).join("")}</table>`;
+  applyUnitLabels();
+  parsDialog.showModal();
+}
+parsForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const placeId = inventoryPlace === "all" ? null : inventoryPlace;
+  const upserts = [], removals = [];
+  for (const beer of data.beers) {
+    const bblBox = parsForm.querySelector(`[data-par-beer="${beer.id}"][data-par="bbl"]`);
+    const caseBox = parsForm.querySelector(`[data-par-beer="${beer.id}"][data-par="cases"]`);
+    const bbl = bblBox.value === "" ? null : fromShown("volume", bblBox.value);
+    const cases = caseBox.value === "" ? null : Number(caseBox.value);
+    const existing = parFor(placeId, beer.id);
+    if (bbl == null && cases == null) { if (existing) removals.push(existing.id); continue; }
+    const same = existing && Math.abs((existing.parBbl ?? -1) - (bbl ?? -1)) < 1e-4 && (existing.parCases ?? null) === cases;
+    if (!same) upserts.push({ brewery_id: brewery.id, place_id: placeId, beer_id: beer.id, par_bbl: bbl, par_cases: cases });
+  }
+  const ok = await save(async () => {
+    if (upserts.length) await must(db.from("stock_pars").upsert(upserts, { onConflict: "brewery_id,place_id,beer_id" }));
+    if (removals.length) await must(db.from("stock_pars").delete().in("id", removals));
+  });
+  if (ok) parsDialog.close();
 });
 
 // ----- Stock places (Settings → Equipment) -----

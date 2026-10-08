@@ -199,7 +199,37 @@ try {
   await allSent();
   const dbCount = await page.evaluate(async ([p, b]) => (await db.from("stock_on_hand").select("count").eq("place_id", p).eq("beer_id", b)).data.reduce((s, r) => s + Number(r.count), 0), [taproom, beerId]);
   check(dbCount === 5, `sent: the database has 5 in the taproom (${dbCount})`);
+
+  console.log("8. Pars at the taproom: under par, bring up from storage, and what's on deck");
+  await page.click(`#inv-places [data-place="${taproom}"]`);
+  await page.click("#set-pars");
+  await page.waitForSelector("#pars-editor[open]");
+  await page.fill(`[data-par-beer="${beerId}"][data-par="bbl"]`, "4");
+  await page.click("#pars-form button[type=submit]");
+  await allSent();
+  const pars = await text("#inv-pars");
+  check(pars.includes("2.5 bbl of 4 bbl (−1.5 bbl)"), `over / under: "${pars.slice(0, 160)}"`);
+  check(pars.includes("Bring up 3 × ½ bbl keg from"), "suggests bringing up 3 halves from storage");
+  await page.click("[data-bring]");
+  await page.waitForSelector("#stock-editor[open]");
+  check((await page.inputValue('#stock-form [name="toPlaceId"]')) === taproom && (await page.inputValue("[data-stock-type]")) === "3", "Bring up fills in the move");
+  await page.click("#stock-form button[type=submit]");
+  await allSent();
+  check((await text("#inv-pars")).includes("4 bbl of 4 bbl") && !(await text("#inv-pars")).includes("Bring up"), "at par now");
+  check((await text("#inv-deck")).includes(`Old Stock ${run}`), "on deck: the beer in storage that isn't at the taproom yet");
+  await page.screenshot({ path: SHOTS + "pars.png", fullPage: true });
+
+  console.log("9. A brewery-wide par");
+  await page.click('#inv-places [data-place="all"]');
+  await page.click("#set-pars");
+  await page.waitForSelector("#pars-editor[open]");
+  await page.fill(`[data-par-beer="${beerId}"][data-par="bbl"]`, "20");
+  await page.click("#pars-form button[type=submit]");
+  await allSent();
+  check((await text("#inv-pars")).includes(`Inv Ale ${run}`) && (await text("#inv-pars")).includes("of 20 bbl"), "the brewery-wide par is shown against all places");
+  check(await page.isHidden("#inv-deck"), "no 'on deck' for all places");
   await page.screenshot({ path: SHOTS + "inventory.png" });
+  await page.evaluate((id) => db.from("stock_places").update({ active: false }).eq("id", id), taproom); // tidy up: hide this run's taproom
   check(errors.length === 0, `no page errors (${errors.join("; ")})`);
 } catch (e) {
   fails.push("crashed: " + e.message);

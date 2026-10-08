@@ -135,6 +135,7 @@ These shape every decision, even for features that come later:
 - **Move** (up to the taproom, to the other location) and **Remove** (sold, taproom, transferred, donated, dumped, with an account name). Taking stock out uses the **oldest batch first**.
 - **Reasons** ("Stocked the taproom", "Dock sale"...): a brewery's own list, offered on every count, move, and removal, and **required** if the admin turns that on (Settings → Packages).
 - Everything works offline, and a new permission, **"Count and move finished goods"**, is part of Cellar and up by default.
+- **Pars** (step 2): how much of each beer a place should have, in barrels and/or cases (a taproom's pars), plus a **brewery-wide par** per beer. Each place shows **over / under**, and what to **bring up** ("Bring up 3 × ½ bbl keg from Storage", one tap fills in the move). A taproom also shows what's **on deck**: beers in storage that aren't there yet.
 
 ### Splits and blends (moving beer, step 4)
 - **"Split / blend…"** on a batch page makes a **new batch** from part or all of this one, and optionally other batches (a blend). Each part is its own batch, with its own stage, additions, and packaging, so a tank always holds one batch.
@@ -354,7 +355,7 @@ The shared database (Phase 3) was pulled ahead of the brew log: real crews can o
 2. ~~Keep the data safe~~: nightly backups are running and a restore has been rehearsed. **Supabase's paid plan before real records** (decided).
 3. ~~Brew log~~ (done, Phase 2).
 4. ~~Moving beer and packaging~~ (done, Phase 5).
-5. **Inventory** (Phase 6, [design](docs/inventory-design.md)): ~~finished goods~~ (done); next pars, restocking, and "on deck", then raw materials, then keg tracking.
+5. **Inventory** (Phase 6, [design](docs/inventory-design.md)): ~~finished goods~~, ~~pars, restocking, and "on deck"~~ (done); next raw materials, then keg tracking.
 6. **API, import, and export** (Phase 6½, below).
 7. TTB reporting (Phase 7), and the rest in order; **onboarding last** (Phase 11).
 
@@ -462,7 +463,7 @@ Beer is tracked by **volume, not just location**: a batch has barrels in places,
 ### Phase 6: Inventory
 **Design draft:** [docs/inventory-design.md](docs/inventory-design.md) (stock worked out from records, like volumes: packaged in, removals out).
 - [x] **Finished goods:** stock places, packaging into stock, count sheets, moves, removals by kind (oldest batch first), opening counts, and optional required reasons.
-- [ ] **Pars, restocking, and "on deck"** (from the review of a real inventory workbook).
+- [x] **Pars, restocking, and "on deck"** (from the review of a real inventory workbook).
 - [ ] **Keg tracking:** which kegs are full, empty, or out at accounts.
 - [ ] **Raw materials:** malt, hops, yeast, and chemicals on hand, used up by batches as they're brewed.
 

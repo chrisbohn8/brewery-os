@@ -7,7 +7,7 @@ set local role postgres;
 create extension if not exists pgtap with schema extensions;
 set search_path = public, extensions;
 
-select plan(18);
+select plan(21);
 
 insert into auth.users (id, email) values
   ('00000000-0000-0000-0000-0000000000aa', 'admin@example.test'),
@@ -79,6 +79,15 @@ select public.record_count('aa000000-0000-0000-0000-000000000105', (select b fro
   jsonb_build_array(jsonb_build_object('beer', 'aa000000-0000-0000-0000-0000000000bf', 'type', pg_temp.half(), 'counted', 4)), 'unknown', '');
 select is((select count || ' with batch ' || coalesce(batch_id::text, 'none') from stock_on_hand where beer_id = 'aa000000-0000-0000-0000-0000000000bf'),
   '4 with batch none', 'an opening count of a beer from before the app has no batch');
+
+-- 5b. Pars: one per beer per place, plus one brewery-wide
+insert into stock_pars (brewery_id, place_id, beer_id, par_bbl) select b, 'aa000000-0000-0000-0000-0000000000f2', 'aa000000-0000-0000-0000-0000000000be', 1.5 from ids;
+insert into stock_pars (brewery_id, place_id, beer_id, par_bbl, par_cases) select b, null, 'aa000000-0000-0000-0000-0000000000be', 24, 10 from ids;
+select is((select count(*) from stock_pars)::int, 2, 'a taproom par and a brewery-wide par');
+select throws_ok($$ insert into stock_pars (brewery_id, place_id, beer_id, par_bbl) select b, null, 'aa000000-0000-0000-0000-0000000000be', 30 from ids $$,
+  '23505', null, 'one brewery-wide par per beer');
+select throws_ok($$ insert into stock_pars (brewery_id, place_id, beer_id) select b, null, 'aa000000-0000-0000-0000-0000000000bf' from ids $$,
+  '23514', null, 'a par needs barrels or cases');
 
 -- 6. A brewery that asks for a reason on every stock change
 update breweries set require_stock_reason = true, stock_reasons = array['Stocked the taproom', 'Dock sale'];
