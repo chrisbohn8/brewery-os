@@ -415,9 +415,11 @@ The shared database (Phase 3) was pulled ahead of the brew log: real crews can o
 3. ~~Brew log~~ (done, Phase 2).
 4. ~~Moving beer and packaging~~ (done, Phase 5).
 5. **Inventory** (Phase 6, [design](docs/inventory-design.md)): ~~finished goods~~, ~~pars, restocking, and "on deck"~~, ~~raw materials~~ (done); next keg tracking (optional).
-6. **API, import, and export** (Phase 6½, below).
-7. **Alerts and tank monitoring** (Phase 6¾): alerts from the records first (email), then the sensor inbox.
-8. TTB reporting (Phase 7), and the rest in order; **onboarding last** (Phase 11).
+6. ~~API, import, and export~~ (Phase 6½, done); still to come: writing all data through the API.
+7. ~~Alerts from the records~~ (Phase 6¾, done); the sensor inbox later.
+8. ~~Problem reports and all-or-nothing backup loading~~ (done).
+9. **TTB reporting** (Phase 7, [design draft](docs/ttb-design.md)): waiting on answers to its five "(confirm)" questions.
+10. The planning calendar ([design draft](docs/calendar-design.md)), then the rest in order; **onboarding last** (Phase 11).
 
 ### ✅ Phase 0: Foundation (done)
 - [x] Tank dashboard with stage and days in stage
@@ -433,7 +435,7 @@ The shared database (Phase 3) was pulled ahead of the brew log: real crews can o
 ### Phase 2: Brew log and history
 The as-brewed record for each batch, compared against its beer's targets. **Design draft:** [docs/brew-log-design.md](docs/brew-log-design.md).
 - [x] **Brewery preferences, first:** temperature (°F/°C), gravity (SG/Plato/Brix), volume (bbl/hL/gal), and time zone. **Readings are stored in one standard unit** (gravity as SG, temperature as °C, volume as US barrels) and converted for display, so changing a preference never alters old records, breweries' numbers mean the same thing, and TTB math is always in barrels. Brix readings taken after fermentation starts need an alcohol correction (using the original gravity); the app applies it.
-- [ ] **Event history per batch.** Record every stage change and transfer (date, from, to, volume) instead of overwriting. Traceability, the CIP log, and TTB reporting are all built on this. Stage and tank may become "the latest event" rather than fields that get overwritten.
+- [x] **Event history per batch.** Record every stage change and transfer (date, from, to, volume) instead of overwriting. Traceability, the CIP log, and TTB reporting are all built on this. Stage and tank may become "the latest event" rather than fields that get overwritten.
 - [x] **Cellar log** with action items that move the stage, readings in the brewery's units, cellar changes, notes; **additions** with lot numbers; **brewhouse settings per location**. 
 - [x] **Brew-day ingredients with lot numbers,** copied from the last batch of the beer.
 - [x] **Brew sheet field catalog:** each brewery ticks the fields it measures (Settings → Brew sheet). Breweries can also add their own fields. Fields can be renamed and given the brewery's own targets. Still to come: choosing fields during onboarding, and different fields or targets per location.
@@ -521,7 +523,7 @@ Beer is tracked by **volume, not just location**: a batch has barrels in places,
 - [x] **Package types set per brewery,** from a researched catalog of kegs, casks, cases, and containers, plus their own.
 - [x] **A packaging calculator** that turns counts into volume, shows what's left, and what it would fill.
 - [x] **Packaging never empties a tank by itself.** A person confirms **"this tank is spent"**; what's left on paper is recorded as **loss**. A leftover over 10% asks before closing.
-- [ ] Packaged beer becomes finished-goods inventory (Phase 6).
+- [x] Packaged beer becomes finished-goods inventory (Phase 6).
 
 ### Phase 6: Inventory
 **Design draft:** [docs/inventory-design.md](docs/inventory-design.md) (stock worked out from records, like volumes: packaged in, removals out).
@@ -590,7 +592,7 @@ The payoff for keeping accurate volumes at every step.
 
 ### Phase 10: Recipes and costing
 Recipe *building* is well served by dedicated tools, so this stays light. The brew log (Phase 2) already keeps a simple per-location recipe that a batch starts from and the brewer adjusts by hand.
-- [ ] **Import recipes** from popular recipe tools, rather than building a full recipe builder.
+- [x] **Import recipes** from popular recipe tools (BeerXML, Phase 6½), rather than building a full recipe builder.
 - [ ] **As-brewed snapshot:** each batch keeps a copy of the recipe as it was actually brewed, so later recipe changes don't rewrite history.
 - [ ] **Printable brew sheets pre-filled from the recipe:** target numbers and additions already printed, with blanks for the actuals.
 - [ ] **Ingredient cost per batch** and cost per barrel, using raw-material inventory from Phase 6.
