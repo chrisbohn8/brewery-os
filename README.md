@@ -373,7 +373,8 @@ The shared database (Phase 3) was pulled ahead of the brew log: real crews can o
 4. ~~Moving beer and packaging~~ (done, Phase 5).
 5. **Inventory** (Phase 6, [design](docs/inventory-design.md)): ~~finished goods~~, ~~pars, restocking, and "on deck"~~, ~~raw materials~~ (done); next keg tracking (optional).
 6. **API, import, and export** (Phase 6½, below).
-7. TTB reporting (Phase 7), and the rest in order; **onboarding last** (Phase 11).
+7. **Alerts and tank monitoring** (Phase 6¾): alerts from the records first (email), then the sensor inbox.
+8. TTB reporting (Phase 7), and the rest in order; **onboarding last** (Phase 11).
 
 ### ✅ Phase 0: Foundation (done)
 - [x] Tank dashboard with stage and days in stage
@@ -491,6 +492,14 @@ The user's idea (API-first): outside tools and AI agents read and write through 
 - [ ] **Import from spreadsheets:** CSV upload or a Google Sheets link, for tanks, beers, batches, and cellar logs, with a preview of what will be created and a column mapping before anything is saved.
 - [ ] **Recipe import from all the major tools** via **BeerXML** (BeerSmith, Brewfather, Brewer's Friend, and others export it); later, Brewfather's own API. Recipes stay simple (decided): a beer's targets and ingredient list, which the brew-day sheet copies like "copy from the last batch".
 - Later, when someone besides us holds a key: rate limits and public API docs.
+
+### Phase 6¾: Alerts and tank monitoring
+The user's idea. Watching only, never controlling equipment (controllers already do that, and remote control brings safety and liability questions).
+- [ ] **Alerts from the records we already keep (no new hardware):** "no gravity logged on FV3 in 3 days", "crashing for 4 days", "acid due", "under par", "low on Pilsner malt". Each alert type can be turned on, with its own threshold.
+- [ ] **Who gets them:** specific people, by **email** for now (through the email service already set up); **push notifications** once there's an app. Quiet hours, "I've got it" to acknowledge, and repeats at most about hourly, so alerts don't become noise.
+- [ ] **A sensor inbox:** each tank (or cooler place) gets a private address, made with an API key from Phase 6½, that any device able to send readings to a web address can use (Tilt Pi, TiltBridge, iSpindel, RAPT webhooks, Wi-Fi temperature sensors). Readings attach to the batch in the tank, show on its fermentation chart, and drive alerts: a **safe range per stage** (fermenting 64–68 °F, crashing 30–34 °F...) with a per-batch override, an alert only after a few minutes out of range, and **"no reading for an hour"** as its own alert (a dead probe matters too).
+- [ ] **Pulling from vendors' clouds,** one at a time as real customers need them: RAPT, Precision Fermentation's BrewMonitor, Sennos, Plaato Pro, glycol and cooler monitors.
+- [ ] **A short buying guide:** floating hydrometers' radios struggle through jacketed stainless tanks, so for those a wired probe in the tank's thermowell, connected to a small Wi-Fi sensor or bridge outside the tank, is the practical low-tech option.
 
 ### Later: the official app, and a feature tour
 - [ ] **Installable web app** (home-screen icon, full screen): quick, any time.
