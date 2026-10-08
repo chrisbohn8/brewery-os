@@ -69,6 +69,11 @@ body {
   color: var(--text);
 }
 .screen-message { text-align: center; color: var(--muted); margin-top: 48px; }
+.screen h2 { font-size: 1.15rem; margin: 24px 0 8px; }
+.screen form h2 { margin: 0; }
+.choices { display: grid; gap: 12px; margin: 12px 0 20px; }
+.btn.choice { display: grid; gap: 4px; text-align: left; padding: 16px; font-size: 1rem; }
+.join-code { font-family: ui-monospace, Menlo, monospace; }
 .actions.wrap { flex-wrap: wrap; }
 
 /* ---- Header ---- */

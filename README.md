@@ -257,6 +257,7 @@ These shape every decision, even for features that come later:
 ### Accounts, breweries, and team
 - Sign in by email code or link; no passwords. Sign-in emails come from `noreply@brew.chrisbohn.org`.
 - **Invite coworkers:** in the Team section, an admin enters a coworker's email and picks a role. The coworker opens the app and signs in with that email; they join the brewery automatically. **The invite is emailed** to them (who invited them, the brewery, the level, and which address to sign in with), sent by a small server function ([supabase/functions/send-invite](supabase/functions/send-invite/index.ts)) that only a brewery's admins can use. "Email again" resends it.
+- **Join code, for a different email:** people often sign in with another address than the one they were invited at (a personal email instead of a work one). So a new email isn't sent straight to "create a brewery": the app first asks whether their brewery already uses Brewery OS. Each invite also has a short code, like `grist-knockout-4821` (two brewing words and four digits, about 40 million possibilities), in the invite email and on the admin's Team page. Typing it in joins from any email. It works once, for 14 days after the invite was made or last emailed, and each person gets 5 wrong tries an hour ([supabase/migrations/20261025000000_join_codes.sql](supabase/migrations/20261025000000_join_codes.sql)).
 - Admins change levels and remove people from Team & permissions. A brewery always keeps at least one admin: the database refuses to remove or demote the last one.
 - Someone who belongs to more than one brewery picks which one to work in under Account; the choice is remembered.
 - Each brewery's data is kept completely separate by the database itself (row-level security), and roles control who can change things: **admin**, **brewer**, and **viewer** (read-only).
@@ -453,6 +454,8 @@ Turns the prototype into something a brewery can rely on.
 - [x] **Invite coworkers** to a brewery, and let admins change roles (the last admin can't be removed).
 - [x] **A dedicated email service** for sign-in codes (Resend, from `noreply@brew.chrisbohn.org`).
 - [x] **Email the invite** to the coworker automatically (a small server function; needs the email service key set once).
+- [x] **Ask before making a brewery:** a new email is asked "joining your team, or setting it up?", and can join with the invite's **join code** from any email (so nobody makes a second copy of their own brewery by mistake).
+- [x] **Delete a brewery made by mistake** (Settings → Brewery), only by its admin and only while they're the only person in it.
 - [ ] **QR codes work on any phone** (now possible: every batch lives in the shared database).
 - [x] **Move existing data in** from a backup file or from the browser-only version.
 - [x] **Saving a batch is one all-or-nothing step** (batch, history, and tanks together).
@@ -573,7 +576,7 @@ Recipe *building* is well served by dedicated tools, so this stays light. The br
 ### Phase 11: Ready for other breweries
 Multi-tenancy itself arrives in Phase 3. This phase is about letting a new brewery sign up on its own.
 - [ ] **Onboarding: the brewer's own tanks on screen in the first 15 minutes.** Ask only what's needed to see value; ask the rest when it first matters. Guess defaults (units from the country, time zone from the phone), enter things in bulk, import what the brewery already has.
-    1. Sign in with an emailed code, then name the brewery.
+    1. Sign in with an emailed code, answer "joining your team, or setting it up?", then name the brewery.
     2. **Your cellar:** locations and tanks in bulk ("FV1 to FV8, 30 bbl fermenters").
     3. **What's in the tanks right now:** tap each tank, pick or type a beer, roughly how many days in.
     4. **Your brew sheet:** tick the fields you measure, or upload a photo or spreadsheet of your current sheet and have the matching fields ticked. Print it.
@@ -586,6 +589,7 @@ Multi-tenancy itself arrives in Phase 3. This phase is about letting a new brewe
     - **One trial per TTB permit number** (each brewery premises has its own Brewer's Notice). The permit is asked for at the first TTB report, which needs it anyway. A permit that already had a trial goes straight to paid, with an offer to pick up the earlier brewery's data. No IP tracking or name matching.
     - **After the trial nothing is deleted or locked away:** the brewery goes read-only, and export is always free.
 - [ ] **Billing.**
+- **Combining or splitting breweries is never automatic** (decided 2026-10-08). People already move freely: one sign-in can belong to several breweries. Moving *records* between breweries (a brewery buys another; a location becomes its own company) touches tanks, batches, inventory, and TTB history, and reports already filed must never change. So it's done by hand, case by case, with both admins agreeing, and respecting TTB permit boundaries. If it's ever needed often, the likely tool is "move one location and everything in it", confirmed by both admins, never a general merge.
 - [ ] Possibly a big-screen "cellar TV" view of the dashboard.
 
 ---

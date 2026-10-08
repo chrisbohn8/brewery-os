@@ -39,19 +39,59 @@
     </form>
   </section>
 
-  <!-- First sign-in: you don't belong to a brewery yet -->
+  <!-- First sign-in: you don't belong to a brewery yet. Ask first: joining your team, or
+       starting a new brewery? (People often sign in with a different email than the one their
+       admin invited, and would otherwise make a second copy of their own brewery by mistake.) -->
   <section id="setup-screen" class="screen" hidden>
     <h1>Welcome</h1>
-    <p class="muted">You're signed in, but you're not part of a brewery yet. Create one to get started.
-      To join an existing brewery instead, ask its admin to invite this email, then tap
-      <strong>Check for invites</strong>.</p>
-    <form id="setup-form">
+    <p class="muted">Signed in as <strong class="setup-email"></strong></p>
+
+    <div id="setup-choose">
+      <p>Does your brewery already use Brewery OS?</p>
+      <div class="choices">
+        <button type="button" id="choose-join" class="btn choice">
+          <strong>Yes, I'm joining my team</strong>
+          <span class="muted">Your admin invited you, or can</span>
+        </button>
+        <button type="button" id="choose-create" class="btn choice">
+          <strong>No, I'm setting it up</strong>
+          <span class="muted">Start a new brewery; you'll be its admin</span>
+        </button>
+      </div>
+      <div class="actions"><button type="button" class="btn sign-out">Sign out</button></div>
+    </div>
+
+    <div id="setup-join" hidden>
+      <h2>Join your team</h2>
+      <p>You'll join automatically when your admin invites <strong class="setup-email"></strong>.
+        Invited with a different email? Type the <strong>join code</strong> from the invite email
+        (like <em>grist-knockout-4821</em>), or ask your admin to read it from their Team page.</p>
+      <p id="join-message" class="form-message" role="alert" hidden></p>
+      <form id="join-form">
+        <label>Join code
+          <input name="code" required autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="grist-knockout-4821">
+        </label>
+        <div class="actions">
+          <button type="button" id="check-invites" class="btn">Check for invites</button>
+          <span class="spacer"></span>
+          <button type="submit" class="btn primary">Join</button>
+        </div>
+      </form>
+      <div class="actions wrap">
+        <button type="button" class="btn setup-back">← Back</button>
+        <button type="button" class="btn sign-out">Use a different email</button>
+      </div>
+    </div>
+
+    <form id="setup-form" hidden>
+      <h2>Set up your brewery</h2>
+      <p class="muted">If anyone at your brewery already uses Brewery OS, go back: ask them to invite you
+        instead, so you're all looking at the same tanks.</p>
       <label>Brewery name
         <input name="name" required placeholder="Your brewery">
       </label>
       <div class="actions">
-        <button type="button" class="btn sign-out">Sign out</button>
-        <button type="button" id="check-invites" class="btn">Check for invites</button>
+        <button type="button" class="btn setup-back">← Back</button>
         <span class="spacer"></span>
         <button type="submit" class="btn primary">Create brewery</button>
       </div>
@@ -281,6 +321,14 @@
     </form>
     <p class="muted">Changing a unit only changes how numbers are shown and typed; nothing already recorded changes.
       <span id="settings-admin-note" hidden>You don't have permission to change these.</span></p>
+  </section>
+  <!-- Made a brewery by mistake (or only tried the sample data)? Its admin can delete it while
+       they're the only person in it. -->
+  <section id="delete-brewery-area" class="list-section" hidden>
+    <h2>Delete this brewery</h2>
+    <p class="muted">Made this brewery by mistake, or only tried things out? You can delete it, with everything in it,
+      while you're the only person in it. This can't be undone; download a backup first if you might want it.</p>
+    <button type="button" id="delete-brewery" class="btn danger">Delete this brewery…</button>
   </section>
   </div>
 

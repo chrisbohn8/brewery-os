@@ -441,7 +441,7 @@ async function loadAll() {
       brewDay: a.brew_day, turn: a.turn,
     })),
     permissions,
-    invites: invites.map((i) => ({ id: i.id, email: i.email, role: i.role, emailedAt: i.emailed_at })),
+    invites: invites.map((i) => ({ id: i.id, email: i.email, role: i.role, emailedAt: i.emailed_at, createdAt: i.created_at, code: i.code })),
   };
   data = withWaitingChanges(serverData);
   brewery.prefs = serverData.prefs;
@@ -2239,6 +2239,9 @@ async function start() {
     // Which breweries are you in? Use the one you picked last time, or the first.
     const memberships = await must(db.from("memberships").select("role, breweries(id, name)").eq("user_id", session.user.id));
     if (!memberships.length) {
+      brewery = null; // (removed from it, or deleted it): nothing to refresh in the background
+      document.querySelectorAll(".setup-email").forEach((el) => { el.textContent = session.user.email; });
+      if (document.getElementById("setup-screen").hidden) showSetup("choose");
       showScreen("setup-screen");
       return;
     }
@@ -2288,7 +2291,53 @@ document.getElementById("brewery-switch").addEventListener("change", async (e) =
   await start();
 });
 
-document.getElementById("check-invites").addEventListener("click", () => start());
+// ----- Not in a brewery yet: join your team, or set up a new brewery -----
+function showSetup(view) { // "choose", "join", or "create"
+  document.getElementById("setup-choose").hidden = view !== "choose";
+  document.getElementById("setup-join").hidden = view !== "join";
+  document.getElementById("setup-form").hidden = view !== "create";
+  joinMessage("");
+  const focus = { join: "#join-form [name=code]", create: "#setup-form [name=name]" }[view];
+  if (focus) document.querySelector(focus).focus();
+}
+function joinMessage(text) {
+  const el = document.getElementById("join-message");
+  el.textContent = text || "";
+  el.hidden = !text;
+}
+document.getElementById("choose-join").addEventListener("click", () => showSetup("join"));
+document.getElementById("choose-create").addEventListener("click", () => showSetup("create"));
+document.querySelectorAll(".setup-back").forEach((btn) => btn.addEventListener("click", () => showSetup("choose")));
+
+// A join code from the invite email works with any email (see supabase/migrations/..._join_codes.sql)
+const joinForm = document.getElementById("join-form");
+joinForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const button = joinForm.querySelector("button[type=submit]");
+  button.disabled = true;
+  joinMessage("");
+  const { data: result, error } = await db.rpc("join_with_code", { p_code: joinForm.code.value });
+  button.disabled = false;
+  if (error) {
+    joinMessage(`Couldn't check the code: ${explain(error)}`);
+    return;
+  }
+  if (!result.joined) {
+    joinMessage(result.reason);
+    return;
+  }
+  try { localStorage.setItem(CHOICE_KEY, result.brewery_id); } catch {}
+  joinForm.reset();
+  await start();
+});
+
+document.getElementById("check-invites").addEventListener("click", async () => {
+  joinMessage("");
+  await start();
+  if (!document.getElementById("setup-screen").hidden) {
+    joinMessage(`No invite for ${signedInEmail} yet. Ask your admin to invite this email, or type the join code from your invite.`);
+  }
+});
 
 // Signing in or out (in this tab, or from the emailed link) re-runs start()
 db.auth.onAuthStateChange((event) => {
@@ -2665,7 +2714,36 @@ function renderSettings() {
   if (document.activeElement !== breweryNameForm.name) breweryNameForm.name.value = brewery.name;
   breweryNameForm.name.disabled = !can("rename_brewery");
   document.getElementById("backup-note").hidden = can("backups");
+  document.getElementById("delete-brewery-area").hidden = brewery.role !== "admin" || (data.members || []).length !== 1;
 }
+
+// Delete a brewery made by mistake: only its admin, only while they're alone in it
+// (the database checks both; see delete_brewery in supabase/migrations/..._join_codes.sql)
+document.getElementById("delete-brewery").addEventListener("click", async () => {
+  if (offline || !navigator.onLine) {
+    alert("Deleting the brewery needs signal.");
+    return;
+  }
+  if (outbox.length) {
+    alert("Some changes haven't been sent yet. Try again once they've gone through.");
+    return;
+  }
+  const typed = prompt(`This deletes ${brewery.name} and everything in it: tanks, beers, batches, and inventory. ` +
+    `It can't be undone.\n\nTo delete it, type its name:`);
+  if (typed === null) return;
+  if (typed.trim().toLowerCase() !== brewery.name.trim().toLowerCase()) {
+    alert("That isn't the brewery's name, so nothing was deleted.");
+    return;
+  }
+  const { error } = await db.rpc("delete_brewery", { p_brewery_id: brewery.id });
+  if (error) {
+    alert(`Couldn't delete the brewery: ${explain(error)}`);
+    return;
+  }
+  try { localStorage.removeItem(CHOICE_KEY); } catch {}
+  deleteOfflineCopy();
+  await start(); // another brewery you're in, or the welcome screen
+});
 
 settingsForm.addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -2711,6 +2789,7 @@ document.getElementById("tank-list").addEventListener("click", (e) => {
 });
 
 // ----- Team: members, levels, and invites -----
+const JOIN_CODE_DAYS = 14;
 function renderTeam() {
   const isAdmin = brewery.role === "admin";
   const members = data.members || [];
@@ -2726,12 +2805,20 @@ function renderTeam() {
 
   document.getElementById("invite-area").hidden = !isAdmin;
   document.getElementById("invite-heading").hidden = !invites.length;
-  document.getElementById("invite-list").innerHTML = invites.map((i) => `
+  const day = (t) => new Date(t).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  document.getElementById("invite-list").innerHTML = invites.map((i) => {
+    // The join code works for 14 days after the invite was made or last emailed (see join_with_code)
+    const until = new Date(Math.max(Date.parse(i.createdAt), i.emailedAt ? Date.parse(i.emailedAt) : 0) + JOIN_CODE_DAYS * 86400000);
+    const code = until > Date.now()
+      ? `join code <strong class="join-code">${esc(i.code)}</strong> (works until ${day(until)})`
+      : `join code expired: tap ${i.emailedAt ? "Email again" : "Email"} to renew it`;
+    return `
     <li class="item">
-      <span class="who">${esc(i.email)} <span class="muted">· ${labelFrom(ROLES, i.role)}${i.emailedAt ? ` · emailed ${new Date(i.emailedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}` : " · not emailed"}</span></span>
+      <span class="who">${esc(i.email)} <span class="muted">· ${labelFrom(ROLES, i.role)}${i.emailedAt ? ` · emailed ${day(i.emailedAt)}` : " · not emailed"}<br>${code}</span></span>
       <span class="actions"><button class="btn small" data-email-invite="${i.id}">${i.emailedAt ? "Email again" : "Email"}</button>
       <button class="btn small" data-cancel-invite="${i.id}">Cancel</button></span>
-    </li>`).join("");
+    </li>`;
+  }).join("");
 
   // Levels table: a row per permission, a column per level (admin column always all ticked)
   const levelIds = ROLES.map((r) => r.id);

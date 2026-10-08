@@ -1,6 +1,7 @@
 // Team and permissions: an admin invites a cellar person, who can transfer beer but not start
 // batches; the admin adjusts that one person ("just them") and then a whole level ("everyone at
-// Cellar"); the last admin can't step down; switching breweries; removing people.
+// Cellar"); the last admin can't step down; switching breweries; removing people; joining with a
+// join code from a different email; setting up a brewery by mistake and deleting it.
 // Real Chrome against the local Supabase test copy (served by the preview server on port 8123).
 import { createServer } from "node:http";
 import { chromium } from "playwright-core";
@@ -36,7 +37,7 @@ async function person(email) {
   const page = await context.newPage();
   page.dialogs = [];
   page.errors = [];
-  page.on("dialog", async (d) => { page.dialogs.push(d.message()); await d.accept(); });
+  page.on("dialog", async (d) => { page.dialogs.push(d.message()); await (d.type() === "prompt" ? d.accept(page.answer ?? "") : d.accept()); });
   page.on("pageerror", (e) => page.errors.push(e.message));
   await page.goto(APP);
   await page.waitForSelector("#signin-screen:not([hidden])", { timeout: 20000 });
@@ -212,7 +213,72 @@ try {
   await crew.reload();
   await crew.waitForSelector("#setup-screen:not([hidden]), #app-screen:not([hidden])");
   check(await screen(crew) === "setup-screen", "the removed person no longer gets in");
-  check([admin, crew, other].every((p) => p.errors.length === 0), `no page errors (${[admin, crew, other].flatMap((p) => p.errors).join("; ")})`);
+
+  console.log("8. Invited at work, signs in with a home email: joins with the join code");
+  const WORK = `work-${run}@example.test`, HOME = `home-${run}@example.test`;
+  await settings(admin, "team");
+  await admin.fill('#invite-form [name="email"]', WORK);
+  await admin.selectOption('#invite-form [name="role"]', "brewer");
+  await admin.click("#invite-form button[type=submit]");
+  await settle(admin);
+  const joinCode = await admin.evaluate((e) => data.invites.find((i) => i.email === e)?.code, WORK);
+  check(/^[a-z]+-[a-z]+-\d{4}$/.test(joinCode || ""), `the invite has a join code (${joinCode})`);
+  check((await admin.textContent("#invite-list")).includes(joinCode) && (await admin.textContent("#invite-list")).includes("works until"),
+    "the Team page shows the code and until when it works");
+  await admin.waitForFunction(() => /Emailed|couldn't|aren't/.test(document.getElementById("invite-message").textContent), null, { timeout: 60000 });
+  const workEmail = sentEmails.find((m) => m.to?.[0] === WORK);
+  check(!!workEmail && workEmail.text.includes(joinCode) && workEmail.html.includes(joinCode), "the invite email has the join code");
+
+  const home = await person(HOME);
+  globalThis.pages = { admin, home };
+  check(await screen(home) === "setup-screen" && await home.isVisible("#setup-choose") && !(await home.isVisible("#setup-form")),
+    "a new email is asked first: joining your team, or setting up a brewery?");
+  await home.click("#choose-join");
+  check((await home.textContent("#setup-join")).includes(HOME), "the join page shows which email they signed in with");
+  await home.click("#check-invites");
+  await home.waitForSelector("#join-message:not([hidden])");
+  check((await home.textContent("#join-message")).includes(`No invite for ${HOME}`), "Check for invites says there's none for this email");
+  await home.fill('#join-form [name="code"]', "hops-mash-0000");
+  await home.click("#join-form button[type=submit]");
+  await home.waitForFunction(() => /didn't work/.test(document.getElementById("join-message").textContent));
+  check(await screen(home) === "setup-screen", "a wrong code says so, and joins nothing");
+  await home.fill('#join-form [name="code"]', ` ${joinCode.toUpperCase().replace(/-/g, " ")} `);
+  await home.click("#join-form button[type=submit]");
+  await home.waitForSelector("#app-screen:not([hidden])", { timeout: 20000 });
+  check((await home.textContent("#brewery-name")) === "Example Brewing" && await home.evaluate(() => brewery.role) === "brewer",
+    "the right code (typed any old way) joins Example Brewing, as Brewer");
+  await admin.reload();
+  await admin.waitForSelector("#app-screen:not([hidden])");
+  check(!(await admin.evaluate((e) => data.invites.some((i) => i.email === e), WORK)) && await admin.evaluate((e) => data.members.some((m) => m.email === e), HOME),
+    "the admin sees them on the team, and the invite is used up");
+  await settings(admin, "brewery");
+  check(!(await admin.isVisible("#delete-brewery-area")), "a brewery with a team can't be deleted from Settings");
+
+  console.log("9. Someone sets up a brewery by mistake, then deletes it");
+  const SOLO = `solo-${run}@example.test`;
+  const solo = await person(SOLO);
+  globalThis.pages = { admin, home, solo };
+  await solo.click("#choose-create");
+  check((await solo.textContent("#setup-form")).includes("ask them to invite you"), "setting up says to ask for an invite if the brewery already uses it");
+  await solo.click("#setup-form .setup-back");
+  check(await solo.isVisible("#setup-choose"), "Back returns to the question");
+  await solo.click("#choose-create");
+  await solo.fill('#setup-form [name="name"]', `Oops ${run}`);
+  await solo.click("#setup-form button[type=submit]");
+  await solo.waitForSelector("#app-screen:not([hidden])", { timeout: 20000 });
+  await solo.click("#load-sample"); // tries things out with the sample data
+  await solo.waitForFunction(() => data.batches.length > 0 && !busy, null, { timeout: 30000 });
+  await settings(solo, "brewery");
+  check(await solo.isVisible("#delete-brewery-area"), "its only person sees 'Delete this brewery'");
+  solo.answer = "Wrong name";
+  await solo.click("#delete-brewery");
+  await wait(500);
+  check(solo.dialogs.at(-1)?.includes("isn't the brewery's name") && await screen(solo) === "app-screen", "a wrong name deletes nothing");
+  solo.answer = `oops ${run}`;
+  await solo.click("#delete-brewery");
+  await solo.waitForSelector("#setup-screen:not([hidden])", { timeout: 20000 });
+  check(await solo.isVisible("#setup-choose"), "after deleting (sample batches and all), they're back at the welcome question");
+  check([admin, crew, other, home, solo].every((p) => p.errors.length === 0), `no page errors (${[admin, crew, other, home, solo].flatMap((p) => p.errors).join("; ")})`);
 } catch (e) {
   fails.push("crashed: " + e.message);
   console.log("CRASH", e.message.split("\n")[0]);

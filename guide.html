@@ -63,7 +63,12 @@
     <h2>Getting started</h2>
     <ol>
       <li><strong>Sign in with your email.</strong> There's no password: the app emails you a sign-in code. Type it in (or tap the link in the email).</li>
-      <li><strong>Make your brewery</strong> (the first time), or, if your brewery's admin invited you, you'll join it automatically. Invited but it didn't happen? Tap <span class="ui">Check for invites</span>.</li>
+      <li><strong>Join your team, or set up your brewery.</strong> If your admin invited the email you signed in with, you join automatically. If not, the app asks whether your brewery already uses Brewery OS:
+        <ul>
+          <li><span class="ui">Yes, I'm joining my team</span>: type the <strong>join code</strong> from your invite email (like <em>grist-knockout-4821</em>; capitals and spaces don't matter). The code works with any email, so it's the answer when you were invited at one address and signed in with another. No code? Ask your admin to invite the email you signed in with, then tap <span class="ui">Check for invites</span>.</li>
+          <li><span class="ui">No, I'm setting it up</span>: name your brewery and you're its admin. If anyone at your brewery already uses Brewery OS, ask them to invite you instead, so you're all looking at the same tanks.</li>
+        </ul>
+        Made a brewery by mistake? Delete it in <a href="#settings-brewery">Settings → Brewery</a>.</li>
       <li><strong>Set your units</strong> (°F or °C; Plato, SG, or Brix; barrels, hectoliters, or gallons) in <a href="#settings-brewery">Settings → Brewery</a>. Everything is shown and typed in your units.</li>
       <li><strong>Add your locations and tanks</strong> in <a href="#settings-equipment">Settings → Equipment</a>, or bring them in from a spreadsheet with <a href="#settings-import">Settings → Import</a>. (A brand-new brewery's empty tank board also offers <span class="ui">Sample data</span> to try things out, or a backup file.)</li>
       <li><strong>Add your beers</strong> in <a href="#settings-beers">Settings → Beers</a>, and start batches from the tank board.</li>
@@ -253,6 +258,7 @@
       <li><strong>Brewery name</strong> (admins).</li>
       <li><strong>Units and time zone:</strong> temperature (°F or °C), gravity (Plato, SG, or Brix), volume (barrels, hectoliters, or gallons). Changing a unit only changes how numbers are shown and typed; nothing recorded changes.</li>
       <li><strong>Flag brew-day values far from target:</strong> how far a value can be from its target before the brew-day sheet highlights it, for gravity, temperature, pH, and volumes (a percentage). Leave a box empty to turn that flag off.</li>
+      <li><strong>Delete this brewery</strong> (made by mistake, or only tried with the sample data): shown to the admin only while they're the only person in the brewery. Type the brewery's name to confirm; it deletes everything in it and can't be undone, so download a backup first if you might want it. A brewery with a team can't be deleted here.</li>
     </ul>
   </section>
 
@@ -299,6 +305,7 @@
     <h2>Settings: Team and permissions</h2>
     <ul>
       <li><strong>Invite</strong> someone by email with a level; they get an email and join when they sign in with that address. <span class="ui">Email again</span> resends it; <span class="ui">Cancel</span> withdraws it.</li>
+      <li><strong>Join code:</strong> each invite also has a code, like <em>grist-knockout-4821</em>, shown here and in the invite email. If they sign in with a different email, they choose <span class="ui">Yes, I'm joining my team</span> and type it (or you read it out). It works once, for 14 days after the invite was made or last emailed; <span class="ui">Email again</span> renews it. Whoever uses it joins at the invited level and shows on the team with the email they signed in with, so check the list. Five wrong codes in an hour make a person wait an hour.</li>
       <li><strong>Tap a person</strong> to change their level, adjust single permissions (the app asks: just this person, or everyone at their level), or remove them. A brewery always keeps at least one admin.</li>
       <li><strong>What each level can do:</strong> admins can change what a level includes, or reset to the usual; see <a href="#permissions">Who can do what</a>.</li>
     </ul>
