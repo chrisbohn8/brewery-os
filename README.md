@@ -518,6 +518,7 @@ The payoff for keeping accurate volumes at every step.
 
 ### Phase 8: Taproom connection (POS sync)
 - [ ] Connect one point-of-sale system first (chosen by what pilot breweries use), so taproom sales draw down keg and serving-tank levels and count as taxable removals for TTB.
+- **Stay open to the common taproom POS systems** (the user's reminder): Toast, Square, Clover, and brewery-focused ones like Arryved, among others. Choices made now that keep the door open: **draft lines** map onto a POS's menu items (pours by line), pours become **taproom removals** (and level checks for serving tanks), and the **API** (Phase 6½) is the way in for a POS or a connector. Pour sizes (16 oz, 10 oz, flights) turn sales into volume.
 
 ### Phase 9: State returns
 - [ ] State excise returns built from the same records as TTB, starting with **California**, which requires a return every month even with no activity.
