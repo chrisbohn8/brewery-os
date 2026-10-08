@@ -705,3 +705,8 @@ button.cal-cell { cursor: pointer; }
 .schedule-step select { flex: 1; }
 .schedule-step input { width: 5.5em; }
 .cal-chip.late { border: 2px dashed var(--maintenance); color: var(--text); }
+.cal-chip.short { border: 2px solid var(--acid-due); }
+.cal-chip.clash { border: 2px solid var(--maintenance); } /* a clash outranks a shortfall */
+.short-list { margin: 0 0 12px; padding-left: 18px; }
+.short-list li { margin-bottom: 6px; }
+.order-late { color: var(--maintenance); font-weight: 600; }

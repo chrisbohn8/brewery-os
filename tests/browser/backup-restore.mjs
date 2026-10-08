@@ -45,7 +45,7 @@ const empty = (page) => page.evaluate(async () => {
 const counts = (page) => page.evaluate(() => ({
   tanks: data.tanks.length, batches: data.batches.length, events: data.events.length, movements: data.movements.length, packageCounts: data.packageCounts.length, stockMoves: data.stockMoves.length, onHand: stockOnHand().length, pars: data.pars.length, rawItems: data.rawItems.length, rawReceipts: data.rawReceipts.length, rawAdjustments: data.rawAdjustments.length, lines: data.lines.length, views: data.views.length, recipes: data.recipes.length, recipeIngredients: data.recipeIngredients.length,
   cellar: data.cellar.length, additions: data.additions.length, readings: data.readings.length,
-  planItems: data.planItems.length, schedules: Object.keys(data.schedules).length, shifts: Object.keys(data.shifts).length,
+  planItems: data.planItems.length, schedules: Object.keys(data.schedules).length, shifts: Object.keys(data.shifts).length, rawOrders: data.rawOrders.length,
   ownFields: (brewery.sheetCustomFields || []).length, sheetFields: (brewery.sheetFields || []).length,
 }));
 

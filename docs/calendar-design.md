@@ -96,7 +96,7 @@ Everything above goes through the API too, under the same permission (product pr
 
 1. **Week view, planned brews, beer schedules (days only), the permission, and clashes.** The calendar is useful from here on. **Built 2026-10-08** (someday plans and both permissions included).
 2. **Push the rest back** and late flags. **Built 2026-10-08.**
-3. **Raw materials look ahead:** needs per planned brew, on order, shortfalls, dismiss, the shopping list, and the alert.
+3. **Raw materials look ahead:** needs per planned brew, on order, shortfalls, dismiss, the shopping list, and the alert. **Built 2026-10-08.** (Linking an unmatched ingredient to an item with one tap, remembered, is still to come; for now the name must match.)
 4. **Gravity triggers** (due-now items and alerts from logged readings), and schedules filled in from recipes and past batches.
 5. **Calendar subscription, people on items, import from the Google Sheet, and the printable week.**
 

@@ -1,7 +1,9 @@
 // The planning calendar: a beer's schedule; planning a brew in a tank lays out its expected steps;
 // a second brew in the same tank too soon is a clash, shown before it happens; moving an item,
 // ticking it done, someday plans, and deleting; a batch behind its schedule shows its late step,
-// and "push the rest back" moves its steps (asking first if that clashes). Real Chrome, local test copy.
+// and "push the rest back" moves its steps (asking first if that clashes); will there be enough malt:
+// a brew short of a raw material, dismissing it, the shopping list, ordering and receiving.
+// Real Chrome, local test copy.
 import { chromium } from "playwright-core";
 import { floor, onDialog } from "./helpers.mjs";
 
@@ -215,15 +217,88 @@ try {
   pushDays = null;
   refuseClash = false;
 
+  console.log("10. Will there be enough? A brew short of malt, dismissing, the shopping list, ordering, receiving");
+  const MALT = `Cal Pils ${run}`, TANK3 = `C3-${run}`;
+  const setup = await page.evaluate(async ([malt, tank, beerId, tankId]) => {
+    const itemId = newId(), recipeId = newId(), tank3 = newId();
+    const turns = data.locations[0].usualTurns || 1;
+    const need = 275 * turns;
+    await save(async () => {
+      await must(db.from("breweries").update({ recipes_per: "turn" }).eq("id", brewery.id));
+      await must(db.from("tanks").insert({ id: tank3, brewery_id: brewery.id, name: tank, capacity_bbl: 10, location_id: data.locations[0].id }));
+      await must(db.from("raw_items").insert({ id: itemId, brewery_id: brewery.id, name: malt, kind: "malt", unit: "lb", pack_name: "sack", pack_size: 55, lead_days: 2 }));
+      await must(db.from("raw_receipts").insert({ brewery_id: brewery.id, item_id: itemId, received_on: today(), amount: need * 1.6 }));
+      await must(db.from("recipes").insert({ id: recipeId, brewery_id: brewery.id, beer_id: beerId, name: "Cal recipe" }));
+      await must(db.from("recipe_ingredients").insert([
+        { brewery_id: brewery.id, recipe_id: recipeId, kind: "malt", name: malt, amount: 275, unit: "lb" },
+        { brewery_id: brewery.id, recipe_id: recipeId, kind: "hop", name: `Mystery ${malt}`, amount: 2, unit: "kg" }]));
+      await must(db.from("plan_items").delete().eq("beer_id", beerId)); // (start clean: only these two brews)
+      await must(db.from("plan_items").insert([
+        { brewery_id: brewery.id, kind: "brew", planned_on: addDays(today(), 1), tank_id: tankId, beer_id: beerId },
+        { brewery_id: brewery.id, kind: "brew", planned_on: addDays(today(), 2), tank_id: tank3, beer_id: beerId }]));
+    });
+    return { itemId, tank3, need };
+  }, [MALT, TANK3, ids.beerId, ids.tankId]);
+  const short = setup.need * 0.4;
+  const brew2 = (await chips()).find((c) => c.tank === setup.tank3);
+  check(brew2?.cls.includes("short") && brew2.text.includes("short"), `the second brew is marked short: "${brew2?.text}"`);
+  check(!(await chips()).find((c) => c.tank === ids.tankId && c.text.startsWith("Brew day"))?.cls.includes("short"), "the first one has enough");
+  await page.click(`[data-cell-tank="${setup.tank3}"] .cal-chip`);
+  await page.waitForSelector("#plan-editor[open]");
+  const detail = await page.textContent("#plan-short");
+  check(detail.replace(/\s+/g, " ").includes(`${MALT}: needs ${setup.need} lb; there'll be ${+(setup.need * 0.6).toFixed(2)} lb: ${+short.toFixed(2)} lb short (${Math.ceil(short / 55)} sacks)`),
+    `it says how much, in sacks: "${detail.replace(/\s+/g, " ").trim().slice(0, 160)}"`);
+  check(detail.includes(`"Mystery ${MALT}"`) && detail.includes("Not in your raw materials"), "and which ingredient it can't count (no raw material by that name)");
+
+  pushDays = "Borrowing from next door";
+  await page.click("[data-dismiss-short]");
+  await page.waitForFunction(() => document.getElementById("plan-short").textContent.includes("Dismissed"), null, { timeout: 10000 }).catch(() => {});
+  check((await page.textContent("#plan-short")).includes("Dismissed: Borrowing from next door"), "dismissed, with a note for the crew");
+  pushDays = null;
+  await page.click("#plan-editor .cancel");
+  check(!(await chips()).find((c) => c.tank === setup.tank3)?.cls.includes("short"), "and no longer marked short");
+
+  // Undo the dismissal (to see it on the shopping list), then order from the list
+  await page.evaluate(async (item) => save(() => must(db.from("shortfall_dismissals").delete().eq("item_id", item))), setup.itemId);
+  await page.click("#cal-shopping");
+  await page.waitForSelector("#shopping-dialog[open]");
+  const list = (await page.textContent("#shopping-list")).replace(/\s+/g, " ");
+  check(list.includes(`${MALT}: ${+short.toFixed(2)} lb (${Math.ceil(short / 55)} sacks)`) && list.includes("order by"),
+    `the shopping list has it, with when to order by: "${list.trim().slice(0, 140)}"`);
+  check((await page.textContent("#shopping-unmatched")).includes(`Mystery ${MALT}`), "and what it couldn't count");
+  await page.click(`[data-order-item="${setup.itemId}"]`);
+  await page.waitForSelector("#order-editor[open]");
+  check(await page.inputValue("#order-form [name=itemId]") === setup.itemId && Number(await page.inputValue("#order-form [name=amount]")) === +short.toFixed(3),
+    "\"On order…\" fills in the item and the amount short");
+  await page.fill("#order-form [name=expectedOn]", await plusDays(1));
+  await page.click("#order-form button[type=submit]");
+  await settle();
+  check(!(await page.evaluate((i) => data.shortfalls.some((x) => x.itemId === i), setup.itemId)), "on order before the brew: no longer short");
+
+  await floor(page);
+  await page.click("#open-inventory");
+  await page.click('[data-inv-tab="raw"]');
+  await page.waitForSelector("#raw-orders-area:not([hidden])");
+  check((await page.textContent("#raw-orders")).includes(MALT), "the order is listed under Raw materials → On order");
+  await page.click(`#raw-orders [data-order-received]`);
+  await page.waitForSelector("#receive-editor[open]");
+  check(await page.inputValue("#receive-form [name=itemId]") === setup.itemId, "Received fills in the delivery");
+  await page.fill("#receive-form [name=lot]", `L-${run}`);
+  await page.click("#receive-form button[type=submit]");
+  await page.waitForFunction(() => !data.rawOrders.length && !busy, null, { timeout: 15000 }).catch(() => {});
+  check(await page.evaluate(([i, lot]) => !data.rawOrders.some((o) => o.itemId === i) && data.rawReceipts.some((r) => r.itemId === i && r.lot === lot),
+    [setup.itemId, `L-${run}`]), "received: a delivery with its lot, and no longer on order");
+
   // Clean up
-  await page.evaluate(async ([t, t2, b, batchId]) => {
+  await page.evaluate(async ([t, t2, t3, b, batchId, item]) => {
     await save(async () => {
       await must(db.from("plan_items").delete().eq("beer_id", b));
       await must(db.from("batches").delete().eq("id", batchId));
-      await must(db.from("tanks").delete().in("id", [t, t2]));
+      await must(db.from("tanks").delete().in("id", [t, t2, t3]));
       await must(db.from("beers").delete().eq("id", b));
+      await must(db.from("raw_items").delete().eq("id", item));
     });
-  }, [ids.tankId, batch.tankId, ids.beerId, batch.batchId]);
+  }, [ids.tankId, batch.tankId, setup.tank3, ids.beerId, batch.batchId, setup.itemId]);
   await floor(page).catch(() => {});
   check(errors.length === 0, `no page errors (${errors.join("; ")})`);
 } catch (e) {

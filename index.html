@@ -184,9 +184,14 @@
     <div class="actions wrap">
       <button id="raw-receive" class="btn primary" data-needs="inventory">Receive</button>
       <button id="raw-count" class="btn" data-needs="inventory">Count</button>
+      <button id="raw-order" class="btn" data-needs="inventory">On order</button>
       <button id="raw-items-open" class="btn" data-needs="inventory">Items</button>
     </div>
     <p class="muted">On hand = received − used on batches (ingredients and additions with the same name and lot) ± counts. Tap an item for its lots and the batches that used them.</p>
+    <div id="raw-orders-area" hidden>
+      <h3>On order</h3>
+      <ul id="raw-orders" class="plain"></ul>
+    </div>
     <ul id="raw-list" class="plain log-list"></ul>
   </section>
   </div>
@@ -268,6 +273,7 @@
       <button type="button" class="btn small" id="cal-next" aria-label="Later">›</button>
       <strong id="cal-range"></strong>
       <span class="spacer"></span>
+      <button type="button" class="btn small" id="cal-shopping">Shopping list</button>
       <button type="button" class="btn small" id="cal-schedules">Beer schedules</button>
       <button type="button" class="btn small primary" id="cal-add" data-needs="plan_schedule">+ Plan</button>
     </div>
@@ -533,6 +539,11 @@
       <label class="btn" id="import-beerxml-label">Import BeerXML… <input id="import-beerxml" type="file" accept=".xml,.beerxml,text/xml,application/xml" hidden></label>
     </div>
     <p class="muted">From BeerSmith, Brewfather, Brewer's Friend, and other recipe software (export as BeerXML). The brew-day sheet can copy a recipe's ingredients.</p>
+    <label class="inline-label">Recipes are written for
+      <select id="recipes-per" aria-label="Recipes are written for">
+        <option value="turn">one turn (the calendar multiplies by the brewhouse's turns)</option>
+        <option value="batch">the whole batch</option>
+      </select></label>
     <ul id="recipe-list" class="plain"></ul>
   </section>
   </div>
@@ -696,6 +707,7 @@
       </label>
       <label class="inline-label" id="plan-done-field"><input type="checkbox" name="done"> Done</label>
       <p id="plan-clash" class="form-message" hidden></p>
+      <div id="plan-short"></div>
       <p id="plan-note" class="muted" hidden></p>
       <div class="actions">
         <button type="button" id="delete-plan" class="btn danger">Delete</button>
@@ -703,6 +715,40 @@
         <button type="button" class="btn cancel">Cancel</button>
         <button type="submit" class="btn primary" id="save-plan">Save</button>
       </div>
+    </form>
+  </dialog>
+
+  <!-- What the planned brews will be short of (plan_shortfalls in the database) -->
+  <dialog id="shopping-dialog" class="wide">
+    <form method="dialog">
+      <h2 tabindex="-1" autofocus>Shopping list</h2>
+      <p id="shopping-window" class="muted"></p>
+      <ul id="shopping-list" class="plain"></ul>
+      <div id="shopping-unmatched"></div>
+      <div class="actions">
+        <button type="button" class="btn" id="shopping-copy">Copy</button>
+        <span class="spacer"></span>
+        <button type="submit" class="btn primary">Close</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- A delivery on order (raw materials): counted toward planned brews after the day it's due -->
+  <dialog id="order-editor">
+    <form id="order-form">
+      <h2 tabindex="-1" autofocus>On order</h2>
+      <label>Item <select name="itemId"></select></label>
+      <div class="two-col">
+        <label>How much <input name="amount" type="number" min="0" step="any" inputmode="decimal" required></label>
+        <label>In <select name="unit"></select></label>
+      </div>
+      <div class="two-col">
+        <label>Due <input name="expectedOn" type="date" required></label>
+        <label>Supplier <input name="supplier" list="supplier-list" maxlength="120"></label>
+      </div>
+      <label>Notes <input name="notes" maxlength="500"></label>
+      <div class="actions"><span class="spacer"></span>
+        <button type="button" class="btn cancel">Cancel</button><button type="submit" class="btn primary">Save</button></div>
     </form>
   </dialog>
 
@@ -1177,6 +1223,7 @@
         <label>Pack name <input name="packName" maxlength="40" placeholder="Like: sack, box"></label>
         <label>Pack size (in that unit) <input name="packSize" type="number" min="0" step="any" inputmode="decimal" placeholder="Like: 55"></label>
       </div>
+      <label>Takes how many days to arrive when ordered (optional) <input name="leadDays" type="number" min="0" max="180" step="1" inputmode="numeric" placeholder="Like: 5"></label>
       <label class="choice"><input type="checkbox" name="active" checked> In use</label>
       <div class="actions"><span class="spacer"></span>
         <button type="button" class="btn cancel">Close</button><button type="submit" class="btn primary" id="raw-item-save">Add item</button></div>

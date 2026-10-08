@@ -456,14 +456,14 @@ async function loadAll() {
   // Bring the alerts up to date first, so the list below is current (a gravity just logged clears
   // its alert right away). A failed check never stops the data loading; the server checks too.
   await db.rpc("check_alerts", { p_brewery_id: b }).then(() => {}, () => {});
-  const [locations, beers, tanks, batches, events, cleanings, settings, members, invites, permissions, memberRows, levels, cellar, additions, readings, movements, packageTypes, packageCounts, places, stockMoves, pars, rawItems, rawReceipts, rawAdjustments, lines, inventoryViews, recipes, recipeIngredientRows, alertRules, alerts, planItems, schedules, shifts] = await Promise.all([
+  const [locations, beers, tanks, batches, events, cleanings, settings, members, invites, permissions, memberRows, levels, cellar, additions, readings, movements, packageTypes, packageCounts, places, stockMoves, pars, rawItems, rawReceipts, rawAdjustments, lines, inventoryViews, recipes, recipeIngredientRows, alertRules, alerts, planItems, schedules, shifts, rawOrders, shortfalls, needs] = await Promise.all([
     must(db.from("locations").select("*").eq("brewery_id", b).order("created_at")),
     must(db.from("beers").select("*").eq("brewery_id", b)),
     must(db.from("tanks").select("*").eq("brewery_id", b).order("created_at")),
     must(db.from("batch_status").select("*").eq("brewery_id", b)),
     must(db.from("batch_events").select("*").eq("brewery_id", b).order("effective_date").order("recorded_at")),
     must(db.from("tank_cleanings").select("*").eq("brewery_id", b).order("cleaned_on").order("recorded_at")),
-    must(db.from("breweries").select("acid_after_styles, temperature_unit, gravity_unit, volume_unit, time_zone, target_limits, sheet_fields, sheet_custom_fields, sheet_field_settings, stock_reasons, require_stock_reason, alert_quiet_start, alert_quiet_end").eq("id", b).single()),
+    must(db.from("breweries").select("acid_after_styles, temperature_unit, gravity_unit, volume_unit, time_zone, target_limits, sheet_fields, sheet_custom_fields, sheet_field_settings, stock_reasons, require_stock_reason, alert_quiet_start, alert_quiet_end, plan_lookahead_days, recipes_per").eq("id", b).single()),
     must(db.rpc("brewery_members", { p_brewery_id: b })),
     must(db.from("invites").select("*").eq("brewery_id", b).order("created_at")), // admins only; others get none
     must(db.rpc("my_permissions", { b })),
@@ -491,6 +491,10 @@ async function loadAll() {
     must(db.from("plan_items").select("*").eq("brewery_id", b).order("planned_on").order("created_at")),
     must(db.from("beer_schedules").select("beer_id, steps").eq("brewery_id", b)),
     must(db.from("plan_shifts").select("batch_id, days").eq("brewery_id", b)),
+    must(db.from("raw_orders").select("*").eq("brewery_id", b).is("received_at", null).order("expected_on")),
+    // Will there be enough for the planned brews? Worked out by the database (plan_shortfalls), one place for the arithmetic
+    must(db.rpc("plan_shortfalls", { p_brewery_id: b })),
+    must(db.rpc("plan_needs", { p_brewery_id: b })),
   ]);
   // Each member: email and level (from brewery_members) plus their personal adjustments
   const adjustments = Object.fromEntries(memberRows.map((r) => [r.user_id, r]));
@@ -552,7 +556,7 @@ async function loadAll() {
       sourceBatchId: m.source_batch_id,
     })),
     rawItems: rawItems.map((i) => ({ id: i.id, name: i.name, kind: i.kind, unit: i.unit, packName: i.pack_name,
-      packSize: num(i.pack_size), reorderLevel: num(i.reorder_level), active: i.active })),
+      packSize: num(i.pack_size), reorderLevel: num(i.reorder_level), active: i.active, leadDays: i.lead_days })),
     rawReceipts: rawReceipts.map((r) => ({ id: r.id, itemId: r.item_id, receivedOn: r.received_on, lot: r.lot, amount: num(r.amount),
       supplier: r.supplier, cost: num(r.cost), notes: r.notes, recordedAt: r.recorded_at })),
     rawAdjustments: rawAdjustments.map((a) => ({ id: a.id, itemId: a.item_id, lot: a.lot, adjustedOn: a.adjusted_on, change: num(a.change),
@@ -566,6 +570,13 @@ async function loadAll() {
       tankId: i.tank_id, beerId: i.beer_id, batchId: i.batch_id, notes: i.notes, doneAt: i.done_at })),
     schedules: Object.fromEntries(schedules.map((s) => [s.beer_id, s.steps || []])),
     shifts: Object.fromEntries(shifts.map((s) => [s.batch_id, s.days])), // days a batch's schedule was pushed back
+    rawOrders: rawOrders.map((o) => ({ id: o.id, itemId: o.item_id, amount: num(o.amount), expectedOn: o.expected_on, supplier: o.supplier, notes: o.notes })),
+    shortfalls: shortfalls.map((x) => ({ planId: x.plan_id, plannedOn: x.planned_on, beerName: x.beer_name, itemId: x.item_id, itemName: x.item_name,
+      unit: x.unit, needed: num(x.needed), available: num(x.available), short: num(x.short), packSize: num(x.pack_size), packName: x.pack_name,
+      leadDays: x.lead_days, inWindow: x.in_window, dismissed: x.dismissed, dismissedNote: x.dismissed_note })),
+    // Recipe ingredients that match no raw material (by name), per planned brew
+    unmatched: needs.filter((n) => !n.item_id).map((n) => ({ planId: n.plan_id, plannedOn: n.planned_on, beerName: n.beer_name, ingredient: n.ingredient })),
+    planLookaheadDays: settings.plan_lookahead_days ?? 14, recipesPer: settings.recipes_per || "turn",
     recipes: recipes.map((r) => ({ id: r.id, beerId: r.beer_id, locationId: r.location_id, name: r.name, batchSizeBbl: num(r.batch_size_bbl),
       targetOg: num(r.target_og), targetFg: num(r.target_fg), ibu: num(r.ibu), notes: r.notes, source: r.source })),
     recipeIngredients: recipeIngredientRows.map((i) => ({ id: i.id, recipeId: i.recipe_id, position: i.position, kind: i.kind, name: i.name,
@@ -1046,6 +1057,9 @@ function withWaitingChanges(base) {
   d.planItems ??= [];
   d.schedules ??= {};
   d.shifts ??= {};
+  d.rawOrders ??= [];
+  d.shortfalls ??= [];
+  d.unmatched ??= [];
   for (const change of outbox) SHOW[change.kind](d, change.args);
   return d;
 }
@@ -1322,6 +1336,7 @@ function render() {
   renderPlaces();
   renderReasons();
   renderRecipes();
+  renderRecipesPer();
   renderAlerts();
   if (currentView === "inventory") renderInventory();
   if (currentView === "calendar") renderCalendar();
@@ -2160,7 +2175,8 @@ async function loadIntoBrewery(source, description) {
     if (d.rawItems?.length) {
       for (const item of d.rawItems) {
         match("raw_items", ["name"], { id: idFor(item.id), name: item.name, kind: item.kind, unit: item.unit,
-          pack_name: item.packName || "", pack_size: item.packSize ?? null, reorder_level: item.reorderLevel ?? null, active: item.active });
+          pack_name: item.packName || "", pack_size: item.packSize ?? null, reorder_level: item.reorderLevel ?? null, active: item.active,
+          lead_days: item.leadDays ?? null });
       }
       insert("raw_receipts", (d.rawReceipts || []).map((r) => ({ item_id: idFor(r.itemId), received_on: r.receivedOn, lot: r.lot || "",
         amount: r.amount, supplier: r.supplier || "", cost: r.cost ?? null, notes: r.notes || "", ...recorded(r.recordedAt) })));
@@ -2208,6 +2224,12 @@ async function loadIntoBrewery(source, description) {
       done_at: p.doneAt ?? null })));
     insert("beer_schedules", Object.entries(d.schedules || {}).map(([beerId, steps]) => ({ beer_id: idFor(beerId), steps })));
     insert("plan_shifts", Object.entries(d.shifts || {}).map(([batchId, days]) => ({ batch_id: idFor(batchId), days })));
+    if (d.planLookaheadDays || d.recipesPer) update("breweries", brewery.id, { plan_lookahead_days: d.planLookaheadDays ?? 14, recipes_per: d.recipesPer || "turn" });
+  }
+  // Deliveries on order (raw materials; matched to items above)
+  if (can("inventory") && d.rawItems?.length && d.batches.length) { // (items load with the batches, above)
+    insert("raw_orders", (d.rawOrders || []).map((o) => ({ item_id: idFor(o.itemId), amount: o.amount, expected_on: o.expectedOn,
+      supplier: o.supplier || "", notes: o.notes || "" })));
   }
   // The brew sheet's setup and units (an admin setting; skipped quietly for anyone else)
   if (can("manage_settings") && (d.prefs || d.sheetFields || d.sheetCustomFields?.length)) {
@@ -4245,6 +4267,19 @@ function renderRaw() {
         <span>${esc(rawAmount(item, onHand))}</span></div>
       ${low ? `<div class="restock">Below the reorder level (${esc(rawAmount(item, item.reorderLevel))})</div>` : ""}${lotRows}</li>`;
   }).join("") || `<li class="item muted">No raw materials yet. Add items, then record what you receive.</li>`;
+
+  // Deliveries on order: counted toward planned brews after the day they're due
+  const orders = (data.rawOrders || []).filter((o) => data.rawItems.some((i) => i.id === o.itemId));
+  document.getElementById("raw-orders-area").hidden = !orders.length;
+  const canKeep = can("inventory");
+  document.getElementById("raw-orders").innerHTML = orders.map((o) => {
+    const item = data.rawItems.find((i) => i.id === o.itemId);
+    const late = o.expectedOn < today();
+    return `<li class="item"><span class="who"><strong>${esc(rawAmount(item, o.amount))} ${esc(item.name)}</strong>
+        <span class="muted">· ${late ? `<span class="order-late">was due ${formatDate(o.expectedOn)}</span>` : `due ${formatDate(o.expectedOn)}`}${o.supplier ? ` · ${esc(o.supplier)}` : ""}</span></span>
+      ${canKeep ? `<span class="actions"><button type="button" class="btn small" data-order-received="${o.id}">Received</button>
+        <button type="button" class="btn small" data-order-cancel="${o.id}">Cancel</button></span>` : ""}</li>`;
+  }).join("");
 }
 document.getElementById("raw-list").addEventListener("click", (e) => {
   if (e.target.closest("[data-open-batch]")) return;
@@ -4275,12 +4310,20 @@ const receiveDialog = document.getElementById("receive-editor");
 const receiveForm = document.getElementById("receive-form");
 const rawItemOptions = () => (data.rawItems || []).filter((i) => i.active).sort((a, b) => a.name.localeCompare(b.name))
   .map((i) => `<option value="${i.id}">${esc(i.name)}</option>`).join("");
-function openReceive() {
+let receivingOrder = null; // the delivery on order being received, if any
+function openReceive(order = null) {
   if (!(data.rawItems || []).some((i) => i.active)) { warn("Add an item first (Items)."); return; }
+  receivingOrder = order;
   receiveForm.reset();
   receiveForm.itemId.innerHTML = rawItemOptions();
   receiveForm.receivedOn.value = today();
+  if (order) receiveForm.itemId.value = order.itemId;
   fillReceiveUnits();
+  if (order) { // filled in from the order: the amount in the item's own unit, and the supplier
+    receiveForm.unit.value = "unit";
+    receiveForm.amount.value = +order.amount.toFixed(3);
+    receiveForm.supplier.value = order.supplier;
+  }
   receiveDialog.showModal();
 }
 function fillReceiveUnits() {
@@ -4302,8 +4345,16 @@ receiveForm.addEventListener("submit", async (e) => {
     amount, supplier: receiveForm.supplier.value.trim(), cost: receiveForm.cost.value === "" ? null : Number(receiveForm.cost.value),
     notes: receiveForm.notes.value.trim(),
   }, `Received ${rawAmount(item, amount)} of ${item.name}`);
-  if (ok) receiveDialog.close();
+  if (!ok) return;
+  receiveDialog.close();
+  // Received from an order: the order is done (it stops counting as on its way)
+  if (receivingOrder) {
+    const order = receivingOrder;
+    receivingOrder = null;
+    await save(() => must(db.from("raw_orders").update({ received_at: new Date().toISOString() }).eq("id", order.id)));
+  }
 });
+receiveDialog.addEventListener("close", () => { if (!receiveDialog.returnValue) receivingOrder = null; });
 
 // ----- Counting a raw material -----
 const rawCountDialog = document.getElementById("raw-count-editor");
@@ -4366,6 +4417,7 @@ function editItem(item) {
   itemForm.name.value = item.name; itemForm.kind.value = item.kind; itemForm.unit.value = item.unit;
   itemForm.packName.value = item.packName; itemForm.packSize.value = item.packSize ?? "";
   itemForm.reorderLevel.value = item.reorderLevel ?? ""; itemForm.active.checked = item.active;
+  itemForm.leadDays.value = item.leadDays ?? "";
 }
 document.getElementById("raw-items").addEventListener("click", (e) => {
   const row = e.target.closest("[data-edit-item]");
@@ -4377,13 +4429,57 @@ itemForm.addEventListener("submit", async (e) => {
     name: itemForm.name.value.trim(), kind: itemForm.kind.value, unit: itemForm.unit.value, pack_name: itemForm.packName.value.trim(),
     pack_size: itemForm.packSize.value === "" ? null : Number(itemForm.packSize.value),
     reorder_level: itemForm.reorderLevel.value === "" ? null : Number(itemForm.reorderLevel.value), active: itemForm.active.checked,
+    lead_days: itemForm.leadDays.value === "" ? null : Number(itemForm.leadDays.value),
   };
   const ok = await save(() => editingItem
     ? must(db.from("raw_items").update(row).eq("id", editingItem.id))
     : must(db.from("raw_items").insert({ brewery_id: brewery.id, ...row })));
   if (ok) openItems();
 });
-document.getElementById("raw-receive").addEventListener("click", openReceive);
+document.getElementById("raw-receive").addEventListener("click", () => openReceive());
+
+// ----- Deliveries on order -----
+const orderDialog = document.getElementById("order-editor");
+const orderForm = document.getElementById("order-form");
+function fillOrderUnits() {
+  const item = data.rawItems.find((i) => i.id === orderForm.itemId.value);
+  orderForm.unit.innerHTML = `<option value="unit">${item.unit}</option>` +
+    (item.packSize ? `<option value="pack">${esc(item.packName || "packs")} (${+item.packSize} ${item.unit})</option>` : "");
+  orderForm.unit.value = item.packSize ? "pack" : "unit";
+}
+function openOrder(preset = {}) {
+  if (!(data.rawItems || []).some((i) => i.active)) { warn("Add an item first (Items)."); return; }
+  orderForm.reset();
+  orderForm.itemId.innerHTML = rawItemOptions();
+  if (preset.itemId) orderForm.itemId.value = preset.itemId;
+  fillOrderUnits();
+  const item = data.rawItems.find((i) => i.id === orderForm.itemId.value);
+  orderForm.expectedOn.value = addDays(today(), item?.leadDays ?? 3);
+  if (preset.amount) { orderForm.unit.value = preset.unit || "unit"; orderForm.amount.value = preset.amount; }
+  orderDialog.showModal();
+}
+orderForm.itemId.addEventListener("change", fillOrderUnits);
+orderForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const item = data.rawItems.find((i) => i.id === orderForm.itemId.value);
+  const amount = Number(orderForm.amount.value) * (orderForm.unit.value === "pack" ? item.packSize : 1);
+  if (!(amount > 0)) { warn("How much is on order?"); return; }
+  const ok = await save(() => must(db.from("raw_orders").insert({ brewery_id: brewery.id, item_id: item.id, amount,
+    expected_on: orderForm.expectedOn.value, supplier: orderForm.supplier.value.trim(), notes: orderForm.notes.value.trim() })));
+  if (ok) orderDialog.close();
+});
+document.getElementById("raw-order").addEventListener("click", () => openOrder());
+document.getElementById("raw-orders").addEventListener("click", async (e) => {
+  const received = e.target.closest("[data-order-received]");
+  if (received) return openReceive(data.rawOrders.find((o) => o.id === received.dataset.orderReceived));
+  const cancel = e.target.closest("[data-order-cancel]");
+  if (!cancel) return;
+  const order = data.rawOrders.find((o) => o.id === cancel.dataset.orderCancel);
+  const item = data.rawItems.find((i) => i.id === order.itemId);
+  if (!(await ask(`Cancel the order of ${rawAmount(item, order.amount)} ${item.name}? (It stops counting toward planned brews.)`,
+    { ok: "Cancel the order", cancel: "Keep it", danger: true }))) return;
+  await save(() => must(db.from("raw_orders").delete().eq("id", order.id)));
+});
 document.getElementById("raw-count").addEventListener("click", openRawCount);
 document.getElementById("raw-items-open").addEventListener("click", openItems);
 
@@ -4684,6 +4780,10 @@ function exportLists() {
     "raw-material-deliveries": (data.rawReceipts || []).map((r) => {
       const item = data.rawItems.find((i) => i.id === r.itemId);
       return { "Item": item?.name ?? "", "Date": r.receivedOn, "Lot": r.lot, "Amount": r.amount, "Unit": item?.unit ?? "", "Supplier": r.supplier, "Cost": r.cost ?? "" };
+    }),
+    "raw-materials-on-order": (data.rawOrders || []).map((o) => {
+      const item = data.rawItems.find((i) => i.id === o.itemId);
+      return { "Item": item?.name ?? "", "Amount": o.amount, "Unit": item?.unit ?? "", "Due": o.expectedOn, "Supplier": o.supplier, "Notes": o.notes };
     }),
     "plan": (data.planItems || []).map((p) => ({ "Day": p.plannedOn || "", "Someday": p.someday, "What": labelFrom(PLAN_KINDS, p.kind), "Name": p.title,
       "Beer": findBeer(p.beerId)?.name ?? "", "Tank": p.tankId ? tankName(p.tankId) : "", "Batch": p.batchId ? label(p.batchId) : "",
@@ -5154,6 +5254,7 @@ const ALERT_KINDS = [
   { kind: "acid_due", label: "Acid due", help: "An empty tank that needs an acid cycle (the same rule as on the tank board)." },
   { kind: "under_par", label: "Under par", help: "A beer below its par, at a place or across the brewery (Inventory → pars)." },
   { kind: "low_stock", label: "Low on a raw material", help: "Below the item's reorder level (Inventory → Raw materials → Items)." },
+  { kind: "short_for_brew", label: "Short for a planned brew", help: "A brew on the calendar that there won't be enough of a raw material for (on hand, plus deliveries on order, minus earlier planned brews), unless someone dismissed it." },
 ];
 const ALERT_DEFAULTS = { no_gravity: { days: 3, stages: ["fermenting", "dry-hopping"] },
   stage_too_long: { days: { fermenting: 21, "dry-hopping": 7, conditioning: 28, carbonating: 7, ready: 30 } } };
@@ -5196,7 +5297,10 @@ function renderAlertSettings() {
     const extra = kind === "no_gravity" ? `<div class="two-col"><label>After how many days <input type="number" min="1" step="1" inputmode="numeric" data-param="days" value="${r.params.days}"></label>
         <div><span class="muted">In these stages</span>${STAGES.filter((s) => !["packaged", "used"].includes(s.id)).map((s) => `
           <label class="choice"><input type="checkbox" data-gravity-stage="${s.id}" ${r.params.stages.includes(s.id) ? "checked" : ""}> ${s.label}</label>`).join("")}</div></div>`
-      : kind === "stage_too_long" ? `<div class="stage-days">${stageInputs(r.params)}</div>` : "";
+      : kind === "stage_too_long" ? `<div class="stage-days">${stageInputs(r.params)}</div>`
+      : kind === "short_for_brew" ? `<label>Look ahead how many days <input type="number" min="1" max="90" step="1" inputmode="numeric" id="lookahead-days"
+          value="${data.planLookaheadDays ?? 14}" ${can("plan_schedule") ? "" : "data-locked"}></label>
+          <p class="muted">Brews further out than this are still checked on the calendar; an item that takes longer to arrive (its lead time) is warned about that much earlier.</p>` : "";
     return `<fieldset class="group alert-rule" data-alert-kind="${kind}">
       <legend><label class="choice"><input type="checkbox" data-enabled ${r.enabled ? "checked" : ""}> ${label}</label></legend>
       <p class="muted">${help}</p>${extra}
@@ -5207,7 +5311,7 @@ function renderAlertSettings() {
   const hours = (sel) => `<option value="">—</option>` + Array.from({ length: 24 }, (_, h) => `<option value="${h}" ${sel === h ? "selected" : ""}>${String(h).padStart(2, "0")}:00</option>`).join("");
   document.getElementById("quiet-start").innerHTML = hours(brewery.alertQuietStart ?? null);
   document.getElementById("quiet-end").innerHTML = hours(brewery.alertQuietEnd ?? null);
-  for (const el of document.querySelectorAll("#alerts-form input, #alerts-form select, #alerts-form button")) el.disabled = !allowed;
+  for (const el of document.querySelectorAll("#alerts-form input, #alerts-form select, #alerts-form button")) el.disabled = !allowed || el.hasAttribute("data-locked");
   document.getElementById("alerts-note").hidden = allowed;
 }
 document.getElementById("alerts-form").addEventListener("submit", async (e) => {
@@ -5228,7 +5332,9 @@ document.getElementById("alerts-form").addEventListener("submit", async (e) => {
   const start = document.getElementById("quiet-start").value, end = document.getElementById("quiet-end").value;
   const ok = await save(async () => {
     await must(db.from("alert_rules").upsert(rows, { onConflict: "brewery_id,kind" }));
-    await must(db.from("breweries").update({ alert_quiet_start: start === "" ? null : Number(start), alert_quiet_end: end === "" ? null : Number(end) }).eq("id", brewery.id));
+    const lookahead = Number(document.getElementById("lookahead-days").value) || 14;
+    await must(db.from("breweries").update({ alert_quiet_start: start === "" ? null : Number(start), alert_quiet_end: end === "" ? null : Number(end),
+      ...(lookahead !== data.planLookaheadDays && { plan_lookahead_days: Math.min(90, Math.max(1, Math.round(lookahead))) }) }).eq("id", brewery.id));
   });
   if (ok) document.getElementById("alerts-saved").textContent = "Saved.";
 });
@@ -6411,6 +6517,15 @@ function planClash(p) {
   return "";
 }
 
+// Shortfalls for a planned brew (from the database's plan_shortfalls), and its unmatched ingredients
+const shortsFor = (planId) => (data.shortfalls || []).filter((x) => x.planId === planId);
+const amountText = (n, unit) => `${+(+n).toFixed(2)} ${unit}`;
+function packsText(x) {
+  if (!x.packSize) return "";
+  const n = Math.ceil(x.short / x.packSize - 1e-9);
+  return ` (${n} ${x.packName || "pack"}${n === 1 || !x.packName ? "" : "s"})`;
+}
+
 function planText(p) {
   const beer = p.beerId ? findBeer(p.beerId)?.name : "";
   const what = p.title || labelFrom(PLAN_KINDS, p.kind);
@@ -6423,6 +6538,11 @@ function mondayOf(dateString) {
   const d = parseDate(dateString);
   d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
   return toDateString(d);
+}
+
+function renderRecipesPer() {
+  recipesPer.value = data.recipesPer || "turn";
+  recipesPer.disabled = !can("plan_schedule");
 }
 
 function renderCalendar() {
@@ -6439,8 +6559,10 @@ function renderCalendar() {
   const planChip = (p) => {
     const clash = planClash(p);
     const late = p.plannedOn && p.plannedOn < t0 && !planDone(p);
-    return `<button type="button" class="cal-chip${p.kind === "brew" ? " brew" : ""}${planDone(p) ? " done" : ""}${clash ? " clash" : ""}${late ? " late" : ""}"
-      data-plan="${p.id}" title="${esc(clash || planText(p))}">${esc(planText(p))}${late ? ` · late (${formatDate(p.plannedOn)})` : ""}${clash ? " ⚠" : ""}</button>`;
+    const short = shortsFor(p.id).filter((x) => !x.dismissed);
+    const why = clash || (short.length ? `Short of ${short.map((x) => x.itemName).join(", ")}` : planText(p));
+    return `<button type="button" class="cal-chip${p.kind === "brew" ? " brew" : ""}${planDone(p) ? " done" : ""}${short.length ? " short" : ""}${clash ? " clash" : ""}${late ? " late" : ""}"
+      data-plan="${p.id}" title="${esc(why)}">${esc(planText(p))}${late ? ` · late (${formatDate(p.plannedOn)})` : ""}${short.length ? " · short" : ""}${clash ? " ⚠" : ""}</button>`;
   };
   const expectedChip = (e) => e.late
     ? `<button type="button" class="cal-chip expected late" data-late-batch="${e.batchId}"
@@ -6557,6 +6679,7 @@ function openPlanEditor(item, preset = {}) {
   const clash = item ? planClash(item) : "";
   document.getElementById("plan-clash").hidden = !clash;
   document.getElementById("plan-clash").textContent = clash;
+  renderPlanShort(item);
   const brewed = item && brewedFor(item);
   const note = brewed ? `Brewed: ${beerName(brewed)}${brewed.batchNumber ? ` #${brewed.batchNumber}` : ""} (${formatDate(brewed.brewDate)}).`
     : !canMove ? "You can see the plan; changing it takes the \"Plan the schedule\" or \"Move items\" permission." : "";
@@ -6564,6 +6687,32 @@ function openPlanEditor(item, preset = {}) {
   document.getElementById("plan-note").textContent = note;
   planDialog.showModal();
 }
+
+// What this brew will be short of, and what of its recipe isn't in the raw materials
+function renderPlanShort(item) {
+  const box = document.getElementById("plan-short");
+  const shorts = item ? shortsFor(item.id) : [];
+  const unmatched = item ? (data.unmatched || []).filter((u) => u.planId === item.id) : [];
+  const canDismiss = can("plan_schedule") || can("move_schedule") || can("inventory");
+  box.innerHTML = (shorts.length ? `<p class="muted">Raw materials for this brew (on hand, plus deliveries due by then, minus earlier planned brews):</p>
+    <ul class="short-list">${shorts.map((x) => `<li><strong>${esc(x.itemName)}:</strong> needs ${esc(amountText(x.needed, x.unit))};
+      there'll be ${esc(amountText(Math.max(x.available, 0), x.unit))}: <strong>${esc(amountText(x.short, x.unit))} short</strong>${esc(packsText(x))}.
+      ${x.dismissed ? `<span class="muted">Dismissed${x.dismissedNote ? `: ${esc(x.dismissedNote)}` : ""}.</span>`
+        : canDismiss ? `<button type="button" class="btn small" data-dismiss-short="${x.itemId}">Dismiss…</button>` : ""}</li>`).join("")}</ul>` : "") +
+    (unmatched.length ? `<p class="muted">Not in your raw materials, so not counted: ${unmatched.map((u) => `"${esc(u.ingredient)}"`).join(", ")}.
+      Add an item with the same name (Inventory → Raw materials → Items), or rename the ingredient in the recipe.</p>` : "");
+}
+document.getElementById("plan-short").addEventListener("click", async (e) => {
+  const btn = e.target.closest("[data-dismiss-short]");
+  if (!btn || !editingPlan) return;
+  const x = shortsFor(editingPlan.id).find((s) => s.itemId === btn.dataset.dismissShort);
+  const note = await ask(`Dismiss being ${amountText(x.short, x.unit)} short of ${x.itemName} for this brew? It stops alerting, ` +
+    "and comes back if the shortfall gets bigger. A note for the crew:", { ok: "Dismiss", input: { placeholder: "Like: borrowing 2 sacks from next door" } });
+  if (note === null) return;
+  const ok = await save(() => must(db.from("shortfall_dismissals").upsert({ brewery_id: brewery.id, plan_id: editingPlan.id, item_id: x.itemId,
+    short_amount: x.short, note: note.trim() })));
+  if (ok) renderPlanShort(editingPlan);
+});
 
 planForm.addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -6589,6 +6738,60 @@ document.getElementById("delete-plan").addEventListener("click", async () => {
   if (!(await ask(`Delete "${planText(editingPlan)}" from the calendar? (Nothing recorded changes.)`, { ok: "Delete", danger: true }))) return;
   const ok = await save(() => must(db.from("plan_items").delete().eq("id", editingPlan.id)));
   if (ok) planDialog.close();
+});
+
+// Recipes written for one turn (the calendar multiplies by the brewhouse's turns) or the whole batch
+const recipesPer = document.getElementById("recipes-per");
+recipesPer.addEventListener("change", async () => {
+  const ok = await save(() => must(db.from("breweries").update({ recipes_per: recipesPer.value }).eq("id", brewery.id)));
+  if (!ok) recipesPer.value = data.recipesPer;
+});
+
+// ----- Shopping list: what the planned brews in the look-ahead will be short of -----
+function shoppingLines() {
+  const byItem = new Map();
+  for (const x of (data.shortfalls || []).filter((s) => s.inWindow && !s.dismissed)) {
+    const it = byItem.get(x.itemId) || { ...x, short: 0, brews: [] };
+    it.short += x.short;
+    it.brews.push(x);
+    byItem.set(x.itemId, it);
+  }
+  return [...byItem.values()].sort((a, b) => a.brews[0].plannedOn.localeCompare(b.brews[0].plannedOn)).map((it) => {
+    const first = it.brews[0];
+    const orderBy = it.leadDays ? addDays(first.plannedOn, -it.leadDays) : null;
+    return { it, text: `${it.itemName}: ${amountText(it.short, it.unit)}${packsText(it)}`, first, orderBy };
+  });
+}
+document.getElementById("cal-shopping").addEventListener("click", () => {
+  const lines = shoppingLines();
+  const days = data.planLookaheadDays || 14;
+  document.getElementById("shopping-window").textContent =
+    `What the brews planned in the next ${days} days (longer for items that take longer to arrive) will be short of: ` +
+    "on hand, plus deliveries on order, minus each planned brew in date order. Dismissed shortfalls aren't listed.";
+  document.getElementById("shopping-list").innerHTML = lines.map(({ it, text, first, orderBy }) => `<li class="item"><span class="who">
+      <strong>${esc(text)}</strong><br><span class="muted">first needed ${formatDate(first.plannedOn)} for ${esc(first.beerName)}${it.brews.length > 1 ? ` (and ${it.brews.length - 1} more)` : ""}${orderBy ? ` · order by ${formatDate(orderBy)}${orderBy < today() ? " (late)" : ""}` : ""}</span></span>
+      ${can("inventory") ? `<span class="actions"><button type="button" class="btn small" data-order-item="${it.itemId}" data-order-amount="${+it.short.toFixed(3)}">On order…</button></span>` : ""}</li>`).join("")
+    || `<li class="item muted">Nothing short. ${data.planItems?.some((p) => p.kind === "brew") ? "" : "Plan brews (with their beer and tank) to see what they'll need."}</li>`;
+  const unmatched = [...new Set((data.unmatched || []).map((u) => u.ingredient))];
+  document.getElementById("shopping-unmatched").innerHTML = unmatched.length
+    ? `<p class="muted">Not counted, because no raw material has the name: ${unmatched.map((n) => `"${esc(n)}"`).join(", ")}.</p>` : "";
+  document.getElementById("shopping-dialog").showModal();
+});
+document.getElementById("shopping-list").addEventListener("click", (e) => {
+  const btn = e.target.closest("[data-order-item]");
+  if (!btn) return;
+  document.getElementById("shopping-dialog").close();
+  openOrder({ itemId: btn.dataset.orderItem, amount: btn.dataset.orderAmount, unit: "unit" });
+});
+document.getElementById("shopping-copy").addEventListener("click", async () => {
+  const text = shoppingLines().map(({ text, first, orderBy }) =>
+    `${text} (for ${first.beerName} on ${formatDate(first.plannedOn)}${orderBy ? `; order by ${formatDate(orderBy)}` : ""})`).join("\n");
+  try {
+    await navigator.clipboard.writeText(text || "Nothing short.");
+    notify("Copied.");
+  } catch {
+    warn("Couldn't copy here. Select the list and copy it by hand.");
+  }
 });
 
 // ----- Beers' schedules -----

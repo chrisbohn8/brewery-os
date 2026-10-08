@@ -207,10 +207,11 @@
     <h2>Inventory: raw materials</h2>
     <p>Inventory → <span class="ui">Raw materials</span>. On hand by lot = received − used on batches + counts.</p>
     <ul>
-      <li><span class="ui">Items</span>: malt, hops, salts, yeast, chemicals, each with a unit, a pack (a 55 lb sack) and a reorder level. <strong>The item's name is what's typed as an ingredient</strong>, so usage is counted automatically.</li>
+      <li><span class="ui">Items</span>: malt, hops, salts, yeast, chemicals, each with a unit, a pack (a 55 lb sack), a reorder level, and (optionally) how many days it takes to arrive when ordered. <strong>The item's name is what's typed as an ingredient</strong>, so usage is counted automatically.</li>
       <li><span class="ui">Receive</span>: a delivery by lot, in packs or the item's unit, with the supplier and (optionally) the cost.</li>
       <li><strong>Used up automatically</strong> by brew-day ingredients and cellar additions with the same name and lot (lb, kg, oz, and g convert; so do gal, L, and mL).</li>
       <li><span class="ui">Count</span>: what's actually on the shelf for a lot; the difference is recorded with a reason.</li>
+      <li><span class="ui">On order</span>: a delivery you're expecting (item, how much, the day it's due, the supplier). It counts toward brews planned after that day on the <a href="#calendar">calendar</a>, so an ordered shortfall stops warning. When it comes, <span class="ui">Received</span> opens the delivery form already filled in (add the lot number); a delivery past its day is marked. <span class="ui">Cancel</span> takes it off.</li>
       <li>Below the reorder level is flagged. Tap an item for its lots and the batches that used each one.</li>
     </ul>
   </section>
@@ -224,6 +225,9 @@
       <li><strong>Beer schedules:</strong> each beer's steps in days after brewing (dry hop on day 5, package on day 12...). The calendar lays them out, drawn lighter as <em>expected</em>, after a planned brew and for batches already in tanks. Tap an expected item to open its batch (or the planned brew it comes from).</li>
       <li><strong>Clashes, before they happen:</strong> a planned brew is marked ⚠ with a red border when its tank won't be free: a batch is still in it (until its planned or expected transfer or packaging), another brew is planned there first, it's in maintenance, or (for a brew in the next week) it needs an acid cycle. Tap it to see why.</li>
       <li><strong>Late, and pushing the rest back:</strong> when a batch is behind its beer's schedule (still not dry hopping on its dry hop day), that step shows on today, marked <em>late</em>. Tap it to push the batch's remaining steps back (it suggests the days it's behind). If that would clash with a brew planned in its tank, it says so and asks first. The app tells a step is done from the records: dry hopping (the stage, or a dry hop addition), crashed (Conditioning or later), carbonating, moved out of its first tank, or packaged; steps it can't tell (a diacetyl rest) simply pass. A planned item left undone shows on today as late, too, until it's moved or ticked done.</li>
+      <li><strong>Will there be enough?</strong> A planned brew (with its beer and tank) needs its beer's recipe, written for one turn times the brewhouse's usual turns (or for the whole batch: <a href="#settings-beers">Settings → Beers</a>), or, with no recipe, what the last batch of the beer used. Going through the planned brews in date order: on hand, plus deliveries on order due by then, minus each earlier brew. A brew that comes up short is marked <em>short</em>; tap it to see how much of what, in packs. Recipe ingredients count only when a raw material has <strong>the same name</strong>; the rest are listed, never guessed.</li>
+      <li><strong>Dismiss</strong> a shortfall someone has dealt with ("borrowing 2 sacks from next door"): it stops alerting, and comes back if the shortfall gets bigger.</li>
+      <li><span class="ui">Shopping list</span>: everything the brews in the look-ahead (two weeks to start; longer for items that take longer to arrive) will be short of, how much, in packs, and when to order by. <span class="ui">On order…</span> on a line records the order; <span class="ui">Copy</span> copies the list. The <strong>Short for a planned brew</strong> alert emails the same (see <a href="#settings-alerts">Settings: Alerts</a>).</li>
       <li><strong>Move or tick done:</strong> tap an item to change its day or tank, or tick <strong>Done</strong>. A planned brew counts as done once a batch of that beer is started in that tank within a few days of it.</li>
       <li><strong>Who can do what:</strong> everyone sees the calendar. <em>Plan the schedule</em> (head brewers and admins, to start) adds, changes, and deletes, and sets beer schedules; <em>Move items</em> (brewers too) moves items and ticks them done. See <a href="#permissions">Who can do what</a>.</li>
     </ul>
@@ -303,6 +307,7 @@
     <h2>Settings: Beers and recipes</h2>
     <ul>
       <li><strong>Beers:</strong> name, style, target OG and FG (the target ABV is worked out).</li>
+      <li><strong>Recipes are written for</strong> one turn (the calendar multiplies by the brewhouse's usual turns) or the whole batch.</li>
       <li><strong>Recipes:</strong> <span class="ui">Import BeerXML…</span> from BeerSmith, Brewfather, Brewer's Friend, or other recipe software. A preview shows each recipe (size, OG, FG, IBU, ingredients); match it to a beer or a new one (a new beer takes the recipe's style and targets), optionally for one location. Ingredients come in your units with their timing. Tap a recipe to see it. Recipes aren't scaled; adjust by hand.</li>
     </ul>
   </section>
@@ -335,6 +340,7 @@
     <ul>
       <li>Each kind of alert can be on or off, with its threshold: <strong>No gravity logged</strong> (after how many days, in which stages), <strong>Too long in a stage</strong> (a limit per stage; empty for none), <strong>Acid due</strong>, <strong>Under par</strong>, and <strong>Low on a raw material</strong> (below the item's reorder level).</li>
       <li><strong>Email to:</strong> tick the people who get each kind. Nobody is ticked to start, so alerts only show on the board until you choose.</li>
+      <li><strong>Short for a planned brew:</strong> on by default; <strong>look ahead how many days</strong> for it (14 to start; people who can plan the schedule change it). Items that take longer to arrive are warned about that much earlier.</li>
       <li><strong>Quiet hours:</strong> no emails between these hours (your brewery's time zone); they're sent when the quiet hours end.</li>
     </ul>
   </section>

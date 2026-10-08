@@ -20,7 +20,9 @@ create function pg_temp.act_as(user_id uuid, email text) returns void language s
 $$;
 
 -- The code itself: two words from the list and four digits, all different
-select is((select count(distinct public.new_join_code()) from generate_series(1, 200))::int, 200, '200 codes in a row are all different');
+-- (Codes are random, so two made separately can match by chance, about 1 in 2,000 for 200 of them.
+-- What matters is that two invites never share one: the database refuses it, and new_join_code() skips taken ones.)
+select col_is_unique('public', 'invites', ARRAY['code'], 'two invites can never share a code (the database refuses it)');
 select ok((select bool_and(public.new_join_code() ~ '^[a-z]+-[a-z]+-[0-9]{4}$') from generate_series(1, 200)), 'every code looks like grist-knockout-4821');
 
 -- Alice creates brewery A and invites Bob's work email as a brewer
