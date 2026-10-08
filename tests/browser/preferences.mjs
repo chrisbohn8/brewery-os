@@ -18,7 +18,7 @@ const dialogs = [];
 page.on("dialog", (d) => { dialogs.push(d.message()); d.accept(); });
 page.on("pageerror", (e) => errors.push(e.message));
 // Wait until a save has started and finished (checking too early would see the old data)
-const settle = async () => { await wait(150); await page.waitForFunction(() => !busy); await wait(100); };
+const settle = async () => { await wait(150); await page.waitForFunction(() => !busy && !reloading); await wait(100); };
 // (the beer list lives on Settings → Beers; text on a hidden page reads as empty)
 const beerRow = async (name) => {
   await settings(page, "beers");

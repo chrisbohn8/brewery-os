@@ -40,7 +40,7 @@ const errors = [];
 page.on("dialog", (d) => d.accept());
 page.on("pageerror", (e) => errors.push(e.message));
 const text = (sel) => page.evaluate((s) => document.querySelector(s)?.innerText.replace(/\s+/g, " ").trim(), sel);
-const allSent = () => page.waitForFunction(() => !busy && !sending && outbox.length === 0, null, { timeout: 30000 });
+const allSent = () => page.waitForFunction(() => !busy && !sending && !reloading && outbox.length === 0, null, { timeout: 30000 });
 try {
   await page.goto(APP);
   await page.waitForSelector("#signin-screen:not([hidden]), #app-screen:not([hidden])", { timeout: 20000 });

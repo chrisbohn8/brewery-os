@@ -20,7 +20,7 @@ const errors = [];
 page.on("dialog", (d) => d.accept());
 page.on("pageerror", (e) => errors.push(e.message));
 const text = (sel) => page.evaluate((s) => document.querySelector(s)?.innerText.replace(/\s+/g, " ").trim(), sel);
-const allSent = () => page.waitForFunction(() => outbox.length === 0 && !sending && !busy, null, { timeout: 20000 });
+const allSent = () => page.waitForFunction(() => outbox.length === 0 && !sending && !busy && !reloading, null, { timeout: 20000 });
 const tankId = (name) => page.evaluate((n) => data.tanks.find((t) => t.name === n).id, name);
 const card = async (name) => text(`.card[data-tank="${await tankId(name)}"]`);
 const dbMovements = (batchId) => page.evaluate(async (id) =>

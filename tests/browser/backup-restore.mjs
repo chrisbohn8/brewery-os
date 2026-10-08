@@ -30,7 +30,7 @@ async function signIn(email) {
   await page.fill('#code-form [name="code"]', code);
   await page.click("#code-form button[type=submit]");
   await page.waitForSelector("#app-screen:not([hidden])", { timeout: 20000 });
-  await page.waitForFunction(() => !busy && brewery?.id && data);
+  await page.waitForFunction(() => !busy && !reloading && brewery?.id && data);
   return page;
 }
 const counts = (page) => page.evaluate(() => ({
@@ -51,7 +51,7 @@ try {
   const second = await signIn("brewer2@example.test");
   if (await second.evaluate(() => brewery.name) !== "Second Brewing") {
     await second.evaluate(() => { const s = document.getElementById("brewery-switch"); s.value = [...s.options].find((o) => o.text === "Second Brewing").value; s.dispatchEvent(new Event("change")); });
-    await second.waitForFunction(() => brewery.name === "Second Brewing" && !busy);
+    await second.waitForFunction(() => brewery.name === "Second Brewing" && !busy && !reloading);
   }
   await second.evaluate(() => clearBrewery());
   await second.evaluate(() => refresh());

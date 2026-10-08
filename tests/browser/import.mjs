@@ -19,7 +19,7 @@ const errors = [], dialogs = [];
 page.on("dialog", (d) => { dialogs.push(d.message()); d.accept(); });
 page.on("pageerror", (e) => errors.push(e.message));
 const text = (sel) => page.evaluate((s) => document.querySelector(s)?.innerText.replace(/\s+/g, " ").trim(), sel);
-const allSent = () => page.waitForFunction(() => !busy && !sending, null, { timeout: 30000 });
+const allSent = () => page.waitForFunction(() => !busy && !sending && !reloading, null, { timeout: 30000 });
 async function importPasted(kind, tsv) {
   await page.selectOption("#import-kind", kind);
   await page.fill("#import-text", tsv);

@@ -473,3 +473,7 @@ verify_jwt = false
 # Google Sheets import: the function checks the person's sign-in itself.
 [functions.fetch-sheet]
 verify_jwt = false
+
+# Alerts: called by the scheduled job with a shared secret (checked by the function itself).
+[functions.alerts]
+verify_jwt = false

@@ -611,3 +611,14 @@ dialog.wide { max-width: 720px; width: calc(100vw - 32px); }
 .recipe-preview label.choice input { width: 20px; height: 20px; }
 .recipe-preview select { font: inherit; font-size: 15px; padding: 6px; border: 1px solid var(--border); border-radius: 8px; background: var(--card); color: var(--text); width: 100%; }
 .recipe-notes { white-space: pre-wrap; }
+
+/* Alerts */
+.alerts-box details { border: 2px solid var(--acid-due); border-radius: 10px; padding: 8px 12px; background: var(--card); }
+.alerts-box summary { cursor: pointer; color: var(--acid-due); }
+.alert-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 8px 0; border-top: 1px solid var(--border); }
+.alert-rule label.choice { display: flex; gap: 8px; align-items: center; color: var(--text); margin: 4px 0; }
+.alert-rule label.choice input { width: 20px; height: 20px; flex: none; }
+.alert-rule legend label.choice { font-weight: 600; }
+.stage-days { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
+.stage-days input, .alert-rule input[type=number] { width: 100%; font: inherit; font-size: 16px; padding: 6px; border: 1px solid var(--border); border-radius: 8px; background: var(--card); color: var(--text); }
+#alerts-form select { font: inherit; font-size: 16px; padding: 6px; border: 1px solid var(--border); border-radius: 8px; background: var(--card); color: var(--text); width: 100%; }

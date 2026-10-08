@@ -85,6 +85,8 @@
 
   <!-- ===== The floor: what's in every tank ===== -->
   <div id="floor-view">
+  <!-- Alerts from the records (Settings → Alerts): what needs attention, with "I've got it" -->
+  <section id="alerts-box" class="list-section alerts-box" hidden></section>
   <!-- A brand-new brewery has nothing in it yet: offer ways to get started -->
   <section id="empty-state" class="list-section" hidden>
     <h2>Nothing here yet</h2>
@@ -223,6 +225,7 @@
     <button data-page="packages">Packages</button>
     <button data-page="cleaning">Cleaning</button>
     <button data-page="team">Team &amp; permissions</button>
+    <button data-page="alerts">Alerts</button>
     <button data-page="import">Import</button>
     <button data-page="backup">Backup</button>
     <button data-page="api">API keys</button>
@@ -336,6 +339,23 @@
       <select name="locationId" aria-label="Location"></select>
       <select name="kind" aria-label="Kind"><option value="storage">Storage</option><option value="taproom">Taproom</option></select>
       <button type="submit" class="btn">Add</button>
+    </form>
+  </section>
+  </div>
+
+  <div class="settings-page" data-page="alerts">
+  <section class="list-section">
+    <h2>Alerts</h2>
+    <p class="muted">The server checks your records every 15 minutes. What needs attention shows on the tank board for
+      everyone, and is emailed once to the people you choose for each kind of alert.</p>
+    <p id="alerts-note" class="muted" hidden>You don't have permission to change these.</p>
+    <form id="alerts-form">
+      <div id="alert-rules"></div>
+      <fieldset class="group"><legend>Quiet hours</legend>
+        <p class="muted">No emails between these hours (your brewery's time zone); they're sent when the quiet hours end.</p>
+        <div class="two-col"><label>From <select id="quiet-start"></select></label><label>Until <select id="quiet-end"></select></label></div>
+      </fieldset>
+      <div class="actions"><button type="submit" class="btn primary">Save alerts</button> <span id="alerts-saved" class="muted"></span></div>
     </form>
   </section>
   </div>

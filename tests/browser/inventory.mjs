@@ -21,7 +21,7 @@ const errors = [];
 page.on("dialog", (d) => d.accept());
 page.on("pageerror", (e) => errors.push(e.message));
 const text = (sel) => page.evaluate((s) => document.querySelector(s)?.innerText.replace(/\s+/g, " ").trim(), sel);
-const allSent = () => page.waitForFunction(() => outbox.length === 0 && !sending && !busy, null, { timeout: 20000 });
+const allSent = () => page.waitForFunction(() => outbox.length === 0 && !sending && !busy && !reloading, null, { timeout: 20000 });
 const onHand = (place, beer) => page.evaluate(([p, b]) => sumCount(stockOnHand().filter((r) => r.placeId === p && r.beerId === b)), [place, beer]);
 async function inventory() {
   await floor(page);

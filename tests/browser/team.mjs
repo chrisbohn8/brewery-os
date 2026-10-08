@@ -58,7 +58,7 @@ async function person(email) {
   return page;
 }
 const screen = (p) => p.evaluate(() => ["signin-screen", "setup-screen", "app-screen"].find((id) => !document.getElementById(id).hidden));
-const settle = async (p) => { await wait(150); await p.waitForFunction(() => !busy); await wait(100); };
+const settle = async (p) => { await wait(150); await p.waitForFunction(() => !busy && !reloading); await wait(100); };
 const perms = (p) => p.evaluate(() => brewery.permissions);
 const userIdOf = (p, email) => p.evaluate((e) => data.members.find((m) => m.email === e)?.userId, email);
 const tankIdOf = (p, name) => p.evaluate((n) => data.tanks.find((t) => t.name === n)?.id, name);

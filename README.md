@@ -137,6 +137,11 @@ These shape every decision, even for features that come later:
 - Everything works offline, and a new permission, **"Count and move finished goods"**, is part of Cellar and up by default.
 - **Pars** (step 2): how much of each beer a place should have, in barrels and/or cases (a taproom's pars), plus a **brewery-wide par** per beer. Each place shows **over / under**, and what to **bring up** ("Bring up 3 × ½ bbl keg from Storage", one tap fills in the move). A taproom also shows what's **on deck**: beers in storage that aren't there yet.
 
+### Alerts
+- **Settings → Alerts:** each kind on or off, its thresholds, and **who's emailed** (specific people): no gravity logged for N days (in chosen stages), too long in a stage (a limit per stage), acid due, under par, and low on a raw material. **Quiet hours** hold emails until they're over.
+- **The server checks every 15 minutes** (a scheduled job calls `supabase/functions/alerts`; set up with `supabase/schedule-alerts.sql`), and each reload of the app checks first, so alerts are current. Each alert is **emailed once** (one email per person listing what's new), stays one alert while it lasts, and **clears by itself** when the condition goes away (a gravity logged, the tank cleaned).
+- **On the tank board,** what needs attention shows for everyone, with **"I've got it"**.
+
 ### Recipes (BeerXML)
 - **Settings → Beers → Recipes → Import BeerXML…** from BeerSmith, Brewfather, Brewer's Friend, or other recipe software: a preview of each recipe (size, OG, FG, IBU, ingredients) matched to one of your beers or a new one (which takes the recipe's style and targets), optionally for one location.
 - Ingredients come in your units (malt in lb, hops in oz; kg and g for breweries in hectoliters) with their timing (mash, boil 60 min, whirlpool, dry hop 3 days...).
@@ -514,8 +519,8 @@ The user's idea (API-first): outside tools and AI agents read and write through 
 
 ### Phase 6¾: Alerts and tank monitoring
 The user's idea. Watching only, never controlling equipment (controllers already do that, and remote control brings safety and liability questions).
-- [ ] **Alerts from the records we already keep (no new hardware):** "no gravity logged on FV3 in 3 days", "crashing for 4 days", "acid due", "under par", "low on Pilsner malt". Each alert type can be turned on, with its own threshold.
-- [ ] **Who gets them:** specific people, by **email** for now (through the email service already set up); **push notifications** once there's an app. Quiet hours, "I've got it" to acknowledge, and repeats at most about hourly, so alerts don't become noise.
+- [x] **Alerts from the records we already keep (no new hardware):** "no gravity logged on FV3 in 3 days", "crashing for 4 days", "acid due", "under par", "low on Pilsner malt". Each alert type can be turned on, with its own threshold.
+- [x] **Who gets them:** specific people, by **email** for now (through the email service already set up); **push notifications** once there's an app. Quiet hours, "I've got it" to acknowledge, and repeats at most about hourly, so alerts don't become noise.
 - [ ] **A sensor inbox:** each tank (or cooler place) gets a private address, made with an API key from Phase 6½, that any device able to send readings to a web address can use (Tilt Pi, TiltBridge, iSpindel, RAPT webhooks, Wi-Fi temperature sensors). Readings attach to the batch in the tank, show on its fermentation chart, and drive alerts: a **safe range per stage** (fermenting 64–68 °F, crashing 30–34 °F...) with a per-batch override, an alert only after a few minutes out of range, and **"no reading for an hour"** as its own alert (a dead probe matters too).
 - [ ] **Pulling from vendors' clouds,** one at a time as real customers need them: RAPT, Precision Fermentation's BrewMonitor, Sennos, Plaato Pro, glycol and cooler monitors.
 - [ ] **A short buying guide:** floating hydrometers' radios struggle through jacketed stainless tanks, so for those a wired probe in the tank's thermowell, connected to a small Wi-Fi sensor or bridge outside the tank, is the practical low-tech option.

@@ -20,7 +20,7 @@ const errors = [], dialogs = [];
 page.on("dialog", (d) => { dialogs.push(d.message()); d.accept(); });
 page.on("pageerror", (e) => errors.push(e.message));
 const text = (sel) => page.evaluate((s) => document.querySelector(s)?.innerText.replace(/\s+/g, " ").trim(), sel);
-const allSent = () => page.waitForFunction(() => outbox.length === 0 && !sending && !busy, null, { timeout: 20000 });
+const allSent = () => page.waitForFunction(() => outbox.length === 0 && !sending && !busy && !reloading, null, { timeout: 20000 });
 const typeId = (name) => page.evaluate((n) => data.packageTypes.find((t) => t.name === n)?.id, name);
 const count = async (name, n) => page.fill(`[data-package-type="${await typeId(name)}"]`, String(n));
 

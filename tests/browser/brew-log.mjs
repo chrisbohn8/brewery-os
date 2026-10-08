@@ -17,7 +17,7 @@ const page = await context.newPage();
 const errors = [];
 page.on("dialog", (d) => d.accept());
 page.on("pageerror", (e) => errors.push(e.message));
-const settle = async () => { await wait(150); await page.waitForFunction(() => !busy && !sending); await wait(100); };
+const settle = async () => { await wait(150); await page.waitForFunction(() => !busy && !sending && !reloading); await wait(100); };
 const text = (sel) => page.evaluate((s) => document.querySelector(s)?.innerText.replace(/\s+/g, " ").trim(), sel);
 
 async function logCellar({ action, gravity, ph, temp, change, notes }) {
@@ -141,6 +141,7 @@ try {
   await page.fill('#location-form [name="waterGrist"]', "1.234");
   await page.fill('#location-form [name="absorption"]', "0.125");
   await page.click("#location-form button[type=submit]");
+  await page.waitForSelector("#location-editor:not([open])", { state: "attached" }); // closes once saved
   await settle();
   const loc = await page.evaluate(() => data.locations[0]);
   check(loc.turnSizeBbl === 15 && loc.usualTurns === 2 && loc.kettleFullBbl === 16 && loc.flowTarget === "6.6 - 5.5 - 6.2"

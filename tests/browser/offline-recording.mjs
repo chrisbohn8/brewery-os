@@ -41,7 +41,7 @@ page.on("pageerror", (e) => errors.push(e.message));
 const banner = () => page.evaluate(() => { const b = document.getElementById("offline-banner"); return b.hidden ? null : b.textContent; });
 const tankIdByName = (name) => page.evaluate((n) => data.tanks.find((t) => t.name === n).id, name);
 const cardText = async (name) => (await page.locator(`.card[data-tank="${await tankIdByName(name)}"]`).innerText()).replace(/\s*\n+\s*/g, " | ");
-const settle = () => page.waitForFunction(() => !busy && !sending);
+const settle = () => page.waitForFunction(() => !busy && !sending && !reloading);
 const waiting = () => page.evaluate(() => outbox.length);
 
 // Fill and save the batch form for a tank card

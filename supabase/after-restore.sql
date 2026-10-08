@@ -26,3 +26,9 @@ revoke execute on function public.take_stock(uuid, uuid, date, text, text, uuid,
 revoke execute on function public.set_place_order(uuid, text, uuid[]) from anon;
 revoke execute on function public.create_api_key(uuid, text, text[]) from anon;
 revoke execute on function public.revoke_api_key(uuid) from anon;
+revoke execute on function public.check_alerts(uuid) from anon;
+revoke execute on function public.acknowledge_alert(uuid) from anon;
+revoke execute on function public.alert_conditions(uuid) from anon, authenticated;
+
+-- Alerts: the 15-minute check is a scheduled job in the database (not in backups' tables). In a new
+-- project, set the alerts function's ALERTS_SECRET and run supabase/schedule-alerts.sql with it.

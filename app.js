@@ -311,14 +311,17 @@ function explain(error) {
 let serverData = null;
 async function loadAll() {
   const b = brewery.id;
-  const [locations, beers, tanks, batches, events, cleanings, settings, members, invites, permissions, memberRows, levels, cellar, additions, readings, movements, packageTypes, packageCounts, places, stockMoves, pars, rawItems, rawReceipts, rawAdjustments, lines, inventoryViews, recipes, recipeIngredientRows] = await Promise.all([
+  // Bring the alerts up to date first, so the list below is current (a gravity just logged clears
+  // its alert right away). A failed check never stops the data loading; the server checks too.
+  await db.rpc("check_alerts", { p_brewery_id: b }).then(() => {}, () => {});
+  const [locations, beers, tanks, batches, events, cleanings, settings, members, invites, permissions, memberRows, levels, cellar, additions, readings, movements, packageTypes, packageCounts, places, stockMoves, pars, rawItems, rawReceipts, rawAdjustments, lines, inventoryViews, recipes, recipeIngredientRows, alertRules, alerts] = await Promise.all([
     must(db.from("locations").select("*").eq("brewery_id", b).order("created_at")),
     must(db.from("beers").select("*").eq("brewery_id", b)),
     must(db.from("tanks").select("*").eq("brewery_id", b).order("created_at")),
     must(db.from("batch_status").select("*").eq("brewery_id", b)),
     must(db.from("batch_events").select("*").eq("brewery_id", b).order("effective_date").order("recorded_at")),
     must(db.from("tank_cleanings").select("*").eq("brewery_id", b).order("cleaned_on").order("recorded_at")),
-    must(db.from("breweries").select("acid_after_styles, temperature_unit, gravity_unit, volume_unit, time_zone, target_limits, sheet_fields, sheet_custom_fields, sheet_field_settings, stock_reasons, require_stock_reason").eq("id", b).single()),
+    must(db.from("breweries").select("acid_after_styles, temperature_unit, gravity_unit, volume_unit, time_zone, target_limits, sheet_fields, sheet_custom_fields, sheet_field_settings, stock_reasons, require_stock_reason, alert_quiet_start, alert_quiet_end").eq("id", b).single()),
     must(db.rpc("brewery_members", { p_brewery_id: b })),
     must(db.from("invites").select("*").eq("brewery_id", b).order("created_at")), // admins only; others get none
     must(db.rpc("my_permissions", { b })),
@@ -341,6 +344,8 @@ async function loadAll() {
     must(db.from("inventory_views").select("*").eq("brewery_id", b)),
     must(db.from("recipes").select("*").eq("brewery_id", b).order("created_at")),
     must(db.from("recipe_ingredients").select("*").eq("brewery_id", b)),
+    must(db.from("alert_rules").select("*").eq("brewery_id", b)),
+    must(db.from("alerts").select("*").eq("brewery_id", b).is("resolved_at", null).order("opened_at")),
   ]);
   // Each member: email and level (from brewery_members) plus their personal adjustments
   const adjustments = Object.fromEntries(memberRows.map((r) => [r.user_id, r]));
@@ -377,6 +382,7 @@ async function loadAll() {
     sheetCustomFields: settings.sheet_custom_fields,
     sheetFieldSettings: settings.sheet_field_settings,
     stockReasons: settings.stock_reasons || [], requireStockReason: !!settings.require_stock_reason,
+    alertQuietStart: settings.alert_quiet_start, alertQuietEnd: settings.alert_quiet_end,
     prefs: {
       temperatureUnit: settings.temperature_unit, gravityUnit: settings.gravity_unit,
       volumeUnit: settings.volume_unit, timeZone: settings.time_zone, targetLimits: settings.target_limits,
@@ -409,6 +415,8 @@ async function loadAll() {
     pars: pars.map((p) => ({ id: p.id, placeId: p.place_id, beerId: p.beer_id, parBbl: num(p.par_bbl), parCases: num(p.par_cases) })),
     places: places.map((p) => ({ id: p.id, locationId: p.location_id, name: p.name, kind: p.kind, active: p.active,
       sortMode: p.sort_mode, beerOrder: p.beer_order || [] })),
+    alertRules: alertRules.map((r) => ({ kind: r.kind, enabled: r.enabled, params: r.params || {}, recipients: r.recipients || [] })),
+    alerts: alerts.map(mapAlert),
     recipes: recipes.map((r) => ({ id: r.id, beerId: r.beer_id, locationId: r.location_id, name: r.name, batchSizeBbl: num(r.batch_size_bbl),
       targetOg: num(r.target_og), targetFg: num(r.target_fg), ibu: num(r.ibu), notes: r.notes, source: r.source })),
     recipeIngredients: recipeIngredientRows.map((i) => ({ id: i.id, recipeId: i.recipe_id, position: i.position, kind: i.kind, name: i.name,
@@ -442,6 +450,8 @@ async function loadAll() {
   brewery.sheetFieldSettings = serverData.sheetFieldSettings;
   brewery.stockReasons = serverData.stockReasons;
   brewery.requireStockReason = serverData.requireStockReason;
+  brewery.alertQuietStart = serverData.alertQuietStart;
+  brewery.alertQuietEnd = serverData.alertQuietEnd;
   brewery.permissions = serverData.permissions;
   brewery.role = (serverData.members.find((m) => m.email === signedInEmail) || {}).role || brewery.role;
 }
@@ -453,12 +463,18 @@ function num(v) {
 
 // After any change: reload from the database and redraw, so the page always shows what's really saved.
 // Each successful load also updates this device's offline copy.
+let reloading = 0; // reloads in progress (the tests wait for 0: "everything on screen is current")
 async function refresh() {
-  await sendWaitingChanges();
-  await loadAll();
-  render();
-  saveOfflineCopy();
-  showOnline();
+  reloading++;
+  try {
+    await sendWaitingChanges();
+    await loadAll();
+    render();
+    saveOfflineCopy();
+    showOnline();
+  } finally {
+    reloading--;
+  }
 }
 
 // Run a change, show a friendly message if it fails, and always refresh afterward.
@@ -873,6 +889,8 @@ function withWaitingChanges(base) {
   d.lines ??= [];
   d.views ??= [];
   d.recipes ??= [];
+  d.alertRules ??= [];
+  d.alerts ??= [];
   d.recipeIngredients ??= [];
   for (const change of outbox) SHOW[change.kind](d, change.args);
   return d;
@@ -1121,6 +1139,7 @@ function render() {
   renderPlaces();
   renderReasons();
   renderRecipes();
+  renderAlerts();
   if (currentView === "inventory") renderInventory();
   renderTeam();
   renderTankList();
@@ -2369,6 +2388,7 @@ function showSettings(open, page = settingsPage) {
     document.querySelectorAll(".settings-page").forEach((p) => { p.hidden = p.dataset.page !== page; });
     if (page === "backup") renderExports();
     if (page === "import") renderImport();
+    if (page === "alerts") { document.getElementById("alerts-saved").textContent = ""; renderAlertSettings(); }
     if (page === "api") { document.getElementById("new-key").hidden = true; renderKeyPermissions(); loadApiKeys(); }
   }
 }
@@ -4842,6 +4862,94 @@ function copyRecipe(b, recipe) {
       amount: i.amount, unit: i.unit, timing: i.timing, lot: "", notes: "", brewDay: true, turn: null }, `${beerName(b)} ${batchLabel(b)}: ${i.name}`);
   }
 }
+
+// ----- Alerts (Phase 6¾): from the records, emailed to chosen people -----
+// The server checks every 15 minutes (supabase/functions/alerts); the app also asks for a check
+// when it opens, so the list on the tank board is current.
+const ALERT_KINDS = [
+  { kind: "no_gravity", label: "No gravity logged", help: "A batch with no gravity reading for this many days (counting from brewing if there's none yet)." },
+  { kind: "stage_too_long", label: "Too long in a stage", help: "A batch in a stage longer than its limit. Leave a stage empty for no limit." },
+  { kind: "acid_due", label: "Acid due", help: "An empty tank that needs an acid cycle (the same rule as on the tank board)." },
+  { kind: "under_par", label: "Under par", help: "A beer below its par, at a place or across the brewery (Inventory → pars)." },
+  { kind: "low_stock", label: "Low on a raw material", help: "Below the item's reorder level (Inventory → Raw materials → Items)." },
+];
+const ALERT_DEFAULTS = { no_gravity: { days: 3, stages: ["fermenting", "dry-hopping"] },
+  stage_too_long: { days: { fermenting: 21, "dry-hopping": 7, conditioning: 28, carbonating: 7, ready: 30 } } };
+const ruleFor = (kind) => {
+  const r = (data.alertRules || []).find((x) => x.kind === kind);
+  return { enabled: r ? r.enabled : true, params: { ...(ALERT_DEFAULTS[kind] || {}), ...(r?.params || {}) }, recipients: r?.recipients || [] };
+};
+
+// Every reload checks the alerts first (see loadAll), so a fresh check is just a reload
+async function refreshAlerts() {
+  if (!brewery?.id || offline || !navigator.onLine) return;
+  await refresh().catch(() => {});
+}
+const mapAlert = (a) => ({ id: a.id, kind: a.kind, title: a.title, detail: a.detail, openedAt: a.opened_at, acknowledgedAt: a.acknowledged_at });
+
+function renderAlerts() {
+  const open = (data.alerts || []).filter((a) => !a.acknowledgedAt);
+  const box = document.getElementById("alerts-box");
+  box.hidden = !open.length;
+  if (!open.length) return;
+  box.innerHTML = `<details ${open.length <= 3 ? "open" : ""}><summary><strong>⚠ ${open.length} ${open.length === 1 ? "alert" : "alerts"}</strong></summary>
+    <ul class="plain">${open.map((a) => `<li class="alert-row"><div><strong>${esc(a.title)}</strong>${a.detail ? `<div class="muted">${esc(a.detail)}</div>` : ""}</div>
+      <button type="button" class="btn small" data-ack="${a.id}">I've got it</button></li>`).join("")}</ul></details>`;
+}
+document.getElementById("alerts-box").addEventListener("click", async (e) => {
+  const b = e.target.closest("[data-ack]");
+  if (!b) return;
+  b.disabled = true;
+  await save(async () => { const { error } = await db.rpc("acknowledge_alert", { p_id: b.dataset.ack }); if (error) throw error; });
+});
+
+// Settings → Alerts
+function renderAlertSettings() {
+  const allowed = can("manage_settings");
+  const members = (data.members || []).filter((m) => m.email);
+  const stageInputs = (params) => STAGES.filter((s) => !["packaged", "used"].includes(s.id)).map((s) => `
+    <label>${s.label} <input type="number" min="1" step="1" inputmode="numeric" data-stage-days="${s.id}" value="${params.days?.[s.id] ?? ""}" placeholder="no limit"></label>`).join("");
+  document.getElementById("alert-rules").innerHTML = ALERT_KINDS.map(({ kind, label, help }) => {
+    const r = ruleFor(kind);
+    const extra = kind === "no_gravity" ? `<div class="two-col"><label>After how many days <input type="number" min="1" step="1" inputmode="numeric" data-param="days" value="${r.params.days}"></label>
+        <div><span class="muted">In these stages</span>${STAGES.filter((s) => !["packaged", "used"].includes(s.id)).map((s) => `
+          <label class="choice"><input type="checkbox" data-gravity-stage="${s.id}" ${r.params.stages.includes(s.id) ? "checked" : ""}> ${s.label}</label>`).join("")}</div></div>`
+      : kind === "stage_too_long" ? `<div class="stage-days">${stageInputs(r.params)}</div>` : "";
+    return `<fieldset class="group alert-rule" data-alert-kind="${kind}">
+      <legend><label class="choice"><input type="checkbox" data-enabled ${r.enabled ? "checked" : ""}> ${label}</label></legend>
+      <p class="muted">${help}</p>${extra}
+      <div class="muted">Email to:</div>
+      <div class="check-grid">${members.map((m) => `<label class="choice"><input type="checkbox" data-recipient="${m.userId}" ${r.recipients.includes(m.userId) ? "checked" : ""}> ${esc(m.email)}</label>`).join("")}</div>
+    </fieldset>`;
+  }).join("");
+  const hours = (sel) => `<option value="">—</option>` + Array.from({ length: 24 }, (_, h) => `<option value="${h}" ${sel === h ? "selected" : ""}>${String(h).padStart(2, "0")}:00</option>`).join("");
+  document.getElementById("quiet-start").innerHTML = hours(brewery.alertQuietStart ?? null);
+  document.getElementById("quiet-end").innerHTML = hours(brewery.alertQuietEnd ?? null);
+  for (const el of document.querySelectorAll("#alerts-form input, #alerts-form select, #alerts-form button")) el.disabled = !allowed;
+  document.getElementById("alerts-note").hidden = allowed;
+}
+document.getElementById("alerts-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const rows = [...document.querySelectorAll("[data-alert-kind]")].map((box) => {
+    const kind = box.dataset.alertKind;
+    const params = {};
+    if (kind === "no_gravity") {
+      params.days = Number(box.querySelector('[data-param="days"]').value) || 3;
+      params.stages = [...box.querySelectorAll("[data-gravity-stage]:checked")].map((i) => i.dataset.gravityStage);
+    }
+    if (kind === "stage_too_long") {
+      params.days = Object.fromEntries([...box.querySelectorAll("[data-stage-days]")].filter((i) => i.value !== "").map((i) => [i.dataset.stageDays, Number(i.value)]));
+    }
+    return { brewery_id: brewery.id, kind, enabled: box.querySelector("[data-enabled]").checked, params,
+      recipients: [...box.querySelectorAll("[data-recipient]:checked")].map((i) => i.dataset.recipient) };
+  });
+  const start = document.getElementById("quiet-start").value, end = document.getElementById("quiet-end").value;
+  const ok = await save(async () => {
+    await must(db.from("alert_rules").upsert(rows, { onConflict: "brewery_id,kind" }));
+    await must(db.from("breweries").update({ alert_quiet_start: start === "" ? null : Number(start), alert_quiet_end: end === "" ? null : Number(end) }).eq("id", brewery.id));
+  });
+  if (ok) document.getElementById("alerts-saved").textContent = "Saved.";
+});
 
 // ----- Stock places (Settings → Equipment) -----
 function renderPlaces() {

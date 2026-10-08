@@ -21,7 +21,7 @@ const dialogs = [];
 page.on("dialog", (d) => { dialogs.push(d.message()); d.accept(); });
 page.on("pageerror", (e) => errors.push(e.message));
 const text = (sel) => page.evaluate((s) => document.querySelector(s)?.innerText.replace(/\s+/g, " ").trim(), sel);
-const allSent = () => page.waitForFunction(() => outbox.length === 0 && !sending && !busy, null, { timeout: 20000 });
+const allSent = () => page.waitForFunction(() => outbox.length === 0 && !sending && !busy && !reloading, null, { timeout: 20000 });
 const box = (field, part) => `#sheet [data-field="${field}"]${part ? `[data-part="${part}"]` : ""}`;
 const row = (field) => page.locator(`#sheet .field:has([data-field="${field}"])`);
 const value = (batchId, field, turn) => page.evaluate(([b, f, t]) =>
@@ -67,6 +67,7 @@ try {
   await page.fill('#location-form [name="waterGrist"]', "1.3");
   await page.fill('#location-form [name="absorption"]', "0.125");
   await page.click("#location-form button[type=submit]");
+  await page.waitForSelector("#location-editor:not([open])", { state: "attached" }); // closes once saved
   await allSent();
   const locationId = await page.evaluate(() => data.locations[0].id);
 
