@@ -540,6 +540,19 @@ dialog fieldset.acid p { margin: 0 0 8px; }
 
 /* Inventory */
 .header-buttons { display: flex; gap: 8px; }
+.help-btn { min-width: 44px; font-weight: 700; }
+
+/* Help: one section of guide.html, shown in a dialog */
+.help-body { line-height: 1.5; max-height: 70vh; overflow-y: auto; }
+.help-body h2 { margin-top: 0; }
+.help-body h3 { font-size: 1rem; margin: 14px 0 4px; }
+.help-body ul, .help-body ol { padding-left: 1.3em; }
+.help-body .ui { font-weight: 600; }
+.help-body table { border-collapse: collapse; font-size: 0.85rem; width: 100%; }
+.help-body th, .help-body td { border-bottom: 1px solid var(--border); padding: 4px; text-align: left; }
+.help-body a:not(.btn) { color: inherit; text-underline-offset: 2px; }
+.help-body .table-wrap { overflow-x: auto; }
+.help-body .tip { border-left: 3px solid var(--ready); padding: 4px 10px; }
 .place-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0; }
 .place-chips button { font: inherit; font-size: 0.9rem; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--border); background: var(--card); color: var(--text); }
 .place-chips button[aria-selected="true"] { background: var(--text); color: var(--bg); border-color: var(--text); }

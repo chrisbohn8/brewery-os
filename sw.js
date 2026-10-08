@@ -10,7 +10,7 @@
 
 const CACHE = "brewery-os-app-v1";
 const LIBRARY = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.js";
-const APP_FILES = ["./", "./index.html", "./style.css", "./app.js", LIBRARY];
+const APP_FILES = ["./", "./index.html", "./style.css", "./app.js", "./guide.html", LIBRARY];
 
 // How long to wait for the network before using the saved copy. A brew floor often has
 // "almost no signal", where requests hang instead of failing; this keeps the app quick to open.

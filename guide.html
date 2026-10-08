@@ -1,0 +1,345 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Brewery OS guide</title>
+  <link rel="stylesheet" href="style.css">
+  <style>
+    .guide { max-width: 760px; margin: 0 auto; padding: 16px 16px 64px; line-height: 1.55; }
+    .guide h1 { margin: 8px 0 4px; }
+    .guide h2 { margin: 36px 0 8px; padding-top: 12px; border-top: 1px solid var(--border); }
+    .guide h3 { margin: 18px 0 6px; font-size: 1rem; }
+    .guide section > p, .guide li { max-width: 68ch; }
+    .guide ul, .guide ol { padding-left: 1.3em; }
+    .guide table { border-collapse: collapse; width: 100%; font-size: 0.92rem; margin: 8px 0; }
+    .guide th, .guide td { border-bottom: 1px solid var(--border); padding: 6px; text-align: left; vertical-align: top; }
+    .guide .toc { columns: 2 220px; padding-left: 1.2em; }
+    .guide kbd, .guide .ui { font: inherit; font-weight: 600; }
+    .guide a, .help-body a { color: inherit; text-decoration-thickness: 1px; text-underline-offset: 2px; }
+    .guide .table-wrap { overflow-x: auto; }
+    .guide th { font-size: 0.85rem; }
+    .guide .tip { border-left: 3px solid var(--ready); padding: 4px 10px; background: var(--card); }
+  </style>
+</head>
+<body>
+<main class="guide">
+  <p><a href="./">← Back to the app</a></p>
+  <h1>Brewery OS guide</h1>
+  <p class="muted">How to use every part of the app. The <span class="ui">?</span> button on each screen opens the part of this guide for that screen.</p>
+
+  <nav aria-label="Contents">
+    <ol class="toc">
+      <li><a href="#getting-started">Getting started</a></li>
+      <li><a href="#tank-board">The tank board</a></li>
+      <li><a href="#batches">Starting and moving batches</a></li>
+      <li><a href="#batch-page">A batch's page</a></li>
+      <li><a href="#brew-day-sheet">The brew-day sheet</a></li>
+      <li><a href="#printed-sheet">The printed brew sheet</a></li>
+      <li><a href="#volumes">Volumes and level checks</a></li>
+      <li><a href="#packaging">Packaging</a></li>
+      <li><a href="#splits-blends">Splits and blends</a></li>
+      <li><a href="#inventory">Inventory: finished goods</a></li>
+      <li><a href="#raw-materials">Inventory: raw materials</a></li>
+      <li><a href="#alerts">Alerts</a></li>
+      <li><a href="#offline">No signal (offline)</a></li>
+      <li><a href="#permissions">Who can do what</a></li>
+      <li><a href="#settings-brewery">Settings: Brewery</a></li>
+      <li><a href="#settings-equipment">Settings: Equipment</a></li>
+      <li><a href="#settings-sheet">Settings: Brew sheet</a></li>
+      <li><a href="#settings-beers">Settings: Beers and recipes</a></li>
+      <li><a href="#settings-packages">Settings: Packages</a></li>
+      <li><a href="#settings-cleaning">Settings: Cleaning</a></li>
+      <li><a href="#settings-team">Settings: Team and permissions</a></li>
+      <li><a href="#settings-alerts">Settings: Alerts</a></li>
+      <li><a href="#settings-import">Settings: Import</a></li>
+      <li><a href="#settings-backup">Settings: Backup and export</a></li>
+      <li><a href="#settings-api">Settings: API keys</a></li>
+      <li><a href="#settings-account">Settings: My account</a></li>
+    </ol>
+  </nav>
+
+  <section id="getting-started">
+    <h2>Getting started</h2>
+    <ol>
+      <li><strong>Sign in with your email.</strong> There's no password: the app emails you a sign-in code. Type it in (or tap the link in the email).</li>
+      <li><strong>Make your brewery</strong> (the first time), or, if your brewery's admin invited you, you'll join it automatically. Invited but it didn't happen? Tap <span class="ui">Check for invites</span>.</li>
+      <li><strong>Set your units</strong> (°F or °C; Plato, SG, or Brix; barrels, hectoliters, or gallons) in <a href="#settings-brewery">Settings → Brewery</a>. Everything is shown and typed in your units.</li>
+      <li><strong>Add your locations and tanks</strong> in <a href="#settings-equipment">Settings → Equipment</a>, or bring them in from a spreadsheet with <a href="#settings-import">Settings → Import</a>. (A brand-new brewery's empty tank board also offers <span class="ui">Sample data</span> to try things out, or a backup file.)</li>
+      <li><strong>Add your beers</strong> in <a href="#settings-beers">Settings → Beers</a>, and start batches from the tank board.</li>
+      <li><strong>Invite your crew</strong> in <a href="#settings-team">Settings → Team and permissions</a>.</li>
+    </ol>
+    <p class="tip">Everything has sensible defaults, so you can start using the tank board right away and set up the rest (brew sheet fields, package types, alerts) when you get to it.</p>
+  </section>
+
+  <section id="tank-board">
+    <h2>The tank board</h2>
+    <p>The first screen: every tank, grouped by location. A full tank shows its beer, batch number, how much is in it, its stage (with its color), and how many days it's been in that stage. An empty tank shows its status: Empty, Cleaning, or Maintenance, and <strong>Acid due</strong> (with why) when it needs an acid cycle before it's filled.</p>
+    <ul>
+      <li><strong>Tap a full tank</strong> to open the batch's page (see <a href="#batch-page">A batch's page</a>).</li>
+      <li><strong>Tap an empty tank</strong> to start a batch in it (if you're allowed to), or to change its status.</li>
+      <li><strong>Alerts</strong> (the orange box at the top) list what needs attention; see <a href="#alerts">Alerts</a>.</li>
+      <li><strong>Packaged batches</strong> (below the tanks) lists batches that are out of the tanks: packaged, or used in another batch. Tap one to open it.</li>
+      <li><span class="ui">Inventory</span> and <span class="ui">Settings</span> are at the top.</li>
+    </ul>
+    <p>A red bar means <strong>no signal</strong>: you're seeing the last saved copy, and changes are kept on the phone (see <a href="#offline">No signal</a>). A green bar, <strong>"A new version of the app is ready"</strong>, means the app was updated: tap <span class="ui">Reload</span> when you're not in the middle of typing.</p>
+  </section>
+
+  <section id="batches">
+    <h2>Starting and moving batches</h2>
+    <h3>Start a batch</h3>
+    <p>Tap an empty tank. Enter the batch number (it must be unique), the beer, the brew date, and the size. It starts <em>Fermenting</em> unless you choose another stage. A new batch gets the location's usual number of turns (see <a href="#settings-equipment">brewhouse settings</a>).</p>
+    <h3>Change the stage or move it</h3>
+    <p>On the batch's page, tap <span class="ui">Stage / transfer…</span>. The stages are Fermenting, Dry hopping, Conditioning, Carbonating, Ready, and Packaged. When you pick a new stage, its start date is set to today (you can change it).</p>
+    <ul>
+      <li><strong>To transfer,</strong> pick the new tank. The form asks for the <strong>volume moved</strong>; leave it empty for "all of it". If you move less than was in the tank, what's left behind (yeast, trub) is recorded as a loss, and the form tells you before you save. The old tank goes to Cleaning.</li>
+      <li>The app warns (but lets you continue) when the new tank is being cleaned, needs acid, or is too small, and refuses a tank that already holds another batch.</li>
+      <li><strong>Packaged</strong> here means the whole batch is out of the tank. To count kegs and cases, use <span class="ui">Package…</span> instead (see <a href="#packaging">Packaging</a>).</li>
+    </ul>
+    <p>Every change is kept in the batch's history; a mistake is fixed by saving the right values, and the history shows both.</p>
+  </section>
+
+  <section id="batch-page">
+    <h2>A batch's page</h2>
+    <p>Tap a full tank. At the top: the stage, the tank, days in the stage, how much is in the tank, and the brew date. Then:</p>
+    <ul>
+      <li><strong>The numbers:</strong> OG (from the tank sample on the brew-day sheet, or the average of the turns' knockout gravities), <strong>Now</strong> (the latest gravity; <strong>FG</strong> once the batch is past fermenting), <strong>ABV</strong>, and <strong>attenuation</strong>, each next to the beer's target. They're worked out from the readings, so fixing a reading fixes them.</li>
+      <li><strong>In stock / Made from / Part went into:</strong> finished goods from this batch still on hand, and the batches it was split from or blended into (each a link).</li>
+      <li><strong>Buttons:</strong> <span class="ui">+ Log cellar work</span>, <span class="ui">+ Addition</span>, <span class="ui">Stage / transfer…</span>, <span class="ui">Brew-day sheet</span>, <span class="ui">Print brew sheet</span>, <span class="ui">Package…</span>, <span class="ui">Check level</span>, <span class="ui">Split / blend…</span> (each shows only if you're allowed to use it).</li>
+      <li><strong>Fermentation chart:</strong> gravity and temperature by day since brewing, with the target FG as a dashed line. It appears once there are a couple of readings.</li>
+      <li><strong>Cellar log:</strong> what was done and measured, newest first.</li>
+      <li><strong>Ingredients and additions:</strong> brew-day ingredients (tagged "brew day") and cellar additions like dry hops, with lot numbers.</li>
+      <li><strong>History:</strong> every stage change, transfer, and volume movement, oldest first.</li>
+    </ul>
+    <h3>Log cellar work</h3>
+    <p>Tap <span class="ui">+ Log cellar work</span>: the date, an action (Check, Tank sample, Dry hop, Rouse, Crash, Harvest, Drain, Spund, Carbonate, Ready, Other), gravity, pH, temperature, a <strong>cellar change</strong> ("FR to 62"), and notes. <em>Dry hop</em>, <em>Crash</em>, <em>Carbonate</em>, and <em>Ready</em> offer to move the batch to the matching stage (Dry hopping, Conditioning, Carbonating, Ready) in the same step. Tap an entry to correct it (it's marked "edited") or delete it.</p>
+    <h3>Additions</h3>
+    <p>Tap <span class="ui">+ Addition</span> for dry hops, fruit, spices and the like: what, how much, when, and the <strong>lot number</strong>. The name and lot suggestions come from your raw materials.</p>
+  </section>
+
+  <section id="brew-day-sheet">
+    <h2>The brew-day sheet</h2>
+    <p>On a batch's page, tap <span class="ui">Brew-day sheet</span>. It follows your paper sheet's order (choose the fields in <a href="#settings-sheet">Settings → Brew sheet</a>).</p>
+    <ul>
+      <li><strong>Each value saves as soon as you leave its box,</strong> also with no signal.</li>
+      <li><strong>Turns are tabs</strong> (Turn 1, Turn 2...). Fields marked "whole batch" (yeast, knockout volume, notes) are shared by all turns. Change the number of turns with the <span class="ui">Turns</span> box.</li>
+      <li><strong>Targets</strong> show under each field: fixed ones (sparge temperature, pH ranges), your brewhouse's (flow, kettle full), the beer's OG, and the water worked out from the grist weight. A value far from its target is highlighted ("Typo?"); how far is set in <a href="#settings-brewery">Settings → Brewery</a>.</li>
+      <li><strong>Water:</strong> once the grist weight is in, the sheet shows the mash, sparge, and total water for that turn: mash = grist × water-to-grist ÷ 4; total = kettle full × 31 + grist × grain absorption; sparge = total − mash (gallons; set the numbers in the location's brewhouse settings).</li>
+      <li><strong>Flow meter fields</strong> take the start and end readings and save the difference.</li>
+      <li><strong>Ingredients</strong> are at the top: <span class="ui">+ Ingredient</span> (kind, amount, when, turn, lot number), or copy them in one tap from the <strong>last batch of this beer</strong> or from a <strong>recipe</strong> (lot numbers start empty; dry hops and other cellar additions aren't copied, so they're logged when they go in).</li>
+      <li>Correcting a value keeps the earlier one in the database's history.</li>
+    </ul>
+    <p>Your permission level needs "Start batches and edit batch details" to fill it in; others can see it.</p>
+  </section>
+
+  <section id="printed-sheet">
+    <h2>The printed brew sheet</h2>
+    <p>On a batch's page, tap <span class="ui">Print brew sheet</span> (or <span class="ui">Print</span> on the brew-day sheet). It prints the same fields in the same order with a box for each turn, the targets (water as the formula, since the grist isn't weighed yet), the ingredients with a Lot column and blank rows, and whatever's already been entered. The usual set of fields fits on one Letter page.</p>
+    <p>The <strong>QR code</strong> opens that batch in the app (after signing in) to type in the numbers. With no signal, the link is printed instead.</p>
+  </section>
+
+  <section id="volumes">
+    <h2>Volumes and level checks</h2>
+    <p>Every tank shows how much is in it. The app doesn't store that number: it works it out from every movement of beer, like a bank balance: the knockout into a fermenter, transfers, packaging, losses, and level checks. So a mistake is fixed with a new record, never by editing a number, and every barrel can be traced.</p>
+    <ul>
+      <li><strong>Knockout volume</strong> comes from the brew-day sheet's "Total knockout volume", or the batch size if that's empty.</li>
+      <li><strong>Volume not recorded</strong> shows when no volume was ever entered; everything still works, and a level check sets it.</li>
+    </ul>
+    <h3>Check level (sight glass)</h3>
+    <p>On a batch's page, tap <span class="ui">Check level</span> and type what the sight glass shows. If it's less than on record, say what the difference was: <strong>served</strong> (poured from this tank; the default for serving tanks), <strong>loss</strong>, or a <strong>correction</strong>. More than on record is noted as a correction. Later movements count from the latest check.</p>
+  </section>
+
+  <section id="packaging">
+    <h2>Packaging</h2>
+    <p>On a batch's page, tap <span class="ui">Package…</span>. Enter how many of each package type you filled (set your types in <a href="#settings-packages">Settings → Packages</a>). As you type, the app shows the barrels, about how much is left in the tank, and what's left would fill ("about 20 × ½ bbl keg").</p>
+    <ul>
+      <li><strong>Into:</strong> the stock place the packages go to (the tank location's storage place, unless you choose another).</li>
+      <li><strong>Is the tank empty now?</strong> <em>Not yet</em> keeps the rest for another run. <em>Yes, it's spent</em> records what's left on paper as a loss, marks the batch packaged, and sends the tank to Cleaning. If more than 10% would be left over, the app asks first.</li>
+      <li>Each run keeps the volume per package it was packaged with, so changing a package type later never changes a past run.</li>
+    </ul>
+  </section>
+
+  <section id="splits-blends">
+    <h2>Splits and blends</h2>
+    <p>On a batch's page, tap <span class="ui">Split / blend…</span>. Both make a <strong>new batch</strong>, so a tank always holds one batch and each part has its own stage, additions, and packaging.</p>
+    <ul>
+      <li><strong>Split:</strong> say how much of this batch goes into the new one, and the tank. The source keeps the rest.</li>
+      <li><strong>Blend:</strong> add other batches with <span class="ui">+ Blend in another batch…</span>, each with how much.</li>
+      <li><strong>All used:</strong> ticked when you take all of a source (empty "how much"), unticked when you type a part (change it either way). A source that's all used becomes <strong>"Used in another batch"</strong>: what's left is a loss, and its tank goes to Cleaning. A blend can go into one of its sources' tanks if that source is all used.</li>
+      <li>The suggested number is "142-2" for a split and "142/143" for a blend. The new batch's OG is worked out from its sources, by volume.</li>
+    </ul>
+  </section>
+
+  <section id="inventory">
+    <h2>Inventory: finished goods</h2>
+    <p>Tap <span class="ui">Inventory</span> on the tank board. Kegs and cases on hand, worked out from records: packaging puts them in, removals and counts take them out.</p>
+    <ul>
+      <li><strong>Places:</strong> choose a place (each location's Storage, a Taproom...) or <strong>All places</strong>. Add places in <a href="#settings-equipment">Settings → Equipment</a>.</li>
+      <li><strong>Views</strong> (the dashed chips) are your own sheets, like a master sheet: which places they add up, a column per size or per place and size, totals, brewery-wide pars, and the <strong>pipeline</strong> (beer still in tanks). <span class="ui">+ View</span> makes one; <span class="ui">Edit view</span> changes it.</li>
+      <li><strong>Order:</strong> each place lists beers A–Z, oldest batch first, in its own order (<span class="ui">Arrange…</span>), or (a taproom) by draft line.</li>
+      <li><strong>Tap a beer</strong> to see the batches behind it, oldest first ("From before the app" for opening counts).</li>
+    </ul>
+    <h3>Count, move, remove</h3>
+    <ul>
+      <li><span class="ui">Count a place</span>: a count sheet that starts at what the app expects; change what's different. Less than expected at a taproom is recorded as poured; elsewhere you choose (sold, not sure, dumped). <span class="ui">Add a beer</span> to count beer from before the app (opening stock).</li>
+      <li><span class="ui">Move</span>: from one place to another (up to the taproom, to the other location).</li>
+      <li><span class="ui">Remove</span>: sold, taproom, transferred (in bond), donated or samples, or dumped, with an account name.</li>
+      <li>Taking stock out always uses the <strong>oldest batch first</strong>.</li>
+      <li><strong>Reasons</strong> ("Stocked the taproom", "Dock sale"): your own list, offered on every count, move, and removal, and required if your admin turned that on (<a href="#settings-packages">Settings → Packages</a>).</li>
+    </ul>
+    <h3>Pars, restocking, draft lines, and on deck</h3>
+    <ul>
+      <li><span class="ui">Set pars</span> on a place (barrels and/or cases); with <strong>All places</strong>, the brewery-wide par. Each place shows <strong>over / under</strong>, and what to bring up ("Bring up 3 × ½ bbl keg from Storage"; <span class="ui">Bring up</span> fills in the move).</li>
+      <li><strong>Draft lines</strong> (a taproom): numbered lines pouring a beer, something else (wine, a guest beer), empty, or out of order. Tap a line to change it. Count sheets for a taproom follow the lines.</li>
+      <li><strong>On deck</strong> (a taproom): beers in storage that aren't on a line or on hand there yet.</li>
+    </ul>
+  </section>
+
+  <section id="raw-materials">
+    <h2>Inventory: raw materials</h2>
+    <p>Inventory → <span class="ui">Raw materials</span>. On hand by lot = received − used on batches + counts.</p>
+    <ul>
+      <li><span class="ui">Items</span>: malt, hops, salts, yeast, chemicals, each with a unit, a pack (a 55 lb sack) and a reorder level. <strong>The item's name is what's typed as an ingredient</strong>, so usage is counted automatically.</li>
+      <li><span class="ui">Receive</span>: a delivery by lot, in packs or the item's unit, with the supplier and (optionally) the cost.</li>
+      <li><strong>Used up automatically</strong> by brew-day ingredients and cellar additions with the same name and lot (lb, kg, oz, and g convert; so do gal, L, and mL).</li>
+      <li><span class="ui">Count</span>: what's actually on the shelf for a lot; the difference is recorded with a reason.</li>
+      <li>Below the reorder level is flagged. Tap an item for its lots and the batches that used each one.</li>
+    </ul>
+  </section>
+
+  <section id="alerts">
+    <h2>Alerts</h2>
+    <p>The orange box on the tank board lists what needs attention: no gravity logged lately, too long in a stage, acid due, a beer under par, low on a raw material. The server checks every 15 minutes (and the app checks whenever it loads), so it's current even when nobody has the app open.</p>
+    <ul>
+      <li><span class="ui">I've got it</span> takes an alert off the board.</li>
+      <li>An alert <strong>clears by itself</strong> when its cause goes away (a gravity is logged, the tank gets its acid cycle).</li>
+      <li>The people chosen for each kind are emailed about each new alert once: <strong>one email per person</strong> listing everything new. Set it up in <a href="#settings-alerts">Settings → Alerts</a>.</li>
+    </ul>
+  </section>
+
+  <section id="offline">
+    <h2>No signal (offline)</h2>
+    <p>The app keeps working with no signal. A red bar shows how old the data on screen is. Floor work is <strong>kept on the phone</strong> and sent, in order, when the signal returns: starting, moving, and packaging batches; tank status; acid cycles; cellar log entries and additions; brew-day sheet values; level checks; splits and blends; counts, moves, and removals; raw material deliveries and counts.</p>
+    <p>Setup changes (beers, tanks, locations, settings) need a signal.</p>
+    <p>If a change can't be saved when it's sent (say, a coworker filled that tank first), it's listed in a <strong>"These changes couldn't be saved"</strong> box at the top, so nothing is lost silently. Changes arrive in the order they were made.</p>
+  </section>
+
+  <section id="permissions">
+    <h2>Who can do what</h2>
+    <p>Each person has a level. An admin can change what a level includes, or adjust one person (<a href="#settings-team">Settings → Team and permissions</a>). The usual levels:</p>
+    <div class="table-wrap"><table>
+      <tr><th>Permission</th><th>Viewer</th><th>Cellar</th><th>Brewer</th><th>Head brewer</th><th>Admin</th></tr>
+      <tr><td data-permission="cellar_log">Log readings and cellar work</td><td></td><td>✓</td><td>✓</td><td>✓</td><td>✓</td></tr>
+      <tr><td data-permission="tank_status">Set a tank's status (cleaning, maintenance)</td><td></td><td>✓</td><td>✓</td><td>✓</td><td>✓</td></tr>
+      <tr><td data-permission="acid_log">Log acid cycles</td><td></td><td>✓</td><td>✓</td><td>✓</td><td>✓</td></tr>
+      <tr><td data-permission="move_beer">Change stages and transfer beer</td><td></td><td>✓</td><td>✓</td><td>✓</td><td>✓</td></tr>
+      <tr><td data-permission="package">Package beer</td><td></td><td>✓</td><td>✓</td><td>✓</td><td>✓</td></tr>
+      <tr><td data-permission="inventory">Count and move finished goods</td><td></td><td>✓</td><td>✓</td><td>✓</td><td>✓</td></tr>
+      <tr><td data-permission="start_batch">Start batches and edit batch details</td><td></td><td></td><td>✓</td><td>✓</td><td>✓</td></tr>
+      <tr><td data-permission="manage_beers">Beers and recipes</td><td></td><td></td><td></td><td>✓</td><td>✓</td></tr>
+      <tr><td data-permission="manage_equipment">Tanks and locations</td><td></td><td></td><td></td><td>✓</td><td>✓</td></tr>
+      <tr><td data-permission="manage_cleaning">Acid rules</td><td></td><td></td><td></td><td>✓</td><td>✓</td></tr>
+      <tr><td data-permission="manage_settings">Units, time zone, targets, and brew sheet fields</td><td></td><td></td><td></td><td>✓</td><td>✓</td></tr>
+      <tr><td data-permission="rename_brewery">Rename the brewery</td><td></td><td></td><td></td><td></td><td>✓</td></tr>
+      <tr><td data-permission="backups">Download and load backups</td><td></td><td></td><td></td><td></td><td>✓</td></tr>
+      <tr><td data-permission="delete_records">Delete batches, beers, tanks, and locations</td><td></td><td></td><td></td><td></td><td>✓</td></tr>
+    </table></div>
+    <p>Everyone in the brewery can see everything. Anything you can't do is hidden or greyed out, and the database checks it too.</p>
+  </section>
+
+  <section id="settings-brewery">
+    <h2>Settings: Brewery</h2>
+    <ul>
+      <li><strong>Brewery name</strong> (admins).</li>
+      <li><strong>Units and time zone:</strong> temperature (°F or °C), gravity (Plato, SG, or Brix), volume (barrels, hectoliters, or gallons). Changing a unit only changes how numbers are shown and typed; nothing recorded changes.</li>
+      <li><strong>Flag brew-day values far from target:</strong> how far a value can be from its target before the brew-day sheet highlights it, for gravity, temperature, pH, and volumes (a percentage). Leave a box empty to turn that flag off.</li>
+    </ul>
+  </section>
+
+  <section id="settings-equipment">
+    <h2>Settings: Equipment</h2>
+    <ul>
+      <li><strong>Tanks:</strong> name, type (Fermenter, Brite tank, Serving tank, Lagering tank), capacity, location, status, and "acid every X turns" (tap a tank to change it or log an acid cycle).</li>
+      <li><strong>Locations,</strong> each with its <strong>brewhouse settings</strong> for the brew-day sheet: turn size, usual turns per batch, kettle-full volume, flow target, water-to-grist ratio (qt/lb), and grain absorption (gal/lb).</li>
+      <li><strong>Stock places:</strong> where finished kegs and cases are kept. Each location starts with a Storage place; add a taproom or more. Rename or hide a place (it's never deleted, since past counts point to it).</li>
+    </ul>
+  </section>
+
+  <section id="settings-sheet">
+    <h2>Settings: Brew sheet</h2>
+    <ul>
+      <li><strong>Tick the fields you measure</strong> from a catalog of about 100, in paper order. <span class="ui">Usual set</span> and <span class="ui">Everything</span>, and All / None for each section. A batch always shows every field it has a value for, ticked or not.</li>
+      <li><span class="ui">Edit</span> a field to rename it (your crew's term) and set its <strong>target</strong>: the usual one, your own range in your units, or none. <span class="ui">Back to usual</span> undoes it.</li>
+      <li><strong>Add your own field</strong>: a name, the section, and the kind of value (a number with your unit, temperature, gravity, volume, pH, time, or text).</li>
+    </ul>
+  </section>
+
+  <section id="settings-beers">
+    <h2>Settings: Beers and recipes</h2>
+    <ul>
+      <li><strong>Beers:</strong> name, style, target OG and FG (the target ABV is worked out).</li>
+      <li><strong>Recipes:</strong> <span class="ui">Import BeerXML…</span> from BeerSmith, Brewfather, Brewer's Friend, or other recipe software. A preview shows each recipe (size, OG, FG, IBU, ingredients); match it to a beer or a new one (a new beer takes the recipe's style and targets), optionally for one location. Ingredients come in your units with their timing. Tap a recipe to see it. Recipes aren't scaled; adjust by hand.</li>
+    </ul>
+  </section>
+
+  <section id="settings-packages">
+    <h2>Settings: Packages</h2>
+    <ul>
+      <li><strong>Package types:</strong> tick the ones you fill from the catalog (US, metric, one-way, and Cornelius kegs; casks; cases of cans and bottles; single containers), rename them, or add your own (a volume in gallons, liters, ounces, mL, imperial gallons, or barrels, times how many per package for cases). Unticking one never changes past packaging.</li>
+      <li><strong>Reasons for stock changes:</strong> your list, offered on every count, move, and removal; tick <em>Ask for a reason</em> to require one.</li>
+    </ul>
+  </section>
+
+  <section id="settings-cleaning">
+    <h2>Settings: Cleaning</h2>
+    <p><strong>Acid cleaning:</strong> styles that always need an acid cycle afterward (a tank is flagged "Acid due" when a batch of one of them leaves it). Each tank can also need acid every few turns (set on the tank). Log an acid cycle from the tank's settings: tap an empty tank on the board.</p>
+  </section>
+
+  <section id="settings-team">
+    <h2>Settings: Team and permissions</h2>
+    <ul>
+      <li><strong>Invite</strong> someone by email with a level; they get an email and join when they sign in with that address. <span class="ui">Email again</span> resends it; <span class="ui">Cancel</span> withdraws it.</li>
+      <li><strong>Tap a person</strong> to change their level, adjust single permissions (the app asks: just this person, or everyone at their level), or remove them. A brewery always keeps at least one admin.</li>
+      <li><strong>What each level can do:</strong> admins can change what a level includes, or reset to the usual; see <a href="#permissions">Who can do what</a>.</li>
+    </ul>
+  </section>
+
+  <section id="settings-alerts">
+    <h2>Settings: Alerts</h2>
+    <ul>
+      <li>Each kind of alert can be on or off, with its threshold: <strong>No gravity logged</strong> (after how many days, in which stages), <strong>Too long in a stage</strong> (a limit per stage; empty for none), <strong>Acid due</strong>, <strong>Under par</strong>, and <strong>Low on a raw material</strong> (below the item's reorder level).</li>
+      <li><strong>Email to:</strong> tick the people who get each kind. Nobody is ticked to start, so alerts only show on the board until you choose.</li>
+      <li><strong>Quiet hours:</strong> no emails between these hours (your brewery's time zone); they're sent when the quiet hours end.</li>
+    </ul>
+  </section>
+
+  <section id="settings-import">
+    <h2>Settings: Import</h2>
+    <ol>
+      <li>Choose what's in it: tanks, beers, batches in tanks, or cellar log entries. (Import tanks and beers first, then batches, then cellar logs.)</li>
+      <li>Paste cells copied from Excel or Google Sheets (with the header row), choose a CSV file, or paste a Google Sheets link (shared as "anyone with the link can view") and tap <span class="ui">Read sheet</span>.</li>
+      <li>Check the <strong>columns</strong> (matched by name; change any) and the <strong>preview</strong>: each row is imported, already here (skipped), or a problem (and why). Numbers are read in your units; dates as 2026-10-07, 10/7/2026, or 10/7/26.</li>
+      <li>Tap <span class="ui">Import</span>. Importing the same sheet again is safe: what's already here is skipped. New locations (for tanks) and beers (for batches) are made on the way.</li>
+    </ol>
+  </section>
+
+  <section id="settings-backup">
+    <h2>Settings: Backup and export</h2>
+    <ul>
+      <li><strong>Backup:</strong> <span class="ui">Download</span> saves everything in the brewery as one file. <span class="ui">Load…</span> brings a backup into an <em>empty</em> brewery. (The server also backs up every night.)</li>
+      <li><strong>Export as spreadsheets:</strong> each list as a CSV file that opens in Excel or Google Sheets, with names instead of codes and your units in the column names, or <span class="ui">Everything</span> as one zip file.</li>
+    </ul>
+  </section>
+
+  <section id="settings-api">
+    <h2>Settings: API keys</h2>
+    <p>A key lets an outside tool or an AI assistant read and write here <strong>as you</strong>, with some or all of your permissions (never more). Make one with a name, untick what it shouldn't do, and copy it: it's shown once. Revoke it any time; it stops working at once. Admins see every key in the brewery and when each was last used. What the API can do: <a href="https://github.com/chrisbohn8/brewery-os/blob/master/docs/api.md">the API guide</a>.</p>
+  </section>
+
+  <section id="settings-account">
+    <h2>Settings: My account</h2>
+    <p>The email you're signed in with, <strong>switching breweries</strong> (if you're in more than one; the app remembers your choice), and <span class="ui">Sign out</span>. Signing out clears this phone's copy of the data; if there are changes not yet sent, the app warns you first.</p>
+  </section>
+</main>
+</body>
+</html>

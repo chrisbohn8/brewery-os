@@ -64,6 +64,12 @@ These shape every decision, even for features that come later:
 
 ## What it does today
 
+### Help and the user guide
+- **[The user guide](https://brew.chrisbohn.org/guide.html)** (`guide.html`): how to use every screen, written for brewers, organized by task, with a "who can do what" table. It works with no signal.
+- **A "?" on every screen** opens that screen's part of the same guide (the tank board, a batch, the brew-day sheet, inventory, raw materials, and each Settings page), so the help and the guide can never disagree.
+- **Empty lists say what goes there and how to add the first one,** and an empty tank board offers "How to get started".
+- **Checked automatically** (`tests/browser/docs.mjs`): every screen opens its own help, every link in the guide works, every button the guide names exists, and the guide's lists (stages, cellar actions, tank types, alert kinds, removal kinds, and the permissions table, tick for tick) match the app's. A guide that falls behind the app fails the tests.
+
 ### Tank dashboard
 - One card per tank, **grouped by location**, for breweries with more than one facility.
 - Each card shows the tank's beer and style, batch number, batch size, brew date, the current **stage** as a colored badge, and **days in stage** in large type.
@@ -275,6 +281,7 @@ Plain HTML, CSS, and JavaScript with no frameworks and no build step, so it's ea
 | `supabase/tests/` | Database tests: breweries can't reach each other's data, roles are enforced, saving a batch is all-or-nothing, acid tracking, and invites (including "a brewery always keeps an admin"). |
 | `supabase/after-restore.sql` | Run after restoring a backup into a new project: re-locks the functions only signed-in people may use. |
 | `supabase/config.toml`, `supabase/templates/` | Settings for the local test copy of the database, and the sign-in email wording. |
+| `guide.html` | The user guide. The in-app "?" help shows its sections, so there's one source. Update it in the same change as the feature. |
 | `sw.js` | The service worker: keeps a copy of the app's files on the device so it opens with no signal. |
 | `tests/browser/` | Browser tests: real Chrome clicking through the app like a brewer (batches, acid tracking, offline viewing, offline recording with a coworker conflict, and team invites and roles), against the local test copy of the database. |
 | `.claude/launch.json` | Starts a small local web server for previewing while developing. |

@@ -1200,7 +1200,7 @@ function render() {
         <span>${esc(style)}</span>
         ${isAdmin ? `<button class="btn small" data-remove-style="${i}">Remove</button>` : ""}
       </li>`).join("")
-    : `<li class="item muted">No styles yet.</li>`;
+    : `<li class="item muted">No styles yet. Add one (like Sour) and a tank is flagged “Acid due” when a batch of it leaves.</li>`;
   acidStyleForm.hidden = !isAdmin;
   document.getElementById("acid-admin-note").hidden = isAdmin;
   // Suggest the styles of your beers
@@ -2358,7 +2358,6 @@ function applyPermissions() {
 }
 
 // ----- Settings screen -----
-const SETTINGS_PAGES = ["brewery", "equipment", "beers", "cleaning", "team", "backup", "account"];
 let settingsPage = "brewery";
 
 // Three views: the tank board ("floor"), one batch's page, and Settings
@@ -2397,6 +2396,45 @@ document.getElementById("close-settings").addEventListener("click", () => showSe
 document.getElementById("settings-nav").addEventListener("click", (e) => {
   const button = e.target.closest("[data-page]");
   if (button) showSettings(true, button.dataset.page);
+});
+
+// ----- Help: the part of the user guide (guide.html) for the screen you're on -----
+// The help and the guide are the same text, so they can never disagree.
+function helpSection() {
+  if (currentView === "settings") return `settings-${settingsPage}`;
+  if (currentView === "batch") return document.getElementById("bv-brewday").hidden ? "batch-page" : "brew-day-sheet";
+  if (currentView === "inventory") return document.getElementById("inv-raw").hidden ? "inventory" : "raw-materials";
+  return "tank-board";
+}
+
+let guidePage = null; // guide.html, read once
+async function showHelp(id) {
+  const body = document.getElementById("help-body");
+  try {
+    if (!guidePage) {
+      const res = await fetch("guide.html");
+      if (!res.ok) throw new Error(res.status);
+      guidePage = new DOMParser().parseFromString(await res.text(), "text/html");
+    }
+    const section = guidePage.getElementById(id) || guidePage.getElementById("getting-started");
+    body.replaceChildren(section.cloneNode(true));
+  } catch {
+    body.innerHTML = "<p>The guide couldn't be opened. It'll be here once the app has loaded with a signal.</p>";
+  }
+  document.getElementById("help-full").href = `guide.html#${id}`;
+  const dialog = document.getElementById("help-dialog");
+  if (!dialog.open) dialog.showModal();
+  body.scrollTop = 0;
+  body.focus();
+}
+document.getElementById("open-help").addEventListener("click", () => showHelp(helpSection()));
+document.getElementById("getting-started").addEventListener("click", () => showHelp("getting-started"));
+// A link to another part of the guide opens that part here
+document.getElementById("help-body").addEventListener("click", (e) => {
+  const link = e.target.closest("a[href^='#']");
+  if (!link) return;
+  e.preventDefault();
+  showHelp(link.getAttribute("href").slice(1));
 });
 
 // ----- Brew sheet: which fields this brewery measures -----
@@ -2665,7 +2703,7 @@ function renderTankList() {
         <span class="muted">${esc(details)}</span>
       </button>
     </li>`;
-  }).join("") || `<li class="muted">No tanks yet.</li>`;
+  }).join("") || `<li class="muted">No tanks yet. Tap “+ Add tank” for each fermenter, brite, and serving tank, or bring them in from a spreadsheet (Settings → Import).</li>`;
 }
 document.getElementById("tank-list").addEventListener("click", (e) => {
   const row = e.target.closest("[data-tank-settings]");
@@ -3551,7 +3589,7 @@ function renderRecent() {
       counted: `Count found more in ${placeName(m.toPlaceId)}` }[m.kind];
     const why = [m.notes && m.notes !== "count" ? m.notes : "", m.account].filter(Boolean).join(" · ");
     return `<li class="item"><span class="when">${formatDate(m.occurredOn)}</span> · ${esc(verb)}: ${what}${why ? ` <span class="muted">(${esc(why)})</span>` : ""}</li>`;
-  }).join("") || `<li class="item muted">Nothing yet.</li>`;
+  }).join("") || `<li class="item muted">Nothing yet. Packaging, counts, moves, and removals show here.</li>`;
 }
 // "12 × ½ bbl keg Lager, 3 × ⅙ bbl keg Lager"
 function summarizeStock(moves) {
@@ -4223,7 +4261,7 @@ function renderLines() {
   const empty = lines.filter((l) => l.status === "empty").length;
   box.innerHTML = `<div class="section-head"><h2>Draft lines</h2>${empty ? `<span class="muted">${empty} empty</span>` : ""}</div>
     <ul class="plain log-list">${lines.map((l) => `<li class="item"><button type="button" class="entry ${canEdit ? "" : "static"}" data-line="${l.id}">
-      <span class="line-no">${l.lineNo}</span> ${what(l)}</button></li>`).join("") || `<li class="item muted">No lines yet.</li>`}</ul>
+      <span class="line-no">${l.lineNo}</span> ${what(l)}</button></li>`).join("") || `<li class="item muted">No lines yet.${canEdit ? " Add one for each tap; count sheets here will follow the lines." : ""}</li>`}</ul>
     ${canEdit ? `<div class="actions"><button type="button" class="btn small" id="add-line">+ Add a line</button>
       ${lines.length && lines.at(-1).status === "empty" ? `<button type="button" class="btn small" id="remove-line">Remove line ${lines.at(-1).lineNo}</button>` : ""}</div>` : ""}`;
 }
@@ -4298,7 +4336,7 @@ function renderApiKeys() {
       <div class="muted">${k.revoked_at ? `revoked ${when(k.revoked_at)}` : `made ${when(k.created_at)} · last used ${when(k.last_used_at)}`} ·
         ${k.permissions.length} ${k.permissions.length === 1 ? "permission" : "permissions"}</div></div>
       ${k.revoked_at ? "" : `<button type="button" class="btn small" data-revoke-key="${k.id}">Revoke</button>`}</li>`).join("")
-    || `<li class="item muted">No keys yet.</li>`;
+    || `<li class="item muted">No keys yet. A key lets an outside tool or AI assistant work here as you.</li>`;
 }
 document.getElementById("key-form").addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -5135,7 +5173,7 @@ function renderBatchView() {
       <div class="readings">${esc(readingsText(c.gravitySg, c.ph, c.tempC))}</div>
       ${c.cellarChange ? `<div>${esc(c.cellarChange)}</div>` : ""}
       ${c.notes ? `<div class="muted">${esc(c.notes)}</div>` : ""}
-    </button></li>`).join("") || `<li class="item muted">Nothing logged yet.</li>`;
+    </button></li>`).join("") || `<li class="item muted">Nothing logged yet.${canLog ? " Tap “+ Log cellar work” for gravity, temperature, pH, and what was done." : ""}</li>`;
 
   // Additions, newest first
   const adds = data.additions.filter((a) => a.batchId === b.id)
@@ -5145,7 +5183,7 @@ function renderBatchView() {
       <span class="when">${formatDate(a.addedOn)} · ${esc(a.name)}</span>${a.brewDay ? ` <span class="tag">brew day${a.turn && b.turns > 1 ? `, turn ${a.turn}` : ""}</span>` : ""}
       <div class="readings">${[a.amount != null ? `${a.amount} ${a.unit}` : "", a.timing, a.lot ? "lot " + a.lot : ""].filter(Boolean).map(esc).join(" · ")}</div>
       ${a.notes ? `<div class="muted">${esc(a.notes)}</div>` : ""}
-    </button></li>`).join("") || `<li class="item muted">Nothing added yet.</li>`;
+    </button></li>`).join("") || `<li class="item muted">Nothing added yet.${canLog ? " Dry hops, fruit, and the like go in with “+ Addition”, with lot numbers." : ""}</li>`;
 
   renderSheet();
 
@@ -5482,7 +5520,7 @@ function renderIngredients(b) {
       <li class="item"><button class="entry ${canAdd ? "" : "static"}" data-addition="${a.id}">
         <span class="when">${esc(a.name)}</span>${a.turn == null && b.turns > 1 ? ` <span class="tag">whole batch</span>` : ""}
         <div class="readings">${[a.amount != null ? `${a.amount} ${a.unit}` : "", a.timing, a.lot ? "lot " + a.lot : "no lot yet"].filter(Boolean).map(esc).join(" · ")}</div>
-      </button></li>`).join("") || `<li class="item muted">None yet.</li>`}</ul>
+      </button></li>`).join("") || `<li class="item muted">None yet.${canAdd ? " Tap “+ Ingredient” to add malt, hops, salts, and yeast with their lot numbers." : ""}</li>`}</ul>
     ${canAdd ? `<div class="actions wrap">
       <button type="button" class="btn small" id="add-ingredient">+ Ingredient</button>
       ${source ? `<button type="button" class="btn small" id="copy-ingredients" data-from="${source.id}">Copy from ${esc(batchLabel(source))} (last ${esc(beerName(source))})</button>` : ""}
