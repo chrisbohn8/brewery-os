@@ -45,12 +45,18 @@ const empty = (page) => page.evaluate(async () => {
 const counts = (page) => page.evaluate(() => ({
   tanks: data.tanks.length, batches: data.batches.length, events: data.events.length, movements: data.movements.length, packageCounts: data.packageCounts.length, stockMoves: data.stockMoves.length, onHand: stockOnHand().length, pars: data.pars.length, rawItems: data.rawItems.length, rawReceipts: data.rawReceipts.length, rawAdjustments: data.rawAdjustments.length, lines: data.lines.length, views: data.views.length, recipes: data.recipes.length, recipeIngredients: data.recipeIngredients.length,
   cellar: data.cellar.length, additions: data.additions.length, readings: data.readings.length,
+  planItems: data.planItems.length, schedules: Object.keys(data.schedules).length,
   ownFields: (brewery.sheetCustomFields || []).length, sheetFields: (brewery.sheetFields || []).length,
 }));
 
 try {
   console.log("1. Back up the first brewery");
   const first = await signIn("brewer1@example.test");
+  await first.evaluate(async () => { // a plan item and a beer schedule, so the backup has them to bring back
+    const beer = data.beers[0], tank = data.tanks[0];
+    if (!data.planItems.length) await save(() => must(db.from("plan_items").insert({ brewery_id: brewery.id, kind: "brew", planned_on: addDays(today(), 3), tank_id: tank.id, beer_id: beer.id })));
+    if (!Object.keys(data.schedules).length) await save(() => must(db.from("beer_schedules").insert({ brewery_id: brewery.id, beer_id: beer.id, steps: [{ kind: "crash", day: 9 }] })));
+  });
   const backup = await first.evaluate(() => structuredClone(data));
   const source = await counts(first);
   check(source.movements > 0 && source.cellar > 0 && source.additions > 0 && source.readings > 0,

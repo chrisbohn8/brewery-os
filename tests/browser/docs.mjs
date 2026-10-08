@@ -90,6 +90,7 @@ try {
       stages: STAGES.filter((s) => !all.includes(s.label)).map((s) => s.label),
       actions: CELLAR_ACTIONS.filter((a) => !text("batch-page").includes(a.id)).map((a) => a.id),
       actionStages: CELLAR_ACTIONS.filter((a) => a.stage).filter((a) => !text("batch-page").includes(STAGES.find((s) => s.id === a.stage).label)).map((a) => a.id),
+      planKinds: PLAN_KINDS.filter((k) => !text("calendar").includes(k.label)).map((k) => k.label),
       alertKinds: ALERT_KINDS.filter((k) => !text("settings-alerts").includes(k.label)).map((k) => k.label),
       tankTypes: TANK_TYPES.filter((t) => !text("settings-equipment").includes(t.label)).map((t) => t.label),
       removals: Object.entries(REMOVAL_KINDS).filter(([k]) => k !== "unknown")
@@ -103,6 +104,7 @@ try {
   check(report.stages.length === 0, `every stage is in the guide (missing: ${report.stages.join(", ") || "none"})`);
   check(report.actions.length === 0, `every cellar action is in "A batch's page" (missing: ${report.actions.join(", ") || "none"})`);
   check(report.actionStages.length === 0, `the stage each action moves to is named there (missing: ${report.actionStages.join(", ") || "none"})`);
+  check(report.planKinds.length === 0, `every kind of calendar item is in "Planning calendar" (missing: ${report.planKinds.join(", ") || "none"})`);
   check(report.alertKinds.length === 0, `every kind of alert is in "Settings: Alerts" (missing: ${report.alertKinds.join(", ") || "none"})`);
   check(report.tankTypes.length === 0, `every tank type is in "Settings: Equipment" (missing: ${report.tankTypes.join(", ") || "none"})`);
   check(report.removals.length === 0, `every kind of removal is in "Inventory" (missing: ${report.removals.join(", ") || "none"})`);
@@ -133,6 +135,11 @@ try {
   shown = await help();
   check(shown.id === "raw-materials", `raw materials → "${shown.id}"`);
   await page.click('[data-inv-tab="finished"]');
+  await floor(page);
+  await page.click("#open-calendar");
+  await page.waitForSelector("#calendar-view:not([hidden])");
+  shown = await help();
+  check(shown.id === "calendar", `the calendar → "${shown.id}"`);
   await floor(page);
 
   const pages = await page.evaluate(() => [...document.querySelectorAll("#settings-nav [data-page]")].map((b) => b.dataset.page));

@@ -456,7 +456,7 @@ async function loadAll() {
   // Bring the alerts up to date first, so the list below is current (a gravity just logged clears
   // its alert right away). A failed check never stops the data loading; the server checks too.
   await db.rpc("check_alerts", { p_brewery_id: b }).then(() => {}, () => {});
-  const [locations, beers, tanks, batches, events, cleanings, settings, members, invites, permissions, memberRows, levels, cellar, additions, readings, movements, packageTypes, packageCounts, places, stockMoves, pars, rawItems, rawReceipts, rawAdjustments, lines, inventoryViews, recipes, recipeIngredientRows, alertRules, alerts] = await Promise.all([
+  const [locations, beers, tanks, batches, events, cleanings, settings, members, invites, permissions, memberRows, levels, cellar, additions, readings, movements, packageTypes, packageCounts, places, stockMoves, pars, rawItems, rawReceipts, rawAdjustments, lines, inventoryViews, recipes, recipeIngredientRows, alertRules, alerts, planItems, schedules] = await Promise.all([
     must(db.from("locations").select("*").eq("brewery_id", b).order("created_at")),
     must(db.from("beers").select("*").eq("brewery_id", b)),
     must(db.from("tanks").select("*").eq("brewery_id", b).order("created_at")),
@@ -488,6 +488,8 @@ async function loadAll() {
     must(db.from("recipe_ingredients").select("*").eq("brewery_id", b)),
     must(db.from("alert_rules").select("*").eq("brewery_id", b)),
     must(db.from("alerts").select("*").eq("brewery_id", b).is("resolved_at", null).order("opened_at")),
+    must(db.from("plan_items").select("*").eq("brewery_id", b).order("planned_on").order("created_at")),
+    must(db.from("beer_schedules").select("beer_id, steps").eq("brewery_id", b)),
   ]);
   // Each member: email and level (from brewery_members) plus their personal adjustments
   const adjustments = Object.fromEntries(memberRows.map((r) => [r.user_id, r]));
@@ -559,6 +561,9 @@ async function loadAll() {
       sortMode: p.sort_mode, beerOrder: p.beer_order || [] })),
     alertRules: alertRules.map((r) => ({ kind: r.kind, enabled: r.enabled, params: r.params || {}, recipients: r.recipients || [] })),
     alerts: alerts.map(mapAlert),
+    planItems: planItems.map((i) => ({ id: i.id, kind: i.kind, title: i.title, plannedOn: i.planned_on, someday: i.someday,
+      tankId: i.tank_id, beerId: i.beer_id, batchId: i.batch_id, notes: i.notes, doneAt: i.done_at })),
+    schedules: Object.fromEntries(schedules.map((s) => [s.beer_id, s.steps || []])),
     recipes: recipes.map((r) => ({ id: r.id, beerId: r.beer_id, locationId: r.location_id, name: r.name, batchSizeBbl: num(r.batch_size_bbl),
       targetOg: num(r.target_og), targetFg: num(r.target_fg), ibu: num(r.ibu), notes: r.notes, source: r.source })),
     recipeIngredients: recipeIngredientRows.map((i) => ({ id: i.id, recipeId: i.recipe_id, position: i.position, kind: i.kind, name: i.name,
@@ -1036,6 +1041,8 @@ function withWaitingChanges(base) {
   d.alertRules ??= [];
   d.alerts ??= [];
   d.recipeIngredients ??= [];
+  d.planItems ??= [];
+  d.schedules ??= {};
   for (const change of outbox) SHOW[change.kind](d, change.args);
   return d;
 }
@@ -1314,6 +1321,7 @@ function render() {
   renderRecipes();
   renderAlerts();
   if (currentView === "inventory") renderInventory();
+  if (currentView === "calendar") renderCalendar();
   renderTeam();
   renderTankList();
   if (viewingBatchId) renderBatchView();
@@ -2190,6 +2198,13 @@ async function loadIntoBrewery(source, description) {
       value: r.value ?? null, value_text: r.valueText ?? null, raw: r.raw ?? null,
     })));
   }
+  // The plan (the planning calendar) and beers' schedules (skipped quietly without the permission)
+  if (can("plan_schedule")) {
+    insert("plan_items", (d.planItems || []).map((p) => ({ id: idFor(p.id), kind: p.kind, title: p.title || "", planned_on: p.plannedOn,
+      someday: p.someday || "", tank_id: idFor(p.tankId), beer_id: idFor(p.beerId), batch_id: idFor(p.batchId), notes: p.notes || "",
+      done_at: p.doneAt ?? null })));
+    insert("beer_schedules", Object.entries(d.schedules || {}).map(([beerId, steps]) => ({ beer_id: idFor(beerId), steps })));
+  }
   // The brew sheet's setup and units (an admin setting; skipped quietly for anyone else)
   if (can("manage_settings") && (d.prefs || d.sheetFields || d.sheetCustomFields?.length)) {
     update("breweries", brewery.id, {
@@ -2494,6 +2509,8 @@ const PERMISSIONS = [
   { id: "rename_brewery",   label: "Rename the brewery" },
   { id: "backups",          label: "Download and load backups" },
   { id: "delete_records",   label: "Delete batches, beers, tanks, and locations" },
+  { id: "plan_schedule",    label: "Plan the schedule (calendar and beer schedules)" },
+  { id: "move_schedule",    label: "Move items on the calendar and tick them done" },
 ];
 const ROLES = [
   { id: "viewer",      label: "Viewer",      short: "View" },
@@ -2506,9 +2523,9 @@ const ROLES = [
 const DEFAULT_LEVELS = {
   viewer: [],
   cellar: ["cellar_log", "tank_status", "acid_log", "move_beer", "package", "inventory"],
-  brewer: ["cellar_log", "tank_status", "acid_log", "move_beer", "package", "inventory", "start_batch"],
+  brewer: ["cellar_log", "tank_status", "acid_log", "move_beer", "package", "inventory", "start_batch", "move_schedule"],
   head_brewer: ["cellar_log", "tank_status", "acid_log", "move_beer", "package", "inventory", "start_batch",
-                "manage_beers", "manage_equipment", "manage_cleaning", "manage_settings"],
+                "manage_beers", "manage_equipment", "manage_cleaning", "manage_settings", "plan_schedule", "move_schedule"],
 };
 
 // Can the signed-in person do this here?
@@ -2547,10 +2564,12 @@ function showView(view) {
   document.getElementById("batch-view").hidden = view !== "batch";
   document.getElementById("settings-view").hidden = view !== "settings";
   document.getElementById("inventory-view").hidden = view !== "inventory";
+  document.getElementById("calendar-view").hidden = view !== "calendar";
   document.getElementById("open-settings").hidden = view === "settings";
   document.getElementById("open-inventory").hidden = view !== "floor";
+  document.getElementById("open-calendar").hidden = view !== "floor";
   document.getElementById("close-settings").hidden = view === "floor";
-  document.getElementById("view-title").textContent = { settings: "Settings", batch: "Batch", inventory: "Inventory" }[view] || "Tanks";
+  document.getElementById("view-title").textContent = { settings: "Settings", batch: "Batch", inventory: "Inventory", calendar: "Calendar" }[view] || "Tanks";
   if (view !== "batch") viewingBatchId = null;
   window.scrollTo(0, 0);
 }
@@ -2583,6 +2602,7 @@ function helpSection() {
   if (currentView === "settings") return `settings-${settingsPage}`;
   if (currentView === "batch") return document.getElementById("bv-brewday").hidden ? "batch-page" : "brew-day-sheet";
   if (currentView === "inventory") return document.getElementById("inv-raw").hidden ? "inventory" : "raw-materials";
+  if (currentView === "calendar") return "calendar";
   return "tank-board";
 }
 
@@ -4661,6 +4681,9 @@ function exportLists() {
       const item = data.rawItems.find((i) => i.id === r.itemId);
       return { "Item": item?.name ?? "", "Date": r.receivedOn, "Lot": r.lot, "Amount": r.amount, "Unit": item?.unit ?? "", "Supplier": r.supplier, "Cost": r.cost ?? "" };
     }),
+    "plan": (data.planItems || []).map((p) => ({ "Day": p.plannedOn || "", "Someday": p.someday, "What": labelFrom(PLAN_KINDS, p.kind), "Name": p.title,
+      "Beer": findBeer(p.beerId)?.name ?? "", "Tank": p.tankId ? tankName(p.tankId) : "", "Batch": p.batchId ? label(p.batchId) : "",
+      "Done": planDone(p) ? "yes" : "", "Notes": p.notes })),
   };
 }
 function downloadFile(name, blob) {
@@ -6273,6 +6296,290 @@ async function checkForUpdate() {
 document.getElementById("update-reload").addEventListener("click", () => location.reload());
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") checkForUpdate(); });
 setInterval(checkForUpdate, 10 * 60 * 1000);
+
+// ---------- 14½. Planning calendar (docs/calendar-design.md) ----------
+// Tanks down the side, days across the top. Planned items are what someone means to do; expected
+// items come from each beer's schedule (days after brewing), after planned brews and for batches
+// already in tanks. A plan is never a record: doing the work on the floor records it, as usual.
+const PLAN_KINDS = [
+  { id: "brew", label: "Brew day" }, { id: "dry_hop", label: "Dry hop" }, { id: "diacetyl_rest", label: "Diacetyl rest" },
+  { id: "crash", label: "Crash" }, { id: "transfer", label: "Transfer" }, { id: "carbonate", label: "Carbonate" },
+  { id: "package", label: "Package" }, { id: "clean", label: "Clean" }, { id: "acid", label: "Acid cycle" },
+  { id: "yeast_harvest", label: "Yeast harvest" }, { id: "maintenance", label: "Maintenance" },
+  { id: "delivery", label: "Delivery" }, { id: "other", label: "Other" },
+];
+// What a beer's schedule can hold: what happens to the beer after brewing
+const SCHEDULE_KINDS = ["dry_hop", "diacetyl_rest", "crash", "transfer", "carbonate", "package", "yeast_harvest"];
+const LEAVES_TANK = ["transfer", "package"]; // after these the beer is out of its tank
+
+function addDays(dateString, n) {
+  const d = parseDate(dateString);
+  d.setDate(d.getDate() + n);
+  return toDateString(d);
+}
+const scheduleOf = (beerId) => (data.schedules || {})[beerId] || [];
+
+// A planned brew is done once a batch of that beer was started in that tank within a few days of it
+function brewedFor(p) {
+  if (p.kind !== "brew" || !p.plannedOn || !p.beerId) return null;
+  const near = (date) => date && Math.abs(parseDate(date) - parseDate(p.plannedOn)) <= 3 * 86400000;
+  return data.batches.find((b) => b.beerId === p.beerId && near(b.brewDate)
+    && (!p.tankId || b.tankId === p.tankId || data.events.some((e) => e.batchId === b.id && e.tankId === p.tankId))) || null;
+}
+const planDone = (p) => !!p.doneAt || !!brewedFor(p);
+
+// Expected items, from today on: each beer's schedule after a planned brew, and for batches in tanks
+function expectedItems() {
+  const out = [];
+  const t0 = today();
+  for (const p of data.planItems || []) {
+    if (p.kind !== "brew" || !p.plannedOn || !p.beerId || planDone(p)) continue;
+    for (const s of scheduleOf(p.beerId)) {
+      const date = addDays(p.plannedOn, s.day);
+      if (date >= t0) out.push({ kind: s.kind, date, tankId: p.tankId, beerId: p.beerId, planId: p.id });
+    }
+  }
+  for (const b of data.batches) {
+    if (!isInTank(b) || !b.brewDate) continue;
+    for (const s of scheduleOf(b.beerId)) {
+      const date = addDays(b.brewDate, s.day);
+      if (date < t0) continue;
+      if ((data.planItems || []).some((p) => p.batchId === b.id && p.kind === s.kind)) continue; // planned by hand instead
+      out.push({ kind: s.kind, date, tankId: b.tankId, beerId: b.beerId, batchId: b.id });
+    }
+  }
+  return out;
+}
+
+// When the beer in a tank is expected out: its first planned transfer or packaging there, else
+// the first one in its beer's schedule. Null if nothing says.
+function leaveDate(beerId, startDate, tankId, batchId) {
+  const planned = (data.planItems || [])
+    .filter((p) => LEAVES_TANK.includes(p.kind) && p.plannedOn && p.plannedOn >= startDate && !p.doneAt
+      && (p.tankId === tankId || (batchId && p.batchId === batchId)))
+    .map((p) => p.plannedOn).sort()[0];
+  if (planned) return planned;
+  const step = scheduleOf(beerId).filter((s) => LEAVES_TANK.includes(s.kind)).sort((a, b) => a.day - b.day)[0];
+  return step ? addDays(startDate, step.day) : null;
+}
+
+// Why a planned brew can't go where it's planned, or "" if it can (shown before it happens)
+function planClash(p) {
+  if (p.kind !== "brew" || !p.plannedOn || !p.tankId || planDone(p)) return "";
+  const tank = findTank(p.tankId);
+  if (!tank) return "";
+  const now = batchInTank(p.tankId);
+  if (now) {
+    const out = leaveDate(now.beerId, now.brewDate || now.stageStartDate || today(), p.tankId, now.id);
+    if (!out || out >= p.plannedOn) {
+      return `${tank.name} still has ${beerName(now)}${now.batchNumber ? ` #${now.batchNumber}` : ""}` +
+        (out ? ` (expected out ${formatDate(out)}).` : " (no transfer or packaging planned for it yet).");
+    }
+  }
+  for (const o of data.planItems || []) {
+    if (o.id === p.id || o.kind !== "brew" || !o.plannedOn || o.tankId !== p.tankId || planDone(o) || o.plannedOn > p.plannedOn) continue;
+    const out = leaveDate(o.beerId, o.plannedOn, o.tankId, null);
+    if (!out || out >= p.plannedOn) {
+      return `${tank.name} is planned for ${findBeer(o.beerId)?.name || "another brew"} on ${formatDate(o.plannedOn)}` +
+        (out ? ` (expected out ${formatDate(out)}).` : " (no transfer or packaging planned for it yet).");
+    }
+  }
+  if (tank.status === "maintenance") return `${tank.name} is in maintenance.`;
+  if (!now && acidState(tank).due && p.plannedOn <= addDays(today(), 7)) return `${tank.name} needs an acid cycle first (${acidState(tank).reason}).`;
+  return "";
+}
+
+function planText(p) {
+  const beer = p.beerId ? findBeer(p.beerId)?.name : "";
+  const what = p.title || labelFrom(PLAN_KINDS, p.kind);
+  return beer && !what.toLowerCase().includes(beer.toLowerCase()) ? `${what}: ${beer}` : what;
+}
+
+let calStart = null; // the first day shown
+const calDays = () => (window.matchMedia("(min-width: 700px)").matches ? 7 : 3); // a phone shows three days
+function mondayOf(dateString) {
+  const d = parseDate(dateString);
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+  return toDateString(d);
+}
+
+function renderCalendar() {
+  const n = calDays();
+  calStart ??= n === 7 ? mondayOf(today()) : today();
+  const days = Array.from({ length: n }, (_, i) => addDays(calStart, i));
+  const t0 = today();
+  document.getElementById("cal-range").textContent = `${formatDate(days[0])} – ${formatDate(days.at(-1))}`;
+  const grid = document.getElementById("cal-grid");
+  grid.style.setProperty("--days", n);
+  const expected = expectedItems();
+  const items = data.planItems || [];
+
+  const planChip = (p) => {
+    const clash = planClash(p);
+    return `<button type="button" class="cal-chip${p.kind === "brew" ? " brew" : ""}${planDone(p) ? " done" : ""}${clash ? " clash" : ""}"
+      data-plan="${p.id}" title="${esc(clash || planText(p))}">${esc(planText(p))}${clash ? " ⚠" : ""}</button>`;
+  };
+  const expectedChip = (e) => `<button type="button" class="cal-chip expected" ${e.batchId ? `data-expected-batch="${e.batchId}"` : `data-plan="${e.planId}"`}
+      title="Expected, from the beer's schedule">${esc(labelFrom(PLAN_KINDS, e.kind))}: ${esc(findBeer(e.beerId)?.name || "")}</button>`;
+  const cell = (tankId, date) => {
+    const here = items.filter((p) => (p.tankId ?? null) === tankId && p.plannedOn === date).map(planChip)
+      .concat(expected.filter((e) => (e.tankId ?? null) === tankId && e.date === date).map(expectedChip));
+    return `<div class="cal-cell${date === t0 ? " today" : ""}" data-cell-tank="${tankId ?? ""}" data-cell-date="${date}">${here.join("")}</div>`;
+  };
+  const row = (label, tankId) => `<div class="cal-tank">${esc(label)}</div>${days.map((d) => cell(tankId, d)).join("")}`;
+
+  const groups = tankGroups();
+  grid.innerHTML = `<div class="cal-head"></div>${days.map((d) => `<div class="cal-head${d === t0 ? " today" : ""}">
+      ${parseDate(d).toLocaleDateString(undefined, { weekday: "short" })}<br>${formatDate(d)}</div>`).join("")}
+    ${row("Whole brewery", null)}
+    ${groups.map((g) => `${groups.length > 1 ? `<div class="cal-group">${esc(g.name)}</div>` : ""}
+      ${g.tanks.map((t) => row(t.name, t.id)).join("")}`).join("")}`;
+
+  // Someday plans: no day yet, listed above the grid
+  const someday = items.filter((p) => !p.plannedOn);
+  document.getElementById("cal-someday").innerHTML = someday.length
+    ? `<span class="muted">Someday:</span> ${someday.map((p) => `<button type="button" class="cal-chip${planDone(p) ? " done" : ""}" data-plan="${p.id}">
+        ${esc(p.someday)} · ${esc(planText(p))}</button>`).join("")}`
+    : "";
+}
+
+document.getElementById("open-calendar").addEventListener("click", () => { showView("calendar"); renderCalendar(); });
+const moveCalendar = (direction) => { calStart = addDays(calStart ?? today(), direction * calDays()); renderCalendar(); };
+document.getElementById("cal-prev").addEventListener("click", () => moveCalendar(-1));
+document.getElementById("cal-next").addEventListener("click", () => moveCalendar(1));
+document.getElementById("cal-today").addEventListener("click", () => { calStart = null; renderCalendar(); });
+window.matchMedia("(min-width: 700px)").addEventListener("change", () => { if (currentView === "calendar") { calStart = null; renderCalendar(); } });
+
+document.getElementById("calendar-view").addEventListener("click", (e) => {
+  const chip = e.target.closest("[data-plan]");
+  if (chip) return openPlanEditor(data.planItems.find((p) => p.id === chip.dataset.plan));
+  const fromBatch = e.target.closest("[data-expected-batch]");
+  if (fromBatch) return openBatchView(fromBatch.dataset.expectedBatch);
+  const cellEl = e.target.closest("[data-cell-date]");
+  if (cellEl && can("plan_schedule")) openPlanEditor(null, { tankId: cellEl.dataset.cellTank || null, plannedOn: cellEl.dataset.cellDate });
+});
+document.getElementById("cal-add").addEventListener("click", () => openPlanEditor(null, { plannedOn: today() }));
+
+// ----- One item: add, change, move, tick done -----
+const planDialog = document.getElementById("plan-editor");
+const planForm = document.getElementById("plan-form");
+planForm.kind.innerHTML = PLAN_KINDS.map((k) => `<option value="${k.id}">${k.label}</option>`).join("");
+let editingPlan = null;
+
+function openPlanEditor(item, preset = {}) {
+  if (!item && !can("plan_schedule")) return;
+  editingPlan = item;
+  const p = item || { kind: "brew", title: "", plannedOn: today(), someday: "", tankId: null, beerId: null, notes: "", doneAt: null, ...preset };
+  const canPlan = can("plan_schedule");
+  const canMove = canPlan || can("move_schedule");
+  planForm.beerId.innerHTML = `<option value="">—</option>` +
+    beersByName().map((b) => `<option value="${b.id}">${esc(b.name)}</option>`).join("");
+  planForm.tankId.innerHTML = `<option value="">Whole brewery (no tank)</option>` + tankGroups().map((g) =>
+    `<optgroup label="${esc(g.name)}">${g.tanks.map((t) => `<option value="${t.id}">${esc(t.name)}</option>`).join("")}</optgroup>`).join("");
+  planForm.kind.value = p.kind;
+  planForm.title.value = p.title || "";
+  planForm.beerId.value = p.beerId || "";
+  planForm.tankId.value = p.tankId || "";
+  planForm.when.value = p.plannedOn ? "day" : "someday";
+  planForm.plannedOn.value = p.plannedOn || "";
+  planForm.someday.value = p.someday || "";
+  planForm.notes.value = p.notes || "";
+  planForm.done.checked = !!p.doneAt;
+  // Planning changes anything; moving changes the day, the tank, and "done"; otherwise look only
+  for (const name of ["kind", "title", "beerId", "notes", "someday"]) planForm[name].disabled = !canPlan;
+  planForm.querySelectorAll('[name="when"]').forEach((r) => { r.disabled = !canPlan; });
+  for (const name of ["tankId", "plannedOn", "done"]) planForm[name].disabled = !canMove;
+  document.getElementById("save-plan").hidden = !canMove;
+  document.getElementById("delete-plan").hidden = !item || !canPlan;
+  document.getElementById("plan-done-field").hidden = !item;
+  document.getElementById("plan-title").textContent = item ? planText(item) : "Plan";
+  const clash = item ? planClash(item) : "";
+  document.getElementById("plan-clash").hidden = !clash;
+  document.getElementById("plan-clash").textContent = clash;
+  const brewed = item && brewedFor(item);
+  const note = brewed ? `Brewed: ${beerName(brewed)}${brewed.batchNumber ? ` #${brewed.batchNumber}` : ""} (${formatDate(brewed.brewDate)}).`
+    : !canMove ? "You can see the plan; changing it takes the \"Plan the schedule\" or \"Move items\" permission." : "";
+  document.getElementById("plan-note").hidden = !note;
+  document.getElementById("plan-note").textContent = note;
+  planDialog.showModal();
+}
+
+planForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const onDay = planForm.when.value === "day";
+  if (onDay && !planForm.plannedOn.value) { warn("Choose the day."); return; }
+  if (!onDay && !planForm.someday.value.trim()) { warn("Say roughly when (like: Fall)."); return; }
+  const row = {
+    kind: planForm.kind.value, title: planForm.title.value.trim(), beer_id: planForm.beerId.value || null,
+    tank_id: planForm.tankId.value || null, planned_on: onDay ? planForm.plannedOn.value : null,
+    someday: onDay ? "" : planForm.someday.value.trim(), notes: planForm.notes.value.trim(),
+    done_at: planForm.done.checked ? (editingPlan?.doneAt || new Date().toISOString()) : null,
+  };
+  if (editingPlan && !can("plan_schedule")) { // moving only: send just what may change
+    for (const k of ["kind", "title", "beer_id", "someday", "notes"]) delete row[k];
+  }
+  const ok = await save(() => must(editingPlan
+    ? db.from("plan_items").update(row).eq("id", editingPlan.id)
+    : db.from("plan_items").insert({ id: newId(), brewery_id: brewery.id, ...row })));
+  if (ok) planDialog.close(); // (it shows on the calendar; no message needed)
+});
+
+document.getElementById("delete-plan").addEventListener("click", async () => {
+  if (!(await ask(`Delete "${planText(editingPlan)}" from the calendar? (Nothing recorded changes.)`, { ok: "Delete", danger: true }))) return;
+  const ok = await save(() => must(db.from("plan_items").delete().eq("id", editingPlan.id)));
+  if (ok) planDialog.close();
+});
+
+// ----- Beers' schedules -----
+const scheduleDialog = document.getElementById("schedule-editor");
+const scheduleForm = document.getElementById("schedule-form");
+const stepRow = (s = { kind: "dry_hop", day: "" }) => `<li class="schedule-step">
+    <select aria-label="Step">${SCHEDULE_KINDS.map((k) => `<option value="${k}" ${k === s.kind ? "selected" : ""}>${labelFrom(PLAN_KINDS, k)}</option>`).join("")}</select>
+    <label class="inline-label">day <input type="number" min="0" max="365" step="1" inputmode="numeric" value="${s.day}" aria-label="Days after brewing"></label>
+    <button type="button" class="btn small" data-remove-step aria-label="Remove this step">×</button></li>`;
+function renderScheduleSteps() {
+  const canPlan = can("plan_schedule");
+  const steps = [...scheduleOf(scheduleForm.beerId.value)].sort((a, b) => a.day - b.day);
+  document.getElementById("schedule-steps").innerHTML = steps.map(stepRow).join("") ||
+    (canPlan ? "" : `<li class="muted">No schedule for this beer yet.</li>`);
+  scheduleForm.querySelectorAll("#schedule-steps select, #schedule-steps input, [data-remove-step]").forEach((el) => { el.disabled = !canPlan; });
+  document.getElementById("add-step").hidden = !canPlan;
+  document.getElementById("save-schedule").hidden = !canPlan;
+  const note = document.getElementById("schedule-note");
+  note.hidden = canPlan;
+  note.textContent = "Changing schedules takes the \"Plan the schedule\" permission.";
+}
+document.getElementById("cal-schedules").addEventListener("click", () => {
+  if (!data.beers.length) { warn("Add a beer first (Settings → Beers)."); return; }
+  scheduleForm.beerId.innerHTML = beersByName().map((b) => `<option value="${b.id}">${esc(b.name)}</option>`).join("");
+  renderScheduleSteps();
+  scheduleDialog.showModal();
+});
+scheduleForm.beerId.addEventListener("change", renderScheduleSteps);
+document.getElementById("add-step").addEventListener("click", () => {
+  document.getElementById("schedule-steps").insertAdjacentHTML("beforeend", stepRow());
+  document.querySelector("#schedule-steps li:last-child input").focus();
+});
+document.getElementById("schedule-steps").addEventListener("click", (e) => {
+  if (e.target.closest("[data-remove-step]")) e.target.closest("li").remove();
+});
+scheduleForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const steps = [...document.querySelectorAll("#schedule-steps li.schedule-step")].map((li) => ({
+    kind: li.querySelector("select").value, day: li.querySelector("input").value,
+  }));
+  if (steps.some((s) => s.day === "" || !Number.isInteger(Number(s.day)) || Number(s.day) < 0)) {
+    warn("Give each step its day after brewing (0 or more, whole days).");
+    return;
+  }
+  const beerId = scheduleForm.beerId.value;
+  const sorted = steps.map((s) => ({ kind: s.kind, day: Number(s.day) })).sort((a, b) => a.day - b.day);
+  const ok = await save(() => must(db.from("beer_schedules").upsert({ brewery_id: brewery.id, beer_id: beerId, steps: sorted })));
+  if (ok) {
+    renderScheduleSteps();
+    notify(`Saved the schedule for ${findBeer(beerId)?.name}.`);
+  }
+});
 
 // ---------- 15. Go ----------
 showSyncProblems();

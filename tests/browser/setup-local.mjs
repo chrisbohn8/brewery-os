@@ -36,6 +36,7 @@ try {
     await page.waitForSelector("#app-screen:not([hidden]), #setup-screen:not([hidden])", { timeout: 20000 });
     let created = false;
     if (await page.isVisible("#setup-screen")) {
+      await page.click("#choose-create"); // "No, I'm setting it up"
       await page.fill('#setup-form [name="name"]', person.brewery);
       await page.click("#setup-form button[type=submit]");
       await page.waitForSelector("#app-screen:not([hidden])", { timeout: 20000 });

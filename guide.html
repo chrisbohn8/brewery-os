@@ -41,6 +41,7 @@
       <li><a href="#splits-blends">Splits and blends</a></li>
       <li><a href="#inventory">Inventory: finished goods</a></li>
       <li><a href="#raw-materials">Inventory: raw materials</a></li>
+      <li><a href="#calendar">Planning calendar</a></li>
       <li><a href="#alerts">Alerts</a></li>
       <li><a href="#offline">No signal (offline)</a></li>
       <li><a href="#permissions">Who can do what</a></li>
@@ -214,6 +215,19 @@
     </ul>
   </section>
 
+  <section id="calendar">
+    <h2>Planning calendar</h2>
+    <p><span class="ui">Calendar</span> on the tank board opens the plan: tanks down the side (and a <strong>Whole brewery</strong> row for things not tied to a tank, like a delivery), days across the top. A phone shows three days, a computer the whole week; <span class="ui">‹</span> and <span class="ui">›</span> move, <span class="ui">Today</span> comes back. <strong>A plan is never a record:</strong> nothing on the calendar changes a batch, a tank, or stock. Doing the work records it, as usual.</p>
+    <ul>
+      <li><strong>Plan something:</strong> tap a square (it fills in that tank and day) or <span class="ui">+ Plan</span>. Choose what (Brew day, Dry hop, Diacetyl rest, Crash, Transfer, Carbonate, Package, Clean, Acid cycle, Yeast harvest, Maintenance, Delivery, or Other), optionally a name in your words, the beer, and notes.</li>
+      <li><strong>Someday:</strong> instead of a day, say roughly when ("Fall"). Someday plans are listed above the week; give one a day when it's real.</li>
+      <li><strong>Beer schedules:</strong> each beer's steps in days after brewing (dry hop on day 5, package on day 12...). The calendar lays them out, drawn lighter as <em>expected</em>, after a planned brew and for batches already in tanks. Tap an expected item to open its batch (or the planned brew it comes from).</li>
+      <li><strong>Clashes, before they happen:</strong> a planned brew is marked ⚠ with a red border when its tank won't be free: a batch is still in it (until its planned or expected transfer or packaging), another brew is planned there first, it's in maintenance, or (for a brew in the next week) it needs an acid cycle. Tap it to see why.</li>
+      <li><strong>Move or tick done:</strong> tap an item to change its day or tank, or tick <strong>Done</strong>. A planned brew counts as done once a batch of that beer is started in that tank within a few days of it.</li>
+      <li><strong>Who can do what:</strong> everyone sees the calendar. <em>Plan the schedule</em> (head brewers and admins, to start) adds, changes, and deletes, and sets beer schedules; <em>Move items</em> (brewers too) moves items and ticks them done. See <a href="#permissions">Who can do what</a>.</li>
+    </ul>
+  </section>
+
   <section id="alerts">
     <h2>Alerts</h2>
     <p>The orange box on the tank board lists what needs attention: no gravity logged lately, too long in a stage, acid due, a beer under par, low on a raw material. The server checks every 15 minutes (and the app checks whenever it loads), so it's current even when nobody has the app open.</p>
@@ -250,6 +264,8 @@
       <tr><td data-permission="rename_brewery">Rename the brewery</td><td></td><td></td><td></td><td></td><td>✓</td></tr>
       <tr><td data-permission="backups">Download and load backups</td><td></td><td></td><td></td><td></td><td>✓</td></tr>
       <tr><td data-permission="delete_records">Delete batches, beers, tanks, and locations</td><td></td><td></td><td></td><td></td><td>✓</td></tr>
+      <tr><td data-permission="plan_schedule">Plan the schedule (calendar and beer schedules)</td><td></td><td></td><td></td><td>✓</td><td>✓</td></tr>
+      <tr><td data-permission="move_schedule">Move items on the calendar and tick them done</td><td></td><td></td><td>✓</td><td>✓</td><td>✓</td></tr>
     </table></div>
     <p>Everyone in the brewery can see everything. Anything you can't do is hidden or greyed out, and the database checks it too.</p>
   </section>

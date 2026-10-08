@@ -106,6 +106,7 @@
       <p id="brewery-name" class="muted"></p>
     </div>
     <span class="header-buttons">
+      <button id="open-calendar" class="btn">Calendar</button>
       <button id="open-inventory" class="btn">Inventory</button>
       <button id="open-settings" class="btn">⚙︎ Settings</button>
       <button id="close-settings" class="btn" hidden>← Tanks</button>
@@ -258,6 +259,24 @@
   </div>
 
   <!-- ===== Settings: one page at a time; people see what they're allowed to use ===== -->
+  <!-- The planning calendar (docs/calendar-design.md): tanks down the side, days across the top.
+       Planned items are solid; "expected" ones (from beers' schedules) are lighter. A plan is never a record. -->
+  <div id="calendar-view" hidden>
+    <div class="cal-toolbar">
+      <button type="button" class="btn small" id="cal-prev" aria-label="Earlier">‹</button>
+      <button type="button" class="btn small" id="cal-today">Today</button>
+      <button type="button" class="btn small" id="cal-next" aria-label="Later">›</button>
+      <strong id="cal-range"></strong>
+      <span class="spacer"></span>
+      <button type="button" class="btn small" id="cal-schedules">Beer schedules</button>
+      <button type="button" class="btn small primary" id="cal-add" data-needs="plan_schedule">+ Plan</button>
+    </div>
+    <div id="cal-someday" class="cal-someday"></div>
+    <div id="cal-grid" class="cal-grid"></div>
+    <p class="muted cal-key"><span class="cal-chip">Planned</span> <span class="cal-chip expected">Expected</span>
+      <span class="cal-chip done">Done</span> <span class="cal-chip clash">Clash</span></p>
+  </div>
+
   <div id="settings-view" hidden>
   <nav id="settings-nav" class="settings-nav" aria-label="Settings pages">
     <button data-page="brewery">Brewery</button>
@@ -649,6 +668,64 @@
   </dialog>
 
   <!-- Pop-up form for the tank itself. Tanks rarely change: set them up once. -->
+  <!-- One item on the calendar: add, change, move, tick done -->
+  <dialog id="plan-editor">
+    <form id="plan-form">
+      <h2 id="plan-title" tabindex="-1" autofocus>Plan</h2>
+      <label>What
+        <select name="kind"></select>
+      </label>
+      <label>Name <span class="muted">(optional, your words: "Hazy brew", "Glycol service")</span>
+        <input name="title" maxlength="80">
+      </label>
+      <label>Beer <span class="muted">(optional)</span>
+        <select name="beerId"></select>
+      </label>
+      <label>Tank
+        <select name="tankId"></select>
+      </label>
+      <fieldset class="group">
+        <legend>When</legend>
+        <label class="inline-label"><input type="radio" name="when" value="day" checked> On a day</label>
+        <input name="plannedOn" type="date" aria-label="Day">
+        <label class="inline-label"><input type="radio" name="when" value="someday"> Someday</label>
+        <input name="someday" maxlength="40" placeholder="Fall, November, after the IPA…" aria-label="Roughly when">
+      </fieldset>
+      <label>Notes
+        <input name="notes" maxlength="1000">
+      </label>
+      <label class="inline-label" id="plan-done-field"><input type="checkbox" name="done"> Done</label>
+      <p id="plan-clash" class="form-message" hidden></p>
+      <p id="plan-note" class="muted" hidden></p>
+      <div class="actions">
+        <button type="button" id="delete-plan" class="btn danger">Delete</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn cancel">Cancel</button>
+        <button type="submit" class="btn primary" id="save-plan">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- A beer's schedule: its steps, in days after brewing (the calendar's "expected" items) -->
+  <dialog id="schedule-editor" class="wide">
+    <form id="schedule-form">
+      <h2 tabindex="-1" autofocus>Beer schedules</h2>
+      <p class="muted">Each step, in days after brewing. The calendar lays these out after a planned brew, and for
+        batches already in tanks, as "expected" items. Nothing is recorded from them.</p>
+      <label>Beer
+        <select name="beerId"></select>
+      </label>
+      <ul id="schedule-steps" class="plain"></ul>
+      <button type="button" class="btn small" id="add-step">+ Step</button>
+      <p id="schedule-note" class="muted" hidden></p>
+      <div class="actions">
+        <span class="spacer"></span>
+        <button type="button" class="btn cancel">Close</button>
+        <button type="submit" class="btn primary" id="save-schedule">Save</button>
+      </div>
+    </form>
+  </dialog>
+
   <dialog id="tank-editor">
     <form id="tank-form">
       <h2 id="tank-title" tabindex="-1" autofocus>Tank</h2>
