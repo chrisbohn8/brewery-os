@@ -502,6 +502,7 @@ These make the app trustworthy and quick on the floor. They aren't a separate ph
 - [x] **Nightly backups** of the whole database (structure, data, sign-in accounts) to a **private** repository, with every night kept. A full restore was rehearsed into a fresh database: every row matched and all database tests passed. Restoring also runs `supabase/after-restore.sql`, which re-locks the sign-in-only functions (a fresh Supabase project opens them to everyone by default).
 - [ ] **Supabase's paid plan before real records** (decided): it never pauses and adds Supabase's own daily backups.
 - [ ] **Error reporting,** so problems on someone's phone are found right away, not a week later.
+- [ ] **Passkey sign-in** (the user's idea, 2026-10-08): Face ID or a fingerprint instead of waiting for an emailed code. Faster on the brew deck, and it sidesteps the email service's hourly limit. The emailed code stays as the fallback (a new phone, a borrowed computer). A passkey belongs to one person's device, so shared floor tablets keep using codes. First check what Supabase's sign-in supports for passkeys today; if it isn't ready, wait rather than build our own.
 
 **Polish**
 - [ ] **App icon and name** on the home screen (and the branding question that comes with it).
@@ -576,6 +577,12 @@ The payoff for keeping accurate volumes at every step.
 
 ### Phase 8: Taproom connection (POS sync)
 - [ ] Connect one point-of-sale system first (chosen by what pilot breweries use), so taproom sales draw down keg and serving-tank levels and count as taxable removals for TTB.
+- [ ] **Menu boards from the taproom's draft lines** (the user's idea, 2026-10-08). The draft lines already know what's on each tap, so the menu comes almost free:
+    - **Each beer gets menu details:** a short description, ABV, IBU, color, and prices per pour size (16 oz, 10 oz, flight, crowler...). ABV and IBU fill in from the batch and recipe, for a person to confirm.
+    - **A TV view** of the menu (sharing the work with the Cellar TV), a **printable menu**, and a **public link** or embed for the brewery's website and social posts. The public link shows only menu details, never the rest of the brewery, and can be turned off.
+    - Changes on the lines (a keg kicked, a new beer tapped) show on the board right away. "On deck" can show what's coming next.
+    - Pour sizes and prices are the same ones a POS connection needs, so this is a step toward it.
+- [ ] **A Taproom level** (the user's idea, 2026-10-08), for a taproom manager: draft lines, finished-goods counts and moves, pars, and menu details, but nothing on the brewhouse side (batches, tanks, recipes, brew sheets). It needs one permission split first: today "Beers and recipes" covers everything about a beer, so it becomes **"Beers and recipes"** and **"Beer menu details"** (description, prices). An admin can still change what the Taproom level includes, like any level.
 - **Stay open to the common taproom POS systems** (the user's reminder): Toast, Square, Clover, and brewery-focused ones like Arryved, among others. Choices made now that keep the door open: **draft lines** map onto a POS's menu items (pours by line), pours become **taproom removals** (and level checks for serving tanks), and the **API** (Phase 6½) is the way in for a POS or a connector. Pour sizes (16 oz, 10 oz, flights) turn sales into volume.
 
 ### Phase 9: State returns
