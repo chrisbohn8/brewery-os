@@ -509,6 +509,7 @@ The user's idea (API-first): outside tools and AI agents read and write through 
 - [x] **Export everything** as CSV (per list, or all of them in one zip) and JSON (the backup file).
 - [x] **Import from spreadsheets:** pasted cells, a CSV file, or a Google Sheets link, for tanks, beers, batches, and cellar logs, with columns matched by name and a preview of what will be created before anything is saved.
 - [x] **Recipe import from all the major tools** via **BeerXML** (BeerSmith, Brewfather, Brewer's Friend, and others export it); later, Brewfather's own API. Recipes stay simple (decided): a beer's targets and ingredient list, which the brew-day sheet copies like "copy from the last batch".
+- [ ] **Write through the API, for all data** (the user's go-ahead): recipes (create, change), and everything else the app can do (batches, transfers, packaging, stock, counts, brew-day readings...), each under the same permissions as in the app.
 - Later, when someone besides us holds a key: rate limits and public API docs.
 
 ### Phase 6¾: Alerts and tank monitoring
