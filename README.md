@@ -544,6 +544,7 @@ The user's idea. Watching only, never controlling equipment (controllers already
 
 ### Phase 7: TTB reporting
 The payoff for keeping accurate volumes at every step.
+**Design draft:** [docs/ttb-design.md](docs/ttb-design.md) (the quarterly report first, every line traceable to records, a reconciliation check, and the mapping choices to confirm).
 - [ ] **Brewer's Report of Operations** (TTB F 5130.9): beer produced, received, transferred, removed, and lost over the reporting period, calculated from batch events, packaging, and inventory.
 - [ ] **Excise tax return support** (TTB F 5000.24): taxable removals for the period.
 - [ ] Export in a format that's easy to copy into the TTB forms. Accuracy here depends entirely on the history from Phase 2 and the volumes from Phases 5–6. That's why those phases come first.
