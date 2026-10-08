@@ -1892,200 +1892,155 @@ async function loadIntoBrewery(source, description) {
     if (!ids.has(oldId)) ids.set(oldId, newId());
     return ids.get(oldId);
   };
-  const b = brewery.id;
   const codes = [];
+  const recorded = (at) => (at ? { recorded_at: at } : {});
+
+  // The whole load, as a list of steps the database does in one go (see load_into_brewery in
+  // supabase/migrations/..._load_backup.sql): everything goes in, or nothing does.
+  const steps = [];
+  const insert = (table, rows) => { if (rows.length) steps.push({ insert: table, rows }); };
+  // Use the brewery's own row with the same name (and location), or add this one
+  const match = (table, keys, row) => steps.push({ match: table, keys, row });
+  const update = (table, id, set) => steps.push({ update: table, id, set });
+
+  insert("locations", d.locations.map((l) => ({
+    id: idFor(l.id), name: l.name,
+    // Brewhouse settings (backups made since they existed)
+    turn_size_bbl: l.turnSizeBbl ?? null, usual_turns: l.usualTurns || 1, kettle_full_bbl: l.kettleFullBbl ?? null,
+    flow_target: l.flowTarget || "", water_grist_qt_lb: l.waterGristQtLb ?? null, grain_absorption_gal_lb: l.absorptionGalLb ?? null,
+  })));
+  insert("beers", d.beers.map((x) => {
+    const code = beerCodeFor(x.name, codes);
+    codes.push({ code });
+    return { id: idFor(x.id), code, name: x.name, style: x.style || "", target_og: x.targetOg ?? null, target_fg: x.targetFg ?? null };
+  }));
+  insert("tanks", d.tanks.map((t) => ({
+    id: idFor(t.id), name: t.name, type: t.type, status: t.status,
+    capacity_bbl: t.capacityBbl, location_id: idFor(t.locationId), acid_every_turns: t.acidEveryTurns,
+  })));
+  insert("tank_cleanings", d.cleanings.map((c) => ({
+    tank_id: idFor(c.tankId), kind: "acid", cleaned_on: c.cleanedOn, note: c.note || "",
+  })));
+  // The brewery-wide style list is an admin setting; skipped quietly for anyone else
+  if (d.acidAfterStyles.length && can("manage_cleaning")) update("breweries", brewery.id, { acid_after_styles: d.acidAfterStyles });
+
+  if (d.batches.length) {
+    insert("batches", d.batches.map((x) => ({
+      id: idFor(x.id), batch_number: x.batchNumber || "?", beer_id: idFor(x.beerId),
+      brew_date: x.brewDate, size_bbl: x.sizeBbl, turns: x.turns || 1,
+    })));
+    // History: newer backups include it. Older data only knows each batch's current
+    // stage, so that becomes the batch's one history event.
+    const events = d.events?.length
+      ? d.events.map((e) => ({ batch: e.batchId, date: e.effectiveDate, stage: e.stage, tank: e.tankId, at: e.recordedAt }))
+      : d.batches.map((x) => ({ batch: x.id, date: x.stageStartDate, stage: x.stage, tank: x.stage === "packaged" ? null : x.tankId }));
+    insert("batch_events", events.map((e) => ({
+      batch_id: idFor(e.batch), effective_date: e.date, stage: e.stage, tank_id: idFor(e.tank),
+      // Keep the original order of same-day changes (it decides which tank a batch is in now)
+      ...recorded(e.at),
+    })));
+
+    // Volumes. Backups made before volumes existed: each batch in a tank was knocked out into it
+    // (its volume then comes from the brew sheet or batch size), as when volumes were added.
+    insert("beer_movements", d.movements?.length
+      ? d.movements.map((m) => ({
+          id: idFor(m.id), batch_id: idFor(m.batchId), source_batch_id: idFor(m.sourceBatchId), occurred_on: m.occurredOn, kind: m.kind,
+          from_tank_id: idFor(m.fromTankId), to_tank_id: idFor(m.toTankId), volume_bbl: m.volumeBbl ?? null, notes: m.notes || "",
+          ...recorded(m.recordedAt),
+        }))
+      : d.batches.filter((x) => x.stage !== "packaged" && x.tankId).map((x) => ({
+          batch_id: idFor(x.id), occurred_on: x.brewDate || x.stageStartDate || today(), kind: "knockout",
+          to_tank_id: idFor(x.tankId), notes: "recorded when volumes were added",
+        })));
+
+    // Stock places match the brewery's own by location and name (new locations already got a
+    // storage place), then the stock ledger
+    if (d.places?.length || d.stockMoves?.length) {
+      for (const p of d.places || []) {
+        match("stock_places", ["name", "location_id"], { id: idFor(p.id), location_id: idFor(p.locationId), name: p.name, kind: p.kind, active: p.active });
+        update("stock_places", idFor(p.id), { sort_mode: p.sortMode || (p.kind === "taproom" ? "lines" : "az"), beer_order: (p.beerOrder || []).map(idFor) });
+      }
+    }
+    // Packaging: package types match the brewery's own by name (or are added), then each
+    // packaging run's counts, with the volume per package they were packaged with
+    if (d.packageCounts?.length || d.stockMoves?.length) {
+      for (const t of d.packageTypes || []) {
+        match("package_types", ["name"], { id: idFor(t.id), name: t.name, volume_bbl: t.volumeBbl, kind: t.kind || "other",
+          catalog_key: t.catalogKey ?? null, active: !!t.active });
+      }
+      insert("package_counts", (d.packageCounts || []).map((c) => ({
+        movement_id: idFor(c.movementId), package_type_id: idFor(c.packageTypeId), count: c.count, unit_volume_bbl: c.unitVolumeBbl,
+      })));
+    }
+    // Raw materials: items match the brewery's own by name (or are added), then receipts and counts
+    if (d.rawItems?.length) {
+      for (const item of d.rawItems) {
+        match("raw_items", ["name"], { id: idFor(item.id), name: item.name, kind: item.kind, unit: item.unit,
+          pack_name: item.packName || "", pack_size: item.packSize ?? null, reorder_level: item.reorderLevel ?? null, active: item.active });
+      }
+      insert("raw_receipts", (d.rawReceipts || []).map((r) => ({ item_id: idFor(r.itemId), received_on: r.receivedOn, lot: r.lot || "",
+        amount: r.amount, supplier: r.supplier || "", cost: r.cost ?? null, notes: r.notes || "", ...recorded(r.recordedAt) })));
+      insert("raw_adjustments", (d.rawAdjustments || []).map((a) => ({ item_id: idFor(a.itemId), lot: a.lot || "",
+        adjusted_on: a.adjustedOn, change: a.change, reason: a.reason || "", ...recorded(a.recordedAt) })));
+    }
+    insert("recipes", (d.recipes || []).map((r) => ({ id: idFor(r.id), beer_id: idFor(r.beerId), location_id: idFor(r.locationId),
+      name: r.name, batch_size_bbl: r.batchSizeBbl, target_og: r.targetOg, target_fg: r.targetFg, ibu: r.ibu, notes: r.notes || "", source: r.source || "" })));
+    insert("recipe_ingredients", (d.recipes?.length ? d.recipeIngredients || [] : []).map((i) => ({
+      recipe_id: idFor(i.recipeId), position: i.position, kind: i.kind, name: i.name, amount: i.amount, unit: i.unit, timing: i.timing || "" })));
+    insert("inventory_views", (d.views || []).map((v) => ({ name: v.name, place_ids: v.placeIds.map(idFor),
+      split_by_place: v.splitByPlace, type_ids: v.typeIds.map(idFor), show: v.show, beers: v.beers, sort_mode: v.sortMode, position: v.position })));
+    insert("draft_lines", (d.lines || []).map((l) => ({ place_id: idFor(l.placeId), line_no: l.lineNo,
+      status: l.status, beer_id: idFor(l.beerId), label: l.label || "" })));
+    insert("stock_pars", (d.pars || []).map((p) => ({
+      place_id: idFor(p.placeId), beer_id: idFor(p.beerId), par_bbl: p.parBbl ?? null, par_cases: p.parCases ?? null })));
+    insert("stock_moves", (d.stockMoves || []).map((m) => ({
+      group_id: m.groupId ? idFor(m.groupId) : null, occurred_on: m.occurredOn, kind: m.kind, removal_kind: m.removalKind,
+      beer_id: idFor(m.beerId), batch_id: idFor(m.batchId), package_type_id: idFor(m.packageTypeId), count: m.count,
+      from_place_id: idFor(m.fromPlaceId), to_place_id: idFor(m.toPlaceId), source_movement_id: idFor(m.sourceMovementId),
+      account: m.account || "", notes: m.notes || "", ...recorded(m.recordedAt),
+    })));
+
+    // The brew log (backups made since it existed): cellar log, ingredients and additions,
+    // and each brew-day field's current value
+    insert("cellar_entries", (d.cellar || []).map((c) => ({
+      batch_id: idFor(c.batchId), occurred_on: c.occurredOn, action: c.action || "",
+      gravity_sg: c.gravitySg ?? null, ph: c.ph ?? null, temp_c: c.tempC ?? null,
+      cellar_change: c.cellarChange || "", notes: c.notes || "", ...recorded(c.recordedAt),
+    })));
+    insert("batch_additions", (d.additions || []).map((a) => ({
+      batch_id: idFor(a.batchId), added_on: a.addedOn, kind: a.kind, name: a.name,
+      amount: a.amount ?? null, unit: a.unit, timing: a.timing || "", lot: a.lot || "", notes: a.notes || "",
+      brew_day: !!a.brewDay, turn: a.turn ?? null, ...recorded(a.recordedAt),
+    })));
+    insert("batch_readings", (d.readings || []).map((r) => ({
+      batch_id: idFor(r.batchId), turn: r.turn ?? null, field_key: r.fieldKey,
+      value: r.value ?? null, value_text: r.valueText ?? null, raw: r.raw ?? null,
+    })));
+  }
+  // The brew sheet's setup and units (an admin setting; skipped quietly for anyone else)
+  if (can("manage_settings") && (d.prefs || d.sheetFields || d.sheetCustomFields?.length)) {
+    update("breweries", brewery.id, {
+      ...(d.prefs && { temperature_unit: d.prefs.temperatureUnit, gravity_unit: d.prefs.gravityUnit,
+        volume_unit: d.prefs.volumeUnit, time_zone: d.prefs.timeZone, ...(d.prefs.targetLimits && { target_limits: d.prefs.targetLimits }) }),
+      sheet_fields: d.sheetFields ?? null, sheet_custom_fields: d.sheetCustomFields || [],
+      sheet_field_settings: d.sheetFieldSettings || {},
+    });
+  }
 
   const ok = await save(async () => {
     try {
-      if (d.locations.length) {
-        await must(db.from("locations").insert(d.locations.map((l) => ({
-          id: idFor(l.id), brewery_id: b, name: l.name,
-          // Brewhouse settings (backups made since they existed)
-          turn_size_bbl: l.turnSizeBbl ?? null, usual_turns: l.usualTurns || 1, kettle_full_bbl: l.kettleFullBbl ?? null,
-          flow_target: l.flowTarget || "", water_grist_qt_lb: l.waterGristQtLb ?? null, grain_absorption_gal_lb: l.absorptionGalLb ?? null,
-        }))));
-      }
-      if (d.beers.length) {
-        await must(db.from("beers").insert(d.beers.map((x) => {
-          const code = beerCodeFor(x.name, codes);
-          codes.push({ code });
-          return {
-            id: idFor(x.id), brewery_id: b, code, name: x.name, style: x.style || "",
-            target_og: x.targetOg ?? null, target_fg: x.targetFg ?? null,
-          };
-        })));
-      }
-      if (d.tanks.length) {
-        await must(db.from("tanks").insert(d.tanks.map((t) => ({
-          id: idFor(t.id), brewery_id: b, name: t.name, type: t.type, status: t.status,
-          capacity_bbl: t.capacityBbl, location_id: idFor(t.locationId), acid_every_turns: t.acidEveryTurns,
-        }))));
-      }
-      if (d.cleanings.length) {
-        await must(db.from("tank_cleanings").insert(d.cleanings.map((c) => ({
-          brewery_id: b, tank_id: idFor(c.tankId), kind: "acid", cleaned_on: c.cleanedOn, note: c.note || "",
-        }))));
-      }
-      // The brewery-wide style list is an admin setting; skipped quietly for anyone else
-      if (d.acidAfterStyles.length && can("manage_cleaning")) {
-        await must(db.from("breweries").update({ acid_after_styles: d.acidAfterStyles }).eq("id", b));
-      }
-      if (d.batches.length) {
-        await must(db.from("batches").insert(d.batches.map((x) => ({
-          id: idFor(x.id), brewery_id: b, batch_number: x.batchNumber || "?", beer_id: idFor(x.beerId),
-          brew_date: x.brewDate, size_bbl: x.sizeBbl, turns: x.turns || 1,
-        }))));
-        // History: newer backups include it. Older data only knows each batch's current
-        // stage, so that becomes the batch's one history event.
-        const events = d.events?.length
-          ? d.events.map((e) => ({ batch: e.batchId, date: e.effectiveDate, stage: e.stage, tank: e.tankId, at: e.recordedAt }))
-          : d.batches.map((x) => ({
-              batch: x.id, date: x.stageStartDate, stage: x.stage, tank: x.stage === "packaged" ? null : x.tankId,
-            }));
-        await must(db.from("batch_events").insert(events.map((e) => ({
-          brewery_id: b, batch_id: idFor(e.batch), effective_date: e.date, stage: e.stage, tank_id: idFor(e.tank),
-          // Keep the original order of same-day changes (it decides which tank a batch is in now)
-          ...(e.at && { recorded_at: e.at }),
-        }))));
-
-        // Volumes. Backups made before volumes existed: each batch in a tank was knocked out into it
-        // (its volume then comes from the brew sheet or batch size), as when volumes were added.
-        const movements = d.movements?.length
-          ? d.movements.map((m) => ({
-              id: idFor(m.id), batch_id: idFor(m.batchId), source_batch_id: idFor(m.sourceBatchId), occurred_on: m.occurredOn, kind: m.kind, from_tank_id: idFor(m.fromTankId),
-              to_tank_id: idFor(m.toTankId), volume_bbl: m.volumeBbl ?? null, notes: m.notes || "",
-              ...(m.recordedAt && { recorded_at: m.recordedAt }),
-            }))
-          : d.batches.filter((x) => x.stage !== "packaged" && x.tankId).map((x) => ({
-              batch_id: idFor(x.id), occurred_on: x.brewDate || x.stageStartDate || today(), kind: "knockout",
-              to_tank_id: idFor(x.tankId), notes: "recorded when volumes were added",
-            }));
-        if (movements.length) await must(db.from("beer_movements").insert(movements.map((m) => ({ brewery_id: b, ...m }))));
-
-        // Stock places match the brewery's own by location and name (new locations already got a
-        // storage place), then the stock ledger
-        if (d.places?.length || d.stockMoves?.length) {
-          const current = await must(db.from("stock_places").select("id, name, location_id").eq("brewery_id", b));
-          for (const p of d.places || []) {
-            const same = current.find((c) => c.name.toLowerCase() === p.name.toLowerCase() && (c.location_id ?? null) === (idFor(p.locationId) ?? null));
-            if (same) ids.set(p.id, same.id);
-            else await must(db.from("stock_places").insert({ id: idFor(p.id), brewery_id: b, location_id: idFor(p.locationId), name: p.name, kind: p.kind, active: p.active }));
-            await must(db.from("stock_places").update({ sort_mode: p.sortMode || (p.kind === "taproom" ? "lines" : "az"),
-              beer_order: (p.beerOrder || []).map(idFor) }).eq("id", idFor(p.id)));
-          }
-        }
-
-        // Packaging: package types match the brewery's own by name (or are added), then each
-        // packaging run's counts, with the volume per package they were packaged with
-        if (d.packageCounts?.length || d.stockMoves?.length) {
-          const current = await must(db.from("package_types").select("id, name").eq("brewery_id", b));
-          for (const t of d.packageTypes || []) {
-            const same = current.find((c) => c.name.toLowerCase() === t.name.toLowerCase());
-            if (same) ids.set(t.id, same.id);
-            else await must(db.from("package_types").insert({ id: idFor(t.id), brewery_id: b, name: t.name,
-              volume_bbl: t.volumeBbl, kind: t.kind || "other", catalog_key: t.catalogKey ?? null, active: !!t.active }));
-          }
-          if (d.packageCounts?.length) await must(db.from("package_counts").insert(d.packageCounts.map((c) => ({
-            brewery_id: b, movement_id: idFor(c.movementId), package_type_id: idFor(c.packageTypeId),
-            count: c.count, unit_volume_bbl: c.unitVolumeBbl,
-          }))));
-        }
-        // Raw materials: items match the brewery's own by name (or are added), then receipts and counts
-        if (d.rawItems?.length) {
-          const current = await must(db.from("raw_items").select("id, name").eq("brewery_id", b));
-          for (const item of d.rawItems) {
-            const same = current.find((c) => sameName(c.name, item.name));
-            if (same) ids.set(item.id, same.id);
-            else await must(db.from("raw_items").insert({ id: idFor(item.id), brewery_id: b, name: item.name, kind: item.kind, unit: item.unit,
-              pack_name: item.packName || "", pack_size: item.packSize ?? null, reorder_level: item.reorderLevel ?? null, active: item.active }));
-          }
-          if (d.rawReceipts?.length) await must(db.from("raw_receipts").insert(d.rawReceipts.map((r) => ({ brewery_id: b, item_id: idFor(r.itemId),
-            received_on: r.receivedOn, lot: r.lot || "", amount: r.amount, supplier: r.supplier || "", cost: r.cost ?? null, notes: r.notes || "",
-            ...(r.recordedAt && { recorded_at: r.recordedAt }) }))));
-          if (d.rawAdjustments?.length) await must(db.from("raw_adjustments").insert(d.rawAdjustments.map((a) => ({ brewery_id: b, item_id: idFor(a.itemId),
-            lot: a.lot || "", adjusted_on: a.adjustedOn, change: a.change, reason: a.reason || "", ...(a.recordedAt && { recorded_at: a.recordedAt }) }))));
-        }
-        if (d.recipes?.length) {
-          await must(db.from("recipes").insert(d.recipes.map((r) => ({ id: idFor(r.id), brewery_id: b, beer_id: idFor(r.beerId), location_id: idFor(r.locationId),
-            name: r.name, batch_size_bbl: r.batchSizeBbl, target_og: r.targetOg, target_fg: r.targetFg, ibu: r.ibu, notes: r.notes || "", source: r.source || "" }))));
-          if (d.recipeIngredients?.length) await must(db.from("recipe_ingredients").insert(d.recipeIngredients.map((i) => ({ brewery_id: b,
-            recipe_id: idFor(i.recipeId), position: i.position, kind: i.kind, name: i.name, amount: i.amount, unit: i.unit, timing: i.timing || "" }))));
-        }
-        if (d.views?.length) {
-          await must(db.from("inventory_views").insert(d.views.map((v) => ({ brewery_id: b, name: v.name, place_ids: v.placeIds.map(idFor),
-            split_by_place: v.splitByPlace, type_ids: v.typeIds.map(idFor), show: v.show, beers: v.beers, sort_mode: v.sortMode, position: v.position }))));
-        }
-        if (d.lines?.length) {
-          await must(db.from("draft_lines").insert(d.lines.map((l) => ({ brewery_id: b, place_id: idFor(l.placeId), line_no: l.lineNo,
-            status: l.status, beer_id: idFor(l.beerId), label: l.label || "" }))));
-        }
-        if (d.pars?.length) {
-          await must(db.from("stock_pars").insert(d.pars.map((p) => ({
-            brewery_id: b, place_id: idFor(p.placeId), beer_id: idFor(p.beerId), par_bbl: p.parBbl ?? null, par_cases: p.parCases ?? null,
-          }))));
-        }
-        if (d.stockMoves?.length) {
-          await must(db.from("stock_moves").insert(d.stockMoves.map((m) => ({
-            brewery_id: b, group_id: m.groupId ? idFor(m.groupId) : null, occurred_on: m.occurredOn, kind: m.kind, removal_kind: m.removalKind,
-            beer_id: idFor(m.beerId), batch_id: idFor(m.batchId), package_type_id: idFor(m.packageTypeId), count: m.count,
-            from_place_id: idFor(m.fromPlaceId), to_place_id: idFor(m.toPlaceId), source_movement_id: idFor(m.sourceMovementId),
-            account: m.account || "", notes: m.notes || "", ...(m.recordedAt && { recorded_at: m.recordedAt }),
-          }))));
-        }
-
-        // The brew log (backups made since it existed): cellar log, ingredients and additions,
-        // and each brew-day field's current value
-        if (d.cellar?.length) {
-          await must(db.from("cellar_entries").insert(d.cellar.map((c) => ({
-            brewery_id: b, batch_id: idFor(c.batchId), occurred_on: c.occurredOn, action: c.action || "",
-            gravity_sg: c.gravitySg ?? null, ph: c.ph ?? null, temp_c: c.tempC ?? null,
-            cellar_change: c.cellarChange || "", notes: c.notes || "",
-            ...(c.recordedAt && { recorded_at: c.recordedAt }),
-          }))));
-        }
-        if (d.additions?.length) {
-          await must(db.from("batch_additions").insert(d.additions.map((a) => ({
-            brewery_id: b, batch_id: idFor(a.batchId), added_on: a.addedOn, kind: a.kind, name: a.name,
-            amount: a.amount ?? null, unit: a.unit, timing: a.timing || "", lot: a.lot || "", notes: a.notes || "",
-            brew_day: !!a.brewDay, turn: a.turn ?? null,
-            ...(a.recordedAt && { recorded_at: a.recordedAt }),
-          }))));
-        }
-        if (d.readings?.length) {
-          await must(db.from("batch_readings").insert(d.readings.map((r) => ({
-            brewery_id: b, batch_id: idFor(r.batchId), turn: r.turn ?? null, field_key: r.fieldKey,
-            value: r.value ?? null, value_text: r.valueText ?? null, raw: r.raw ?? null,
-          }))));
-        }
-      }
-      // The brew sheet's setup and units (an admin setting; skipped quietly for anyone else)
-      if (can("manage_settings") && (d.prefs || d.sheetFields || d.sheetCustomFields?.length)) {
-        await must(db.from("breweries").update({
-          ...(d.prefs && { temperature_unit: d.prefs.temperatureUnit, gravity_unit: d.prefs.gravityUnit,
-            volume_unit: d.prefs.volumeUnit, time_zone: d.prefs.timeZone, target_limits: d.prefs.targetLimits ?? undefined }),
-          sheet_fields: d.sheetFields ?? null, sheet_custom_fields: d.sheetCustomFields || [],
-          sheet_field_settings: d.sheetFieldSettings || {},
-        }).eq("id", b));
-      }
-    } catch (error) {
-      // Don't leave half-loaded data behind: empty the brewery again, then report the error
-      await clearBrewery();
-      throw error;
+      await must(db.rpc("load_into_brewery", { p_brewery_id: brewery.id, p_steps: steps }));
+    } catch (e) {
+      if (isConnectionProblem(e)) throw e;
+      const why = {
+        23503: "Something in it points to a record that isn't in the file (it may be damaged, or edited by hand).",
+        23505: "It has two records with the same name or number.",
+        42501: "You don't have permission to load all of it; an admin can.",
+      }[e.code] || explain(e);
+      throw new Error(`${why} Nothing was loaded.`);
     }
   });
   if (ok) alert(`Loaded ${summary}.`);
-}
-
-// Remove everything in this brewery (used to undo a load that failed partway)
-async function clearBrewery() {
-  const b = brewery.id;
-  await db.from("stock_moves").delete().eq("brewery_id", b);
-  await db.from("batches").delete().eq("brewery_id", b); // history goes with its batches
-  await db.from("tanks").delete().eq("brewery_id", b);
-  await db.from("beers").delete().eq("brewery_id", b);
-  await db.from("stock_places").delete().eq("brewery_id", b);
-  await db.from("raw_items").delete().eq("brewery_id", b); // their deliveries and counts go with them
-  await db.from("locations").delete().eq("brewery_id", b);
 }
 
 function count(n, one, many) {

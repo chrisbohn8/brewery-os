@@ -59,7 +59,9 @@ try {
   check(await page.evaluate(() => prefs().volumeUnit === "bbl" && prefs().temperatureUnit === "F"), "brewery shows bbl and °F");
 
   await settings(page, "equipment");
-  await page.click("#location-list .row >> nth=0");
+  // The location this test sets up (its tank goes there too, whatever order the locations load in)
+  const locationId = await page.getAttribute("#location-list .row >> nth=0", "data-location");
+  await page.click(`#location-list [data-location="${locationId}"]`);
   await page.waitForSelector("#location-editor[open]");
   await page.fill('#location-form [name="usualTurns"]', "2");
   await page.fill('#location-form [name="kettleFull"]', "16");
@@ -69,7 +71,6 @@ try {
   await page.click("#location-form button[type=submit]");
   await page.waitForSelector("#location-editor:not([open])", { state: "attached" }); // closes once saved
   await allSent();
-  const locationId = await page.evaluate(() => data.locations[0].id);
 
   const tankName = `BD-${run}`;
   await page.click("#add-tank");

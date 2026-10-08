@@ -264,7 +264,7 @@ These shape every decision, even for features that come later:
 
 ### Backup
 - **Download** saves everything in the brewery (locations, beers, tanks, batches, history, the acid log, and the acid-after styles) as one `.json` file.
-- **Load…** puts a backup into an **empty** brewery (so nothing is mixed up or duplicated), after showing what's in it and asking you to confirm. If loading fails partway, the brewery is emptied again rather than left half-loaded.
+- **Load…** puts a backup into an **empty** brewery (so nothing is mixed up or duplicated), after showing what's in it and asking you to confirm. It loads as **one all-or-nothing step** in the database ([load_into_brewery](supabase/migrations/20261026000000_load_backup.sql)): if anything in the file can't load, nothing does, and the brewery stays empty. The sample data loads the same way.
 - Files that aren't backups are rejected. Backups from older versions are upgraded automatically.
 
 ---
@@ -459,7 +459,7 @@ Turns the prototype into something a brewery can rely on.
 - [ ] **QR codes work on any phone** (now possible: every batch lives in the shared database).
 - [x] **Move existing data in** from a backup file or from the browser-only version.
 - [x] **Saving a batch is one all-or-nothing step** (batch, history, and tanks together).
-- [ ] **Loading a backup as one all-or-nothing step** too. Today it empties the brewery again if loading fails partway. (Other changes, like editing a tank, beer, or location, are already a single step.)
+- [x] **Loading a backup as one all-or-nothing step** too: the whole file goes to the database in one request, and it all loads or none of it does (a dropped signal can't leave half a brewery).
 - [x] **Works offline, viewing:** the app opens and shows the last data without a connection, with a banner saying how old it is, and reloads by itself when signal returns.
 - [x] **Works offline, recording:** floor changes made offline are kept on the device and sent in order when the signal returns; the screen shows what's still waiting.
 - [x] **Simple conflict rule:** in a small crew two people rarely change the same thing at once, so there's no merge tool. Changes apply in the order they reach the database. If one can't apply (a duplicate batch number, a tank someone else just filled), the database's checks reject it and the person who made it sees why. Nothing is silently dropped.

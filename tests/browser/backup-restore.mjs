@@ -33,6 +33,14 @@ async function signIn(email) {
   await page.waitForFunction(() => !busy && !reloading && brewery?.id && data);
   return page;
 }
+// Empty a brewery (the test's own cleanup; deleting batches takes their history with them)
+const empty = (page) => page.evaluate(async () => {
+  const b = brewery.id;
+  for (const table of ["stock_moves", "batches", "tanks", "beers", "stock_places", "raw_items", "locations"]) {
+    await must(db.from(table).delete().eq("brewery_id", b));
+  }
+  await refresh();
+});
 const counts = (page) => page.evaluate(() => ({
   tanks: data.tanks.length, batches: data.batches.length, events: data.events.length, movements: data.movements.length, packageCounts: data.packageCounts.length, stockMoves: data.stockMoves.length, onHand: stockOnHand().length, pars: data.pars.length, rawItems: data.rawItems.length, rawReceipts: data.rawReceipts.length, rawAdjustments: data.rawAdjustments.length, lines: data.lines.length, views: data.views.length, recipes: data.recipes.length, recipeIngredients: data.recipeIngredients.length,
   cellar: data.cellar.length, additions: data.additions.length, readings: data.readings.length,
@@ -53,9 +61,21 @@ try {
     await second.evaluate(() => { const s = document.getElementById("brewery-switch"); s.value = [...s.options].find((o) => o.text === "Second Brewing").value; s.dispatchEvent(new Event("change")); });
     await second.waitForFunction(() => brewery.name === "Second Brewing" && !busy && !reloading);
   }
-  await second.evaluate(() => clearBrewery());
-  await second.evaluate(() => refresh());
+  await empty(second);
   check(await second.evaluate(() => isEmptyBrewery()), "the second brewery starts empty");
+
+  console.log("2a. A backup that fails partway loads nothing at all");
+  second.dialogs = [];
+  second.on("dialog", (d) => second.dialogs.push(d.message()));
+  const broken = structuredClone(backup);
+  broken.readings[broken.readings.length - 1].batchId = "no-such-batch"; // the very last thing loaded
+  await second.evaluate((d) => loadIntoBrewery(d, "a broken backup"), broken);
+  await second.evaluate(() => refresh());
+  check(second.dialogs.some((m) => m.startsWith("Couldn't save") && m.endsWith("Nothing was loaded.")), `the failure is reported (${second.dialogs.at(-1)})`);
+  check(await second.evaluate(() => isEmptyBrewery() && !data.stockMoves.length && !data.rawItems.length && !data.events.length),
+    "and the brewery is still completely empty");
+
+  console.log("2b. The real backup loads");
   await second.evaluate(() => { const original = explain; window.explain = (e) => (console.log("RAW", JSON.stringify(e)), original(e)); });
   second.on("console", (m) => { if (m.text().startsWith("RAW")) console.log(m.text()); });
   await second.evaluate((d) => loadIntoBrewery(d, "the test backup"), backup);
@@ -71,8 +91,7 @@ try {
   check(!diff.length, `every tank holds the same volume${diff.length ? ` (first differences: ${diff.join(" ")} vs ${b2.filter((x) => !a.includes(x)).slice(0, 5).join(" ")})` : ""}`);
 
   console.log("3. Empty the second brewery again");
-  await second.evaluate(() => clearBrewery());
-  await second.evaluate(() => refresh());
+  await empty(second);
   check(await second.evaluate(() => isEmptyBrewery()), "emptied");
   check([first, second].every((p) => p.errors.length === 0), `no page errors (${[first, second].flatMap((p) => p.errors).join("; ")})`);
 } catch (e) {
