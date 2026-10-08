@@ -3,7 +3,7 @@
 // batch's brew-day sheet (dry hops left for the cellar). Real Chrome, local test copy.
 import { writeFile, mkdir } from "node:fs/promises";
 import { chromium } from "playwright-core";
-import { settings, floor } from "./helpers.mjs";
+import { settings, floor, onDialog } from "./helpers.mjs";
 
 const APP = "http://localhost:8123/";
 const MAIL = "http://127.0.0.1:54324/api/v1";
@@ -37,7 +37,7 @@ const BEERXML = `<?xml version="1.0" encoding="ISO-8859-1"?>
 const browser = await chromium.launch({ executablePath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", headless: true });
 const page = await (await browser.newContext({ viewport: { width: 390, height: 844 } })).newPage();
 const errors = [];
-page.on("dialog", (d) => d.accept());
+await onDialog(page, (d) => d.accept());
 page.on("pageerror", (e) => errors.push(e.message));
 const text = (sel) => page.evaluate((s) => document.querySelector(s)?.innerText.replace(/\s+/g, " ").trim(), sel);
 const allSent = () => page.waitForFunction(() => !busy && !sending && !reloading && outbox.length === 0, null, { timeout: 30000 });
@@ -103,6 +103,8 @@ try {
   await page.click("#bv-sheet");
   check((await text("#sheet-ingredients")).includes(`Copy from the recipe Test Pale ${run}`), "offered: copy from the recipe");
   await page.click("[data-copy-recipe]");
+  // (the app asks first, on the page; then copies)
+  await page.waitForFunction((n) => { const b = data.batches.find((x) => x.batchNumber === n); return data.additions.some((a) => a.batchId === b.id); }, `R${run}`, { timeout: 10000 }).catch(() => {});
   await allSent();
   const copied = await page.evaluate((n) => { const b = data.batches.find((x) => x.batchNumber === n); return data.additions.filter((a) => a.batchId === b.id).map((a) => a.name); }, `R${run}`);
   check(copied.length === 7 && !copied.includes("Mosaic"), `7 brew-day ingredients copied, the dry hop left for the cellar (${copied.length})`);

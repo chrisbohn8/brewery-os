@@ -2,7 +2,7 @@
 // box is left, water worked out from grist weight, meter readings, targets and "far from target",
 // quick typing, no signal, and values still there after reloading. Real Chrome, local test copy.
 import { chromium } from "playwright-core";
-import { settings, floor } from "./helpers.mjs";
+import { settings, floor, onDialog } from "./helpers.mjs";
 
 const APP = "http://localhost:8123/";
 const MAIL = "http://127.0.0.1:54324/api/v1";
@@ -18,7 +18,7 @@ const context = await browser.newContext({ viewport: { width: 390, height: 844 }
 const page = await context.newPage();
 const errors = [];
 const dialogs = [];
-page.on("dialog", (d) => { dialogs.push(d.message()); d.accept(); });
+await onDialog(page, (d) => { dialogs.push(d.message()); d.accept(); });
 page.on("pageerror", (e) => errors.push(e.message));
 const text = (sel) => page.evaluate((s) => document.querySelector(s)?.innerText.replace(/\s+/g, " ").trim(), sel);
 const allSent = () => page.waitForFunction(() => outbox.length === 0 && !sending && !busy && !reloading, null, { timeout: 20000 });
@@ -416,6 +416,8 @@ try {
   await page.click("#bv-sheet");
   check((await text("#copy-ingredients")).includes(`#D${run}`), `offers to copy: "${await text("#copy-ingredients")}"`);
   await page.click("#copy-ingredients");
+  // (the app asks first, on the page; then copies)
+  await page.waitForFunction((id) => data.additions.some((a) => a.batchId === id && a.brewDay), batch2, { timeout: 10000 }).catch(() => {});
   await allSent();
   const copied = await page.evaluate((id) => data.additions.filter((a) => a.batchId === id && a.brewDay), batch2);
   check(copied.length === 2 && copied.every((a) => a.lot === "") && copied.some((a) => a.name === `Pale malt ${run}` && a.amount === 900 && a.turn === 1),

@@ -5,7 +5,7 @@
 // Real Chrome against the local Supabase test copy (served by the preview server on port 8123).
 import { createServer } from "node:http";
 import { chromium } from "playwright-core";
-import { settings, floor, openBatchForm } from "./helpers.mjs";
+import { settings, floor, openBatchForm, onDialog } from "./helpers.mjs";
 
 const APP = "http://localhost:8123/";
 const MAIL = "http://127.0.0.1:54324/api/v1";
@@ -37,7 +37,7 @@ async function person(email) {
   const page = await context.newPage();
   page.dialogs = [];
   page.errors = [];
-  page.on("dialog", async (d) => { page.dialogs.push(d.message()); await (d.type() === "prompt" ? d.accept(page.answer ?? "") : d.accept()); });
+  await onDialog(page, async (d) => { page.dialogs.push(d.message()); await (d.type() === "prompt" ? d.accept(page.answer ?? "") : d.accept()); });
   page.on("pageerror", (e) => page.errors.push(e.message));
   await page.goto(APP);
   await page.waitForSelector("#signin-screen:not([hidden])", { timeout: 20000 });

@@ -2,7 +2,7 @@
 // the same database rules; a narrower key can do less; a revoked key stops working; retries are safe.
 // Real Chrome for the Settings part, then plain requests like an AI agent would make. Local test copy.
 import { chromium } from "playwright-core";
-import { settings, floor } from "./helpers.mjs";
+import { settings, floor, onDialog } from "./helpers.mjs";
 
 const APP = "http://localhost:8123/";
 const API = "http://127.0.0.1:54321/functions/v1/api";
@@ -21,7 +21,7 @@ const call = async (key, method, path, body) => {
 const browser = await chromium.launch({ executablePath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", headless: true });
 const page = await (await browser.newContext({ viewport: { width: 390, height: 844 } })).newPage();
 const errors = [];
-page.on("dialog", (d) => d.accept());
+await onDialog(page, (d) => d.accept());
 page.on("pageerror", (e) => errors.push(e.message));
 async function makeKey(name, only) {
   await settings(page, "api");

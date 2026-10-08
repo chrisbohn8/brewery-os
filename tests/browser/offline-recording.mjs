@@ -5,7 +5,7 @@
 import { spawn } from "node:child_process";
 import { mkdir } from "node:fs/promises";
 import { chromium } from "playwright-core";
-import { settings, floor, openBatchForm } from "./helpers.mjs";
+import { settings, floor, openBatchForm, onDialog } from "./helpers.mjs";
 
 const PORT = 8125;
 const APP = `http://localhost:${PORT}/`;
@@ -35,7 +35,7 @@ const context = await browser.newContext({ viewport: { width: 420, height: 900 }
 const page = await context.newPage();
 const dialogs = [];
 const errors = [];
-page.on("dialog", async (d) => { dialogs.push(d.message()); await d.accept(); });
+await onDialog(page, async (d) => { dialogs.push(d.message()); await d.accept(); });
 page.on("pageerror", (e) => errors.push(e.message));
 
 const banner = () => page.evaluate(() => { const b = document.getElementById("offline-banner"); return b.hidden ? null : b.textContent; });

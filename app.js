@@ -306,6 +306,91 @@ function explain(error) {
   return error.message || String(error);
 }
 
+// ----- Messages and questions, on the page -----
+// Instead of the browser's pop-ups (alert, confirm, prompt), which some apps block and which stop
+// everything until answered. Messages show as a bar at the bottom, above everything (even an open
+// form); questions show as a box with clear buttons.
+const toasts = document.getElementById("toasts");
+function showToasts() {
+  try {
+    if (toasts.matches(":popover-open")) toasts.hidePopover(); // shown again, so it's on top of a form opened since
+    // While a form is open, everything outside it can't be tapped, so the bar goes inside it
+    const forms = [...document.querySelectorAll("dialog[open]")].filter((d) => d.matches(":modal"));
+    const home = forms.at(-1) || document.body;
+    if (toasts.parentElement !== home) home.append(toasts);
+    toasts.showPopover();
+  } catch {} // an older browser without popovers: the bar still shows, just not above an open form
+}
+// ...and when that form closes, the bar comes back out (with whatever it's still showing)
+document.addEventListener("close", (e) => {
+  if (e.target instanceof HTMLDialogElement && e.target.contains(toasts) && toasts.children.length) showToasts();
+  else if (e.target instanceof HTMLDialogElement && e.target.contains(toasts)) document.body.append(toasts);
+}, true);
+
+// A message. Plain news goes away by itself; a warning stays a little longer; with `stay`, until
+// closed. An `action` adds a button, like { label: "Undo", run: () => ... }.
+function notify(text, { warning = false, stay = false, action = null, seconds = null } = {}) {
+  const el = document.createElement("div");
+  el.className = `toast${warning ? " error" : ""}`;
+  el.setAttribute("role", warning ? "alert" : "status");
+  const words = document.createElement("span");
+  words.className = "toast-text";
+  words.textContent = text;
+  el.append(words);
+  const close = () => {
+    el.remove();
+    if (!toasts.children.length) try { toasts.hidePopover(); } catch {}
+  };
+  if (action) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.textContent = action.label;
+    btn.addEventListener("click", () => { close(); action.run(); });
+    el.append(btn);
+  }
+  const x = document.createElement("button");
+  x.type = "button";
+  x.className = "toast-close";
+  x.textContent = "×";
+  x.setAttribute("aria-label", "Close");
+  x.addEventListener("click", close);
+  el.append(x);
+  toasts.append(el);
+  while (toasts.children.length > 3) toasts.firstElementChild.remove();
+  showToasts();
+  if (!stay) setTimeout(close, (seconds ?? (action ? 8 : warning ? 10 : 4)) * 1000);
+  return close;
+}
+const warn = (text, options = {}) => notify(text, { warning: true, ...options });
+
+// A question. Answers true or false; with `input`, the text typed (or null for Cancel).
+//   await ask("Delete FV2?", { ok: "Delete", danger: true })
+//   await ask("Name for this place:", { input: { value: "Storage" } })
+const askDialog = document.getElementById("ask-dialog");
+let asking = Promise.resolve(); // one question at a time
+function ask(text, { ok = "OK", cancel = "Cancel", danger = false, input = null } = {}) {
+  const question = () => new Promise((resolve) => {
+    const field = document.getElementById("ask-input");
+    document.getElementById("ask-text").textContent = text;
+    const okButton = document.getElementById("ask-ok");
+    okButton.textContent = ok;
+    okButton.classList.toggle("danger", danger);
+    document.getElementById("ask-cancel").textContent = cancel;
+    field.hidden = !input;
+    field.value = input?.value ?? "";
+    field.placeholder = input?.placeholder ?? "";
+    askDialog.returnValue = "";
+    askDialog.addEventListener("close", () => {
+      const yes = askDialog.returnValue === "ok";
+      resolve(input ? (yes ? field.value : null) : yes);
+    }, { once: true });
+    askDialog.showModal();
+    if (input) field.select();
+    else okButton.focus();
+  });
+  return (asking = asking.then(question, question));
+}
+
 // ----- Problem reports -----
 // When something goes wrong that isn't the person's doing (a crash, a database error we don't
 // expect), send a short report (see supabase/migrations/..._error_reports.sql), so it's found the
@@ -540,8 +625,8 @@ let busy = false;
 async function save(work) {
   if (busy) return false;
   if (offline || !navigator.onLine) {
-    alert("This change needs signal, so it wasn't saved. (Batch, tank, and acid changes can be made offline; " +
-      "adding or deleting beers, locations, and tanks can't.)");
+    warn("This change needs signal, so it wasn't saved. (Batch, tank, and acid changes can be made offline; " +
+      "adding or deleting beers, locations, and tanks can't.)", { stay: true });
     return false;
   }
   busy = true;
@@ -552,10 +637,10 @@ async function save(work) {
   } catch (e) {
     if (isConnectionProblem(e)) {
       showOffline();
-      alert("Lost the connection while saving. Check the screen once you're back online to see whether it went through.");
+      warn("Lost the connection while saving. Check the screen once you're back online to see whether it went through.", { stay: true });
     } else {
       reportError(e, "save");
-      alert(`Couldn't save: ${explain(e)}`);
+      warn(`Couldn't save: ${explain(e)}`, { stay: true });
     }
     return false;
   } finally {
@@ -615,7 +700,8 @@ function showOnline() {
 // The band under the header: offline, and/or changes waiting to be sent
 function updateBanner() {
   const banner = document.getElementById("offline-banner");
-  const waiting = outbox.length ? count(outbox.length, "change", "changes") + " waiting to send" : "";
+  const waitingCount = outbox.filter((c) => !(c.holdUntil > Date.now())).length; // (not ones still open to Undo)
+  const waiting = waitingCount ? count(waitingCount, "change", "changes") + " waiting to send" : "";
   if (offline) {
     const age = lastLoadedAt ? ` · showing data from ${whenSaved(lastLoadedAt)}` : "";
     banner.textContent = `Offline${age}${waiting ? ` · ${waiting}` : ""}. ` +
@@ -958,6 +1044,8 @@ function withWaitingChanges(base) {
 // A connection that drops mid-save also keeps it to send later (it's safe to send twice).
 async function saveOrKeep(kind, args, label) {
   const change = { id: newId(), kind, args, label, madeAt: new Date().toISOString() };
+  const undoable = UNDOABLE.includes(kind) && UNDO_SECONDS > 0;
+  if (undoable) change.holdUntil = Date.now() + UNDO_SECONDS * 1000;
   const keep = () => {
     outbox.push(change);
     storeList(OUTBOX_KEY, outbox);
@@ -965,11 +1053,12 @@ async function saveOrKeep(kind, args, label) {
     render();
     if (offline || !navigator.onLine) showOffline(); else updateBanner();
   };
-  if (offline || !navigator.onLine || outbox.length) {
+  if (offline || !navigator.onLine || outbox.length || undoable) {
     // Offline, or older changes still waiting: join the back of the line, so changes always
-    // reach the database in the order they were made
+    // reach the database in the order they were made. (An undoable change waits its few seconds there.)
     if (busy) return false;
     keep();
+    if (undoable) offerUndo(change);
     if (!offline && navigator.onLine) refresh().catch((e) => { if (isConnectionProblem(e)) showOffline(); });
     return true;
   }
@@ -999,6 +1088,31 @@ function queueChange(kind, args, label) {
   sendSoonTimer = setTimeout(() => refresh().catch((e) => { if (isConnectionProblem(e)) showOffline(); }), 400);
 }
 
+// ----- Undo -----
+// Transfers, stage changes, packaging, and splits or blends wait on this phone for a few seconds
+// before they're sent, with "Undo" on the message. Undo takes the change out before it ever reaches
+// the database, so nothing has to be reversed in the records. (Everything behind it in the line
+// waits too, so changes still arrive in the order they were made.)
+const UNDOABLE = ["saveBatch", "package", "makeBatch"];
+const UNDO_SECONDS = window.BREWERY_UNDO_SECONDS ?? 8; // (the browser tests shorten it)
+function offerUndo(change) {
+  notify(`Saved: ${change.label}`, { seconds: UNDO_SECONDS, action: { label: "Undo", run: () => undoChange(change.id) } });
+  setTimeout(() => refresh().catch((e) => { if (isConnectionProblem(e)) showOffline(); }), UNDO_SECONDS * 1000 + 100);
+}
+function undoChange(id) {
+  const i = outbox.findIndex((c) => c.id === id);
+  if (i < 0 || (sending && i === 0)) {
+    warn("Too late to undo: it's already saved. Change it back by hand.");
+    return;
+  }
+  const [change] = outbox.splice(i, 1);
+  storeList(OUTBOX_KEY, outbox);
+  data = withWaitingChanges(serverData);
+  render();
+  updateBanner();
+  notify(`Undone: ${change.label}`);
+}
+
 // Send everything waiting, oldest first. Stops (keeping the rest) if the signal drops again.
 let sending = false;
 async function sendWaitingChanges() {
@@ -1008,6 +1122,7 @@ async function sendWaitingChanges() {
   try {
     while (outbox.length) {
       const change = outbox[0];
+      if (change.holdUntil > Date.now()) return; // still open to Undo; sent once its time is up
       try {
         await SEND[change.kind](change.args);
       } catch (e) {
@@ -1433,13 +1548,13 @@ batchForm.addEventListener("submit", async (e) => {
 
   // Check 1: a batch has to be a brew of some beer
   if (!findBeer(values.beerId)) {
-    alert("Choose which beer this batch is.");
+    warn("Choose which beer this batch is.");
     return;
   }
 
   // Check 2: batch numbers must be unique
   if (others.some((b) => b.batchNumber.toLowerCase() === values.batchNumber.toLowerCase())) {
-    alert(`There's already a batch #${values.batchNumber}.`);
+    warn(`There's already a batch #${values.batchNumber}.`);
     return;
   }
 
@@ -1450,32 +1565,32 @@ batchForm.addEventListener("submit", async (e) => {
 
   if (willBeInTank) {
     if (!target) {
-      alert("Choose a tank for this batch.");
+      warn("Choose a tank for this batch.");
       return;
     }
 
     // Check 3: one batch per tank
     const occupant = others.find((b) => b.tankId === values.tankId && isInTank(b));
     if (occupant) {
-      alert(`${target.name} already has ${beerName(occupant)} in it. Move or package that batch first.`);
+      warn(`${target.name} already has ${beerName(occupant)} in it. Move or package that batch first.`);
       return;
     }
 
     // Check 4: is the tank being cleaned or worked on? (Just a warning — you might have finished)
     if (movingIn && target.status !== "empty") {
       const status = labelFrom(TANK_STATUSES, target.status).toLowerCase();
-      if (!confirm(`${target.name} is marked as ${status}. Put ${name} in it anyway?`)) return;
+      if (!(await ask(`${target.name} is marked as ${status}. Put ${name} in it anyway?`, { ok: "Put it in" }))) return;
     }
 
     // Check 5: is the tank due for an acid cycle? (A warning — it may have been done but not logged yet)
     if (movingIn) {
       const acid = acidState(target);
-      if (acid.due && !confirm(`${target.name} is due for an acid cycle (${acid.reason}). Put ${name} in it anyway?`)) return;
+      if (acid.due && !(await ask(`${target.name} is due for an acid cycle (${acid.reason}). Put ${name} in it anyway?`, { ok: "Put it in" }))) return;
     }
 
     // Check 6: will the beer fit? (Also just a warning)
     if (values.sizeBbl && target.capacityBbl && values.sizeBbl > target.capacityBbl) {
-      if (!confirm(`${showUnit("volume", values.sizeBbl)} is more than ${target.name} holds (${showUnit("volume", target.capacityBbl)}). Save anyway?`)) return;
+      if (!(await ask(`${showUnit("volume", values.sizeBbl)} is more than ${target.name} holds (${showUnit("volume", target.capacityBbl)}). Save anyway?`, { ok: "Save anyway" }))) return;
     }
   }
 
@@ -1503,7 +1618,7 @@ batchForm.addEventListener("submit", async (e) => {
 });
 
 document.getElementById("delete-batch").addEventListener("click", async () => {
-  if (!confirm(`Delete ${beerName(editingBatch)} ${batchLabel(editingBatch)} and its history? This can't be undone.`)) return;
+  if (!(await ask(`Delete ${beerName(editingBatch)} ${batchLabel(editingBatch)} and its history? This can't be undone.`, { ok: "Delete", danger: true }))) return;
   const ok = await save(() => must(db.from("batches").delete().eq("id", editingBatch.id)));
   if (ok) batchDialog.close();
 });
@@ -1626,7 +1741,7 @@ document.getElementById("acid-history").addEventListener("click", async (e) => {
   const button = e.target.closest("[data-remove-acid]");
   if (!button) return;
   const cycle = data.cleanings.find((c) => c.id === button.dataset.removeAcid);
-  if (!confirm(`Remove the acid cycle on ${formatDate(cycle.cleanedOn)} from ${editingTank.name}'s log?`)) return;
+  if (!(await ask(`Remove the acid cycle on ${formatDate(cycle.cleanedOn)} from ${editingTank.name}'s log?`, { ok: "Remove", danger: true }))) return;
   const tankId = editingTank.id;
   await save(() => must(db.from("tank_cleanings").delete().eq("id", cycle.id)));
   editingTank = findTank(tankId);
@@ -1643,7 +1758,7 @@ tankForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   const name = tankForm.name.value.trim();
   if (data.tanks.some((t) => t !== editingTank && t.name.toLowerCase() === name.toLowerCase())) {
-    alert(`There's already a tank called ${name}.`);
+    warn(`There's already a tank called ${name}.`);
     return;
   }
   const fields = {
@@ -1667,15 +1782,15 @@ tankForm.addEventListener("submit", async (e) => {
 document.getElementById("delete-tank").addEventListener("click", async () => {
   const batch = batchInTank(editingTank.id);
   if (batch) {
-    alert(`${editingTank.name} has ${beerName(batch)} in it. Move or package that batch first.`);
+    warn(`${editingTank.name} has ${beerName(batch)} in it. Move or package that batch first.`);
     return;
   }
   // The database also refuses if any batch has EVER been in this tank (records need that history)
   if (data.events.some((e) => e.tankId === editingTank.id)) {
-    alert(`${editingTank.name} has batch history, so it can't be deleted. The records need to know where beer has been.`);
+    warn(`${editingTank.name} has batch history, so it can't be deleted. The records need to know where beer has been.`);
     return;
   }
-  if (!confirm(`Delete ${editingTank.name}?`)) return;
+  if (!(await ask(`Delete ${editingTank.name}?`, { ok: "Delete", danger: true }))) return;
   const ok = await save(() => must(db.from("tanks").delete().eq("id", editingTank.id)));
   if (ok) tankDialog.close();
 });
@@ -1724,11 +1839,11 @@ beerForm.addEventListener("submit", async (e) => {
     target_fg: readUnitInput(beerForm.targetFg, "gravity"),
   };
   if (data.beers.some((b) => b !== editingBeer && b.name.toLowerCase() === values.name.toLowerCase())) {
-    alert(`There's already a beer called ${values.name}.`);
+    warn(`There's already a beer called ${values.name}.`);
     return;
   }
   if (values.target_og && values.target_fg && values.target_fg >= values.target_og) {
-    alert("Target FG should be lower than target OG.");
+    warn("Target FG should be lower than target OG.");
     return;
   }
 
@@ -1755,10 +1870,10 @@ document.getElementById("delete-beer").addEventListener("click", async () => {
   const used = data.batches.filter((b) => b.beerId === editingBeer.id);
   if (used.length) {
     const list = used.map((b) => (b.batchNumber ? "#" + b.batchNumber : "a batch with no number")).join(", ");
-    alert(`${editingBeer.name} can't be deleted because batches of it exist (${list}).`);
+    warn(`${editingBeer.name} can't be deleted because batches of it exist (${list}).`);
     return;
   }
-  if (!confirm(`Delete ${editingBeer.name}?`)) return;
+  if (!(await ask(`Delete ${editingBeer.name}?`, { ok: "Delete", danger: true }))) return;
   const ok = await save(() => must(db.from("beers").delete().eq("id", editingBeer.id)));
   if (ok) beerDialog.close();
 });
@@ -1794,7 +1909,7 @@ locationForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   const name = locationForm.name.value.trim();
   if (data.locations.some((l) => l !== editingLocation && l.name.toLowerCase() === name.toLowerCase())) {
-    alert(`There's already a location called ${name}.`);
+    warn(`There's already a location called ${name}.`);
     return;
   }
   const addingFromTankForm = tankDialog.open && !editingLocation;
@@ -1826,10 +1941,10 @@ document.getElementById("delete-location").addEventListener("click", async () =>
   // Tanks point at locations, so a location with tanks in it can't be deleted
   const tanks = data.tanks.filter((t) => t.locationId === editingLocation.id);
   if (tanks.length) {
-    alert(`${editingLocation.name} still has tanks (${tanks.map((t) => t.name).join(", ")}). Move or delete them first.`);
+    warn(`${editingLocation.name} still has tanks (${tanks.map((t) => t.name).join(", ")}). Move or delete them first.`);
     return;
   }
-  if (!confirm(`Delete ${editingLocation.name}?`)) return;
+  if (!(await ask(`Delete ${editingLocation.name}?`, { ok: "Delete", danger: true }))) return;
   const ok = await save(() => must(db.from("locations").delete().eq("id", editingLocation.id)));
   if (ok) locationDialog.close();
 });
@@ -1931,7 +2046,7 @@ function upgradeData(d) {
 // Only into an EMPTY brewery, so nothing gets mixed up or duplicated.
 async function loadIntoBrewery(source, description) {
   if (!isEmptyBrewery()) {
-    alert("Data can only be loaded into an empty brewery, so nothing gets mixed up or duplicated.");
+    warn("Data can only be loaded into an empty brewery, so nothing gets mixed up or duplicated.");
     return;
   }
   const d = upgradeData(structuredClone(source));
@@ -1940,7 +2055,7 @@ async function loadIntoBrewery(source, description) {
     count(d.batches.length, "batch", "batches"),
     count(d.beers.length, "beer", "beers"),
   ].join(", ");
-  if (!confirm(`Load ${description} (${summary}) into ${brewery.name}?`)) return;
+  if (!(await ask(`Load ${description} (${summary}) into ${brewery.name}?`, { ok: "Load" }))) return;
 
   // Every record gets a fresh database ID. These maps turn old IDs into new ones
   // so links between records (batch → beer, tank → location...) stay connected.
@@ -2098,7 +2213,7 @@ async function loadIntoBrewery(source, description) {
       throw Object.assign(new Error(`${why} Nothing was loaded.`), { expected: !!e.code && EXPECTED_CODES.includes(e.code), details: e.details });
     }
   });
-  if (ok) alert(`Loaded ${summary}.`);
+  if (ok) notify(`Loaded ${summary}.`);
 }
 
 function count(n, one, many) {
@@ -2110,17 +2225,17 @@ async function loadBackupFile(file) {
   try {
     backup = JSON.parse(await file.text());
   } catch {
-    alert("That file isn't a Brewery OS backup (it couldn't be read).");
+    warn("That file isn't a Brewery OS backup (it couldn't be read).");
     return;
   }
   // Check it's really one of our backups before loading anything
   const d = backup?.data;
   if (backup?.app !== "brewery-os" || !Array.isArray(d?.tanks) || !Array.isArray(d?.batches)) {
-    alert("That file isn't a Brewery OS backup.");
+    warn("That file isn't a Brewery OS backup.");
     return;
   }
   if (backup.format > BACKUP_FORMAT) {
-    alert("That backup was made by a newer version of Brewery OS. Reload the page to get the latest version, then try again.");
+    warn("That backup was made by a newer version of Brewery OS. Reload the page to get the latest version, then try again.");
     return;
   }
   await loadIntoBrewery(d, `the backup from ${new Date(backup.exportedAt).toLocaleString()}`);
@@ -2201,8 +2316,8 @@ document.getElementById("code-back").addEventListener("click", () => {
 // ("local" = sign out on this device only)
 document.querySelectorAll(".sign-out").forEach((btn) =>
   btn.addEventListener("click", async () => {
-    if (outbox.length && !confirm(`${count(outbox.length, "change hasn't", "changes haven't")} been sent yet. ` +
-      `Signing out now deletes ${outbox.length === 1 ? "it" : "them"}. Sign out anyway?`)) return;
+    if (outbox.length && !(await ask(`${count(outbox.length, "change hasn't", "changes haven't")} been sent yet. ` +
+      `Signing out now deletes ${outbox.length === 1 ? "it" : "them"}. Sign out anyway?`, { ok: "Sign out", danger: true }))) return;
     outbox = [];
     storeList(OUTBOX_KEY, outbox);
     deleteOfflineCopy();
@@ -2217,7 +2332,7 @@ document.getElementById("setup-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const { data: newBreweryId, error } = await db.rpc("create_brewery", { brewery_name: e.target.name.value.trim() });
   if (error) {
-    alert(`Couldn't create the brewery: ${explain(error)}`);
+    warn(`Couldn't create the brewery: ${explain(error)}`, { stay: true });
     return;
   }
   // Start with this device's time zone (the admin can change it in Brewery settings)
@@ -2272,7 +2387,7 @@ async function start() {
   } catch (e) {
     if (isConnectionProblem(e) && openOfflineCopy()) return;
     reportError(e, "loading");
-    alert(`Something went wrong loading your data: ${explain(e)}`);
+    warn(`Something went wrong loading your data: ${explain(e)}`, { stay: true });
   } finally {
     starting = false;
     if (startAgain) {
@@ -2298,7 +2413,7 @@ function showBrewerySwitch(memberships) {
 
 document.getElementById("brewery-switch").addEventListener("change", async (e) => {
   if (outbox.length) {
-    alert("Some changes haven't been sent yet. Switch breweries once they've gone through.");
+    warn("Some changes haven't been sent yet. Switch breweries once they've gone through.");
     e.target.value = brewery.id;
     return;
   }
@@ -2608,8 +2723,8 @@ fieldForm.addEventListener("submit", async (e) => {
     if (kind === "none") mine.target = "none";
     if (kind === "own") {
       const min = targetStored(f, fieldForm.targetMin.value), max = targetStored(f, fieldForm.targetMax.value);
-      if (min == null && max == null) { alert("Type a lowest value, a highest value, or both (the same number for an exact target)."); return; }
-      if (min != null && max != null && min > max) { alert("The lowest value is higher than the highest."); return; }
+      if (min == null && max == null) { warn("Type a lowest value, a highest value, or both (the same number for an exact target)."); return; }
+      if (min != null && max != null && min > max) { warn("The lowest value is higher than the highest."); return; }
       mine.target = { ...(min != null && { min }), ...(max != null && { max }) };
     }
   }
@@ -2654,7 +2769,7 @@ customForm.addEventListener("submit", async (e) => {
   const label = customForm.label.value.trim();
   if (!label) return;
   if (catalogFields().some((f) => f.label.toLowerCase() === label.toLowerCase() && f.own)) {
-    alert(`There's already a field called "${label}".`);
+    warn(`There's already a field called "${label}".`);
     return;
   }
   const own = { key: `custom_${newId().replace(/-/g, "").slice(0, 12)}`, label, section: customForm.section.value,
@@ -2736,23 +2851,23 @@ function renderSettings() {
 // (the database checks both; see delete_brewery in supabase/migrations/..._join_codes.sql)
 document.getElementById("delete-brewery").addEventListener("click", async () => {
   if (offline || !navigator.onLine) {
-    alert("Deleting the brewery needs signal.");
+    warn("Deleting the brewery needs signal.");
     return;
   }
   if (outbox.length) {
-    alert("Some changes haven't been sent yet. Try again once they've gone through.");
+    warn("Some changes haven't been sent yet. Try again once they've gone through.");
     return;
   }
-  const typed = prompt(`This deletes ${brewery.name} and everything in it: tanks, beers, batches, and inventory. ` +
-    `It can't be undone.\n\nTo delete it, type its name:`);
+  const typed = await ask(`This deletes ${brewery.name} and everything in it: tanks, beers, batches, and inventory. ` +
+    `It can't be undone.\n\nTo delete it, type its name:`, { ok: "Delete", danger: true, input: { placeholder: brewery.name } });
   if (typed === null) return;
   if (typed.trim().toLowerCase() !== brewery.name.trim().toLowerCase()) {
-    alert("That isn't the brewery's name, so nothing was deleted.");
+    warn("That isn't the brewery's name, so nothing was deleted.");
     return;
   }
   const { error } = await db.rpc("delete_brewery", { p_brewery_id: brewery.id });
   if (error) {
-    alert(`Couldn't delete the brewery: ${explain(error)}`);
+    warn(`Couldn't delete the brewery: ${explain(error)}`, { stay: true });
     return;
   }
   try { localStorage.removeItem(CHOICE_KEY); } catch {}
@@ -2932,7 +3047,7 @@ document.getElementById("levels-table").addEventListener("change", async (e) => 
   await setLevel(level, box.checked ? [...current, permission] : current);
 });
 document.getElementById("reset-levels").addEventListener("click", async () => {
-  if (!confirm("Put every level back to what it includes by default? People's individual adjustments stay.")) return;
+  if (!(await ask("Put every level back to what it includes by default? People's individual adjustments stay.", { ok: "Reset levels" }))) return;
   await save(() => must(db.from("role_levels").delete().eq("brewery_id", brewery.id)));
 });
 
@@ -3024,7 +3139,7 @@ memberForm.role.addEventListener("change", async () => {
   const m = editingMember();
   const role = memberForm.role.value;
   if (m.email === signedInEmail && role !== "admin" &&
-      !confirm(`Change your own level to ${labelFrom(ROLES, role)}? You'll no longer be able to manage the team.`)) {
+      !(await ask(`Change your own level to ${labelFrom(ROLES, role)}? You'll no longer be able to manage the team.`, { ok: "Change it" }))) {
     memberForm.role.value = m.role;
     return;
   }
@@ -3045,7 +3160,7 @@ document.getElementById("reset-member").addEventListener("click", async () => {
 document.getElementById("remove-member").addEventListener("click", async () => {
   const m = editingMember();
   const yourself = m.email === signedInEmail;
-  if (!confirm(yourself ? `Leave ${brewery.name}? You'll lose access to it.` : `Remove ${m.email} from ${brewery.name}?`)) return;
+  if (!(await ask(yourself ? `Leave ${brewery.name}? You'll lose access to it.` : `Remove ${m.email} from ${brewery.name}?`, { ok: yourself ? "Leave" : "Remove", danger: true }))) return;
   const ok = await save(() => must(db.from("memberships").delete()
     .eq("brewery_id", brewery.id).eq("user_id", m.userId)));
   if (!ok) return;
@@ -3168,7 +3283,7 @@ document.getElementById("package-type-picker").addEventListener("click", async (
   const button = e.target.closest("[data-rename-package]");
   if (!button) return;
   const type = data.packageTypes.find((t) => t.id === button.dataset.renamePackage);
-  const name = prompt("Name for this package type:", type.name)?.trim();
+  const name = (await ask("Name for this package type:", { ok: "Rename", input: { value: type.name } }))?.trim();
   if (!name || name === type.name) return;
   await save(() => must(db.from("package_types").update({ name }).eq("id", type.id).select("id")));
 });
@@ -3182,7 +3297,7 @@ ownPackageForm.addEventListener("submit", async (e) => {
   if (!(volume > 0)) return;
   const name = f.name.value.trim();
   if (data.packageTypes.some((t) => t.name.toLowerCase() === name.toLowerCase())) {
-    alert(`There's already a package type called "${name}".`);
+    warn(`There's already a package type called "${name}".`);
     return;
   }
   const ok = await save(() => must(db.from("package_types").insert({ brewery_id: brewery.id, name, volume_bbl: volume, kind: f.kind.value })));
@@ -3247,13 +3362,13 @@ packageForm.addEventListener("submit", async (e) => {
   const b = viewingBatch();
   const counts = packageCounts();
   const spent = packageForm.spent.value === "yes";
-  if (!counts.length && !spent) { alert("Enter how many of each package were filled."); return; }
+  if (!counts.length && !spent) { warn("Enter how many of each package were filled."); return; }
   if (spent) {
     // A big leftover is probably something not entered: ask before recording it as loss
     const inTank = tankBalance(b.id, b.tankId);
     const left = inTank == null ? null : inTank - countsVolume(counts);
     if (left != null && inTank > 0 && left > inTank * 0.1 &&
-        !confirm(`${showUnit("volume", left)} is unaccounted for. Record it as loss and close ${tankName(b.tankId)}? (Cancel to go back and check the counts.)`)) return;
+        !(await ask(`${showUnit("volume", left)} is unaccounted for. Record it as loss and close ${tankName(b.tankId)}? (Cancel to go back and check the counts.)`, { ok: "Record as loss", cancel: "Go back" }))) return;
   }
   const filled = countsVolume(counts);
   const ok = await saveOrKeep("package", {
@@ -3403,8 +3518,8 @@ document.getElementById("blend-sources").addEventListener("click", (e) => {
 blendForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   const number = blendForm.batchNumber.value.trim();
-  if (data.batches.some((x) => x.batchNumber.toLowerCase() === number.toLowerCase())) { alert(`There's already a batch #${number}.`); return; }
-  if (!blendForm.tankId.value) { alert("Choose a tank for the new batch."); return; }
+  if (data.batches.some((x) => x.batchNumber.toLowerCase() === number.toLowerCase())) { warn(`There's already a batch #${number}.`); return; }
+  if (!blendForm.tankId.value) { warn("Choose a tank for the new batch."); return; }
   const sources = blendSources();
   const ok = await saveOrKeep("makeBatch", {
     p_id: newId(), p_brewery_id: brewery.id, p_batch_number: number, p_beer_id: blendForm.beerId.value, p_tank_id: blendForm.tankId.value,
@@ -3600,7 +3715,7 @@ viewForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   const row = { name: viewForm.name.value.trim(), place_ids: checked("view-places"), split_by_place: viewForm.split.checked,
     type_ids: checked("view-types"), show: checked("view-show"), beers: viewForm.beers.value, sort_mode: viewForm.sort.value };
-  if (!row.place_ids.length) { alert("Choose at least one place for this view."); return; }
+  if (!row.place_ids.length) { warn("Choose at least one place for this view."); return; }
   const id = editingView?.id ?? newId();
   const ok = await save(() => editingView
     ? must(db.from("inventory_views").update(row).eq("id", id))
@@ -3608,7 +3723,7 @@ viewForm.addEventListener("submit", async (e) => {
   if (ok) { inventoryView = id; viewDialog.close(); renderInventory(); }
 });
 document.getElementById("delete-view").addEventListener("click", async () => {
-  if (!confirm(`Delete the view "${editingView.name}"? (No stock changes; it's only a way of looking.)`)) return;
+  if (!(await ask(`Delete the view "${editingView.name}"? (No stock changes; it's only a way of looking.)`, { ok: "Delete", danger: true }))) return;
   const ok = await save(() => must(db.from("inventory_views").delete().eq("id", editingView.id)));
   if (ok) { inventoryView = null; viewDialog.close(); renderInventory(); }
 });
@@ -3754,7 +3869,7 @@ reasonsForm.addEventListener("submit", async (e) => {
 
 function openCountSheet() {
   const places = activePlaces();
-  if (!places.length) { alert("Add a stock place first (Settings → Equipment)."); return; }
+  if (!places.length) { warn("Add a stock place first (Settings → Equipment)."); return; }
   countForm.reset();
   countForm.placeId.innerHTML = places.map((p) => `<option value="${p.id}">${esc(placeName(p.id))}</option>`).join("");
   countForm.placeId.value = inventoryPlace !== "all" ? inventoryPlace : places[0].id;
@@ -3832,7 +3947,7 @@ let stockMode = "move";
 
 function openStockEditor(mode) {
   const places = activePlaces();
-  if (!places.length) { alert("Add a stock place first (Settings → Equipment)."); return; }
+  if (!places.length) { warn("Add a stock place first (Settings → Equipment)."); return; }
   stockMode = mode;
   stockForm.reset();
   document.getElementById("stock-title").textContent = mode === "move" ? "Move stock" : "Remove stock";
@@ -3882,12 +3997,12 @@ document.getElementById("inv-remove").addEventListener("click", () => openStockE
 stockForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   const lines = stockLines();
-  if (!lines.length) { alert("Enter how many."); return; }
+  if (!lines.length) { warn("Enter how many."); return; }
   const from = stockForm.fromPlaceId.value, to = stockMode === "move" ? stockForm.toPlaceId.value : null;
-  if (to && to === from) { alert("Choose two different places."); return; }
+  if (to && to === from) { warn("Choose two different places."); return; }
   for (const l of lines) {
     const have = sumCount(stockOnHand().filter((r) => r.placeId === from && r.beerId === l.beer && r.typeId === l.type));
-    if (l.count > have + 1e-9) { alert(`There are only ${+have.toFixed(2)} × ${typeOf(l.type).name} there. Count the place first if the numbers are off.`); return; }
+    if (l.count > have + 1e-9) { warn(`There are only ${+have.toFixed(2)} × ${typeOf(l.type).name} there. Count the place first if the numbers are off.`); return; }
   }
   const removal = stockMode === "remove" ? stockForm.removal.value : null;
   const ok = await saveOrKeep("stock", {
@@ -4137,7 +4252,7 @@ const receiveForm = document.getElementById("receive-form");
 const rawItemOptions = () => (data.rawItems || []).filter((i) => i.active).sort((a, b) => a.name.localeCompare(b.name))
   .map((i) => `<option value="${i.id}">${esc(i.name)}</option>`).join("");
 function openReceive() {
-  if (!(data.rawItems || []).some((i) => i.active)) { alert("Add an item first (Items)."); return; }
+  if (!(data.rawItems || []).some((i) => i.active)) { warn("Add an item first (Items)."); return; }
   receiveForm.reset();
   receiveForm.itemId.innerHTML = rawItemOptions();
   receiveForm.receivedOn.value = today();
@@ -4170,7 +4285,7 @@ receiveForm.addEventListener("submit", async (e) => {
 const rawCountDialog = document.getElementById("raw-count-editor");
 const rawCountForm = document.getElementById("raw-count-form");
 function openRawCount() {
-  if (!(data.rawItems || []).some((i) => i.active)) { alert("Add an item first (Items)."); return; }
+  if (!(data.rawItems || []).some((i) => i.active)) { warn("Add an item first (Items)."); return; }
   rawCountForm.reset();
   rawCountForm.itemId.innerHTML = rawItemOptions();
   rawCountForm.adjustedOn.value = today();
@@ -4405,7 +4520,7 @@ lineForm.label.addEventListener("input", () => { lineForm.status.value = "other"
 lineForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   const status = lineForm.status.value;
-  if (status === "other" && !lineForm.label.value.trim()) { alert("Say what's on this line (like: Wine, Cider)."); return; }
+  if (status === "other" && !lineForm.label.value.trim()) { warn("Say what's on this line (like: Wine, Cider)."); return; }
   const ok = await save(() => must(db.from("draft_lines").update({
     status, beer_id: status === "beer" ? lineForm.beerId.value : null, label: status === "other" ? lineForm.label.value.trim() : "",
   }).eq("id", editingLine.id)));
@@ -4462,7 +4577,7 @@ document.getElementById("copy-key").addEventListener("click", async () => {
 });
 document.getElementById("key-list").addEventListener("click", async (e) => {
   const b = e.target.closest("[data-revoke-key]");
-  if (!b || !confirm("Revoke this key? Anything using it stops working right away.")) return;
+  if (!b || !(await ask("Revoke this key? Anything using it stops working right away.", { ok: "Revoke", danger: true }))) return;
   const ok = await save(async () => { const { error } = await db.rpc("revoke_api_key", { p_id: b.dataset.revokeKey }); if (error) throw error; });
   if (ok) await loadApiKeys();
 });
@@ -4563,7 +4678,7 @@ document.getElementById("export-lists").addEventListener("click", (e) => {
   const b = e.target.closest("[data-export]");
   if (!b) return;
   const rows = exportLists()[b.dataset.export];
-  if (!rows.length) { alert("That list is empty."); return; }
+  if (!rows.length) { warn("That list is empty."); return; }
   downloadFile(`${slugName(brewery.name)}-${b.dataset.export}-${today()}.csv`, new Blob([csvText(rows)], { type: "text/csv;charset=utf-8" }));
 });
 const slugName = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "brewery";
@@ -4578,7 +4693,7 @@ document.getElementById("export-all").addEventListener("click", async () => {
       script.onload = resolve;
       script.onerror = () => reject(new Error("no signal"));
       document.head.append(script);
-    }).catch(() => alert("Making a zip file needs signal the first time. The single lists can be downloaded one by one."));
+    }).catch(() => warn("Making a zip file needs signal the first time. The single lists can be downloaded one by one."));
     if (!window.JSZip) return;
   }
   const zip = new JSZip();
@@ -4759,7 +4874,7 @@ function renderImport() {
 
 function loadImportText(text) {
   importTable = parseTable(text);
-  if (!importTable) { alert("Couldn't find any rows in that."); return; }
+  if (!importTable) { warn("Couldn't find any rows in that."); return; }
   guessColumns(document.getElementById("import-kind").value);
   document.getElementById("import-result").textContent = "";
   renderImport();
@@ -4779,7 +4894,7 @@ document.getElementById("import-sheet").addEventListener("click", async () => {
   button.disabled = true;
   try {
     const { data: result, error } = await db.functions.invoke("fetch-sheet", { body: { url } });
-    if (error) { const body = await error.context?.json?.().catch(() => null); alert(body?.error || "Couldn't read that sheet."); return; }
+    if (error) { const body = await error.context?.json?.().catch(() => null); warn(body?.error || "Couldn't read that sheet."); return; }
     loadImportText(result.csv);
   } finally { button.disabled = false; }
 });
@@ -4793,7 +4908,7 @@ document.getElementById("import-mapping").addEventListener("change", (e) => {
 document.getElementById("import-go").addEventListener("click", async () => {
   const kind = document.getElementById("import-kind").value;
   const rows = importPlan(kind).filter((p) => p.status === "create").map((p) => p.values);
-  if (!confirm(`Import ${rows.length} ${rows.length === 1 ? "row" : "rows"} into ${brewery.name}?`)) return;
+  if (!(await ask(`Import ${rows.length} ${rows.length === 1 ? "row" : "rows"} into ${brewery.name}?`, { ok: "Import" }))) return;
   const b = brewery.id;
   let done = 0;
   const progress = document.getElementById("import-result");
@@ -4918,7 +5033,7 @@ document.getElementById("import-beerxml").addEventListener("change", async (e) =
   const file = e.target.files[0];
   e.target.value = "";
   if (!file) return;
-  try { pendingRecipes = parseBeerXml(await file.text()); } catch (err) { alert(err.message); return; }
+  try { pendingRecipes = parseBeerXml(await file.text()); } catch (err) { warn(err.message); return; }
   const beerOptions = (match) => `<option value="new">New beer</option>` + [...data.beers].sort((a, b) => a.name.localeCompare(b.name))
     .map((b) => `<option value="${b.id}" ${match?.id === b.id ? "selected" : ""}>${esc(b.name)}</option>`).join("");
   const locationOptions = `<option value="">Any location</option>` + data.locations.map((l) => `<option value="${l.id}">${esc(l.name)}</option>`).join("");
@@ -4982,7 +5097,7 @@ document.getElementById("recipe-list").addEventListener("click", (e) => {
   recipeDialog.showModal();
 });
 document.getElementById("delete-recipe").addEventListener("click", async () => {
-  if (!confirm(`Delete the recipe "${viewingRecipe.name}"? (Batches already brewed keep their ingredients.)`)) return;
+  if (!(await ask(`Delete the recipe "${viewingRecipe.name}"? (Batches already brewed keep their ingredients.)`, { ok: "Delete", danger: true }))) return;
   const ok = await save(() => must(db.from("recipes").delete().eq("id", viewingRecipe.id)));
   if (ok) recipeDialog.close();
 });
@@ -4992,11 +5107,11 @@ function recipesForBatch(b) {
   const location = brewLocation(b)?.id;
   return recipesOf(b.beerId).sort((x, y) => (y.locationId === location) - (x.locationId === location) || (x.locationId ? 1 : 0) - (y.locationId ? 1 : 0));
 }
-function copyRecipe(b, recipe) {
+async function copyRecipe(b, recipe) {
   const items = recipeIngredients(recipe.id).filter((i) => !isCellarTiming(i.timing));
   const skipped = recipeIngredients(recipe.id).length - items.length;
-  if (!confirm(`Copy ${items.length} brew-day ingredients from the recipe "${recipe.name}"? Lot numbers start empty.` +
-    (skipped ? ` (${skipped} for the cellar, like dry hops, aren't copied: log them when they go in.)` : ""))) return;
+  if (!(await ask(`Copy ${items.length} brew-day ingredients from the recipe "${recipe.name}"? Lot numbers start empty.` +
+    (skipped ? ` (${skipped} for the cellar, like dry hops, aren't copied: log them when they go in.)` : ""), { ok: "Copy" }))) return;
   for (const i of items) {
     queueChange("logAddition", { id: newId(), breweryId: brewery.id, batchId: b.id, addedOn: b.brewDate || today(), kind: i.kind, name: i.name,
       amount: i.amount, unit: i.unit, timing: i.timing, lot: "", notes: "", brewDay: true, turn: null }, `${beerName(b)} ${batchLabel(b)}: ${i.name}`);
@@ -5112,7 +5227,7 @@ document.getElementById("place-list").addEventListener("click", async (e) => {
   const rename = e.target.closest("[data-rename-place]"), toggle = e.target.closest("[data-toggle-place]");
   if (rename) {
     const place = data.places.find((p) => p.id === rename.dataset.renamePlace);
-    const name = prompt("Name for this place:", place.name)?.trim();
+    const name = (await ask("Name for this place:", { ok: "Rename", input: { value: place.name } }))?.trim();
     if (name && name !== place.name) await save(() => must(db.from("stock_places").update({ name }).eq("id", place.id)));
   }
   if (toggle) {
@@ -5643,9 +5758,9 @@ document.getElementById("sheet-ingredients").addEventListener("click", (e) => {
 
 // Copy the grain bill, hops, and the rest from an earlier batch: names, amounts, and timing, but
 // not lot numbers (those are this batch's own). Each is kept on the phone first, like any change.
-function copyIngredients(b, source) {
+async function copyIngredients(b, source) {
   const items = brewDayIngredients(source);
-  if (!confirm(`Copy ${items.length} ingredients from ${beerName(source)} ${batchLabel(source)}? Lot numbers start empty.`)) return;
+  if (!(await ask(`Copy ${items.length} ingredients from ${beerName(source)} ${batchLabel(source)}? Lot numbers start empty.`, { ok: "Copy" }))) return;
   for (const a of items) {
     queueChange("logAddition", {
       id: newId(), breweryId: brewery.id, batchId: b.id, addedOn: b.brewDate || today(), kind: a.kind, name: a.name,
@@ -5696,7 +5811,7 @@ document.getElementById("sheet").addEventListener("change", (e) => {
   if (field.type === "meter") {
     const start = row.querySelector('[data-part="start"]').value, end = row.querySelector('[data-part="end"]').value;
     if (start === "" || end === "") return; // wait for both readings
-    if (Number(end) < Number(start)) { alert(`${field.label}: the end reading is lower than the start reading.`); return; }
+    if (Number(end) < Number(start)) { warn(`${field.label}: the end reading is lower than the start reading.`); return; }
     if (current?.raw?.start === Number(start) && current?.raw?.end === Number(end)) return;
     raw = { start: Number(start), end: Number(end), unit: "gal" };
     value = (raw.end - raw.start) / 31; // gallons -> barrels
@@ -5870,7 +5985,7 @@ function openFromLink() {
   if (!id || document.getElementById("app-screen").hidden) return;
   history.replaceState(null, "", location.pathname + location.search); // so a reload doesn't reopen it
   if (data.batches.some((b) => b.id === id)) openBatchView(id);
-  else alert("That batch isn't in this brewery. (If you're in more than one brewery, switch in Settings → Account.)");
+  else warn("That batch isn't in this brewery. (If you're in more than one brewery, switch in Settings → Account.)");
 }
 window.addEventListener("hashchange", openFromLink);
 
@@ -5942,7 +6057,7 @@ cellarForm.addEventListener("submit", async (e) => {
 });
 
 document.getElementById("delete-cellar").addEventListener("click", async () => {
-  if (!confirm("Delete this cellar log entry?")) return;
+  if (!(await ask("Delete this cellar log entry?", { ok: "Delete", danger: true }))) return;
   const ok = await save(() => must(db.from("cellar_entries").delete().eq("id", editingCellar.id)));
   if (ok) cellarDialog.close();
 });
@@ -6010,7 +6125,7 @@ additionForm.addEventListener("submit", async (e) => {
 });
 
 document.getElementById("delete-addition").addEventListener("click", async () => {
-  if (!confirm(`Delete this addition (${editingAddition.name})?`)) return;
+  if (!(await ask(`Delete this addition (${editingAddition.name})?`, { ok: "Delete", danger: true }))) return;
   const ok = await save(() => must(db.from("batch_additions").delete().eq("id", editingAddition.id)));
   if (ok) additionDialog.close();
 });
@@ -6062,7 +6177,7 @@ acidStyleForm.addEventListener("submit", async (e) => {
   const style = acidStyleForm.style.value.trim();
   if (!style) return;
   if (data.acidAfterStyles.some((s) => s.toLowerCase() === style.toLowerCase())) {
-    alert(`${style} is already on the list.`);
+    warn(`${style} is already on the list.`);
     return;
   }
   if (await saveAcidStyles([...data.acidAfterStyles, style])) acidStyleForm.reset();
@@ -6072,7 +6187,7 @@ acidStyleList.addEventListener("click", async (e) => {
   const button = e.target.closest("[data-remove-style]");
   if (!button) return;
   const style = data.acidAfterStyles[Number(button.dataset.removeStyle)]; // its position in the list
-  if (!confirm(`Stop flagging tanks for acid after ${style}?`)) return;
+  if (!(await ask(`Stop flagging tanks for acid after ${style}?`, { ok: "Stop flagging" }))) return;
   await saveAcidStyles(data.acidAfterStyles.filter((s) => s !== style));
 });
 

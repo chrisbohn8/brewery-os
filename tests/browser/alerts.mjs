@@ -4,7 +4,7 @@
 // (the way the scheduled job does) with a stand-in for the email service.
 import { createServer } from "node:http";
 import { chromium } from "playwright-core";
-import { settings, floor } from "./helpers.mjs";
+import { settings, floor, onDialog } from "./helpers.mjs";
 
 const APP = "http://localhost:8123/";
 const MAIL = "http://127.0.0.1:54324/api/v1";
@@ -26,7 +26,7 @@ const serverCheck = async (secret = "local-alerts-secret") =>
 const browser = await chromium.launch({ executablePath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", headless: true });
 const page = await (await browser.newContext({ viewport: { width: 390, height: 844 } })).newPage();
 const errors = [];
-page.on("dialog", (d) => d.accept());
+await onDialog(page, (d) => d.accept());
 page.on("pageerror", (e) => errors.push(e.message));
 const text = (sel) => page.evaluate((s) => document.querySelector(s)?.innerText.replace(/\s+/g, " ").trim(), sel);
 const allSent = () => page.waitForFunction(() => !busy && !sending && !reloading && outbox.length === 0, null, { timeout: 30000 });

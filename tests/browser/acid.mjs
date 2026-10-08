@@ -1,6 +1,6 @@
 // End-to-end test of acid tracking on the local Supabase stack.
 import { chromium } from "playwright-core";
-import { settings, floor, openBatchForm } from "./helpers.mjs";
+import { settings, floor, openBatchForm, onDialog } from "./helpers.mjs";
 
 const APP = "http://localhost:8123/";
 const MAIL = "http://127.0.0.1:54324/api/v1";
@@ -20,7 +20,7 @@ page.on("console", (m) => { if (m.type() === "error" && !/favicon|404/.test(m.te
 // Dialog answers: accept by default; refuse the acid warning when `refuseAcid` is set
 const dialogs = [];
 let refuseAcid = false;
-page.on("dialog", async (d) => {
+await onDialog(page, async (d) => {
   dialogs.push(d.message());
   if (refuseAcid && /due for an acid cycle/.test(d.message())) await d.dismiss();
   else await d.accept();

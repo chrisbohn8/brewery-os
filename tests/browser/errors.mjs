@@ -5,6 +5,7 @@
 import { createServer } from "node:http";
 import { execSync } from "node:child_process";
 import { chromium } from "playwright-core";
+import { onDialog } from "./helpers.mjs";
 
 const APP = "http://localhost:8123/";
 const MAIL = "http://127.0.0.1:54324/api/v1";
@@ -37,7 +38,7 @@ async function waitForReports(n) {
 const browser = await chromium.launch({ executablePath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", headless: true });
 const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
 const page = await context.newPage();
-page.on("dialog", (d) => d.accept());
+await onDialog(page, (d) => d.accept());
 try {
   await page.goto(APP);
   await page.waitForSelector("#signin-screen:not([hidden]), #app-screen:not([hidden])", { timeout: 20000 });

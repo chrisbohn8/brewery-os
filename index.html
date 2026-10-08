@@ -1256,6 +1256,24 @@
     </form>
   </dialog>
 
+  <!-- Questions the app asks ("Delete FV2?"), on the page rather than the browser's pop-ups,
+       which some apps block. Filled in by ask() in app.js. -->
+  <dialog id="ask-dialog" class="ask">
+    <form method="dialog">
+      <p id="ask-text"></p>
+      <input id="ask-input" hidden autocomplete="off" aria-labelledby="ask-text">
+      <!-- OK comes first in the page, so Enter means OK; the styles put it on the right -->
+      <div class="actions">
+        <button type="submit" value="ok" class="btn primary" id="ask-ok">OK</button>
+        <button type="submit" value="cancel" class="btn" id="ask-cancel">Cancel</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Messages ("Saved", "Couldn't save…", "Moved 1042 · Undo"), shown above everything, even an
+       open form. Filled in by notify() in app.js. -->
+  <div id="toasts" class="toasts" popover="manual" role="status" aria-live="polite"></div>
+
   <!-- Supabase's browser library (talks to the database). The integrity hash makes the browser
        refuse the file if the CDN ever serves anything other than this exact version. -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.js"

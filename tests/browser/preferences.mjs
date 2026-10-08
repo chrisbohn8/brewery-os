@@ -1,7 +1,7 @@
 // Brewery preferences: numbers are shown and typed in the brewery's units, stored in standard
 // units, and an unchanged form never alters a stored value. Real Chrome, local test copy.
 import { chromium } from "playwright-core";
-import { settings, floor } from "./helpers.mjs";
+import { settings, floor, onDialog } from "./helpers.mjs";
 
 const APP = "http://localhost:8123/";
 const MAIL = "http://127.0.0.1:54324/api/v1";
@@ -15,7 +15,7 @@ const browser = await chromium.launch({ executablePath: "/Applications/Google Ch
 const page = await (await browser.newContext({ viewport: { width: 420, height: 900 } })).newPage();
 const errors = [];
 const dialogs = [];
-page.on("dialog", (d) => { dialogs.push(d.message()); d.accept(); });
+await onDialog(page, (d) => { dialogs.push(d.message()); d.accept(); });
 page.on("pageerror", (e) => errors.push(e.message));
 // Wait until a save has started and finished (checking too early would see the old data)
 const settle = async () => { await wait(150); await page.waitForFunction(() => !busy && !reloading); await wait(100); };

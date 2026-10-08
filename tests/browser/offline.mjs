@@ -2,7 +2,7 @@
 // Serves the app on its own port (8124) so the server can be stopped to simulate "no signal".
 import { spawn } from "node:child_process";
 import { chromium } from "playwright-core";
-import { settings, floor, openBatchForm } from "./helpers.mjs";
+import { settings, floor, openBatchForm, onDialog } from "./helpers.mjs";
 
 const PORT = 8124;
 const APP = `http://localhost:${PORT}/`;
@@ -28,7 +28,7 @@ const browser = await chromium.launch({ executablePath: "/Applications/Google Ch
 const context = await browser.newContext({ viewport: { width: 420, height: 900 } });
 const page = await context.newPage();
 const dialogs = [];
-page.on("dialog", async (d) => { dialogs.push(d.message()); await d.accept(); });
+await onDialog(page, async (d) => { dialogs.push(d.message()); await d.accept(); });
 const screen = () => page.evaluate(() => ["loading-screen", "signin-screen", "setup-screen", "app-screen"].find((id) => !document.getElementById(id).hidden));
 const banner = () => page.evaluate(() => { const b = document.getElementById("offline-banner"); return b.hidden ? null : b.textContent; });
 const tankCount = () => page.evaluate(() => document.querySelectorAll(".card").length);

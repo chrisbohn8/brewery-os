@@ -490,8 +490,8 @@ These make the app trustworthy and quick on the floor. They aren't a separate ph
   Extra per-person exceptions can come later if needed.
 
 **Fewer mistakes (Robust)**
-- [ ] **Undo** for a few seconds after a transfer, stage change, or packaging entry.
-- [ ] **On-page confirmations and messages** instead of the browser's pop-ups, which some apps block.
+- [x] **Undo** for a few seconds after starting a batch, a stage change, a transfer, packaging, or a split or blend: the change waits 8 seconds on the phone before it's sent, so Undo takes it back before the records ever see it.
+- [x] **On-page confirmations and messages** instead of the browser's pop-ups, which some apps block: a message bar at the top (shown above any open form, never over its buttons) and a question box whose button says what it does (red for deletes).
 - [ ] **Activity feed:** who did what and when ("Sam moved 1042 to BT-2 at 2:14 PM").
 
 **Faster on the floor**

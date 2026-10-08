@@ -2,7 +2,7 @@
 // the source; a blend (here made with no signal) uses up its sources, and a used batch can't be
 // moved. Real Chrome, local test copy.
 import { chromium } from "playwright-core";
-import { settings, floor } from "./helpers.mjs";
+import { settings, floor, onDialog } from "./helpers.mjs";
 
 const APP = "http://localhost:8123/";
 const MAIL = "http://127.0.0.1:54324/api/v1";
@@ -17,7 +17,7 @@ const browser = await chromium.launch({ executablePath: "/Applications/Google Ch
 const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
 const page = await context.newPage();
 const errors = [];
-page.on("dialog", (d) => d.accept());
+await onDialog(page, (d) => d.accept());
 page.on("pageerror", (e) => errors.push(e.message));
 const text = (sel) => page.evaluate((s) => document.querySelector(s)?.innerText.replace(/\s+/g, " ").trim(), sel);
 const allSent = () => page.waitForFunction(() => outbox.length === 0 && !sending && !busy && !reloading, null, { timeout: 20000 });

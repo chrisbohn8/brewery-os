@@ -1,6 +1,6 @@
 // End-to-end walk through Brewery OS on the local Supabase stack.
 import { chromium } from "playwright-core";
-import { settings, floor, openBatchForm } from "./helpers.mjs";
+import { settings, floor, openBatchForm, onDialog } from "./helpers.mjs";
 
 const APP = "http://localhost:8123/";
 const MAIL = "http://127.0.0.1:54324/api/v1";
@@ -19,7 +19,7 @@ const errors = [];
 page.on("pageerror", (e) => errors.push("pageerror: " + e.message));
 page.on("console", (m) => { if (m.type() === "error") errors.push("console: " + m.text()); });
 const dialogs = [];
-page.on("dialog", async (d) => { dialogs.push(d.message()); await d.accept(); });
+await onDialog(page, async (d) => { dialogs.push(d.message()); await d.accept(); });
 let n = 0;
 const shot = async (name) => page.screenshot({ path: `${OUT}${String(++n).padStart(2, "0")}-${name}.png`, fullPage: true });
 

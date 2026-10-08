@@ -395,6 +395,35 @@ dialog {
 dialog::backdrop { background: rgb(0 0 0 / 0.5); }
 dialog h2 { margin-top: 0; }
 
+/* ---- Questions and messages (instead of the browser's pop-ups) ---- */
+dialog.ask p { margin: 0 0 16px; white-space: pre-line; line-height: 1.4; }
+dialog.ask input { width: 100%; margin-bottom: 16px; }
+dialog.ask .actions { flex-direction: row-reverse; justify-content: flex-start; }
+dialog.ask #ask-cancel { margin-right: auto; }
+dialog.ask .btn.primary.danger { background: #b91c1c; border-color: #b91c1c; color: #fff; }
+.toasts {
+  /* a popover sits above everything, including an open form */
+  /* at the top: at the bottom it would cover a form's buttons */
+  position: fixed; inset: max(12px, env(safe-area-inset-top)) 0 auto 0; margin: 0 auto; padding: 0 16px;
+  width: min(480px, 100vw); border: none; background: none; overflow: visible;
+  display: grid; gap: 8px;
+}
+.toasts:not(:popover-open) { display: none; }
+.toast {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 14px; border-radius: 10px;
+  background: var(--text); color: var(--bg);
+  box-shadow: 0 4px 16px rgb(0 0 0 / 0.25);
+  white-space: pre-line;
+}
+.toast.error { background: #7f1d1d; color: #fff; }
+.toast .toast-text { flex: 1; }
+.toast button {
+  font: inherit; font-weight: 600; background: none; border: none; color: inherit;
+  padding: 4px 6px; cursor: pointer; text-decoration: underline;
+}
+.toast button.toast-close { text-decoration: none; font-size: 1.2rem; line-height: 1; opacity: 0.8; }
+
 dialog label {
   display: grid;
   gap: 4px;

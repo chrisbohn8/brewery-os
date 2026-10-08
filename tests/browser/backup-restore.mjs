@@ -2,6 +2,7 @@
 // (cellar log, ingredients, brew-day readings), and the brew sheet's setup. Copies the first test
 // brewery's data into the second (empty) one, compares, then empties the second again.
 import { chromium } from "playwright-core";
+import { onDialog } from "./helpers.mjs";
 
 const APP = "http://localhost:8123/";
 const MAIL = "http://127.0.0.1:54324/api/v1";
@@ -13,7 +14,7 @@ const browser = await chromium.launch({ executablePath: "/Applications/Google Ch
 async function signIn(email) {
   const page = await (await browser.newContext({ viewport: { width: 420, height: 900 } })).newPage();
   page.errors = [];
-  page.on("dialog", (d) => { if (/couldn|wrong|error|isn|violat|null/i.test(d.message())) console.log("DIALOG:", d.message()); d.accept(); });
+  await onDialog(page, (d) => { if (/couldn|wrong|error|isn|violat|null/i.test(d.message())) console.log("DIALOG:", d.message()); d.accept(); });
   page.on("pageerror", (e) => page.errors.push(e.message));
   await page.goto(APP);
   await page.waitForSelector("#signin-screen:not([hidden])", { timeout: 20000 });
@@ -66,7 +67,7 @@ try {
 
   console.log("2a. A backup that fails partway loads nothing at all");
   second.dialogs = [];
-  second.on("dialog", (d) => second.dialogs.push(d.message()));
+  await onDialog(second, (d) => second.dialogs.push(d.message()));
   const broken = structuredClone(backup);
   broken.readings[broken.readings.length - 1].batchId = "no-such-batch"; // the very last thing loaded
   await second.evaluate((d) => loadIntoBrewery(d, "a broken backup"), broken);

@@ -3,6 +3,7 @@
 //   brewer2@example.test -> admin of "Second Brewing" (empty)
 // Safe to run again: anyone who already has a brewery is left as is.
 import { chromium } from "playwright-core";
+import { onDialog } from "./helpers.mjs";
 
 const APP = "http://localhost:8123/";
 const MAIL = "http://127.0.0.1:54324/api/v1";
@@ -16,7 +17,7 @@ const browser = await chromium.launch({ executablePath: "/Applications/Google Ch
 try {
   for (const person of PEOPLE) {
     const page = await (await browser.newContext({ viewport: { width: 420, height: 900 } })).newPage();
-    page.on("dialog", (d) => d.accept());
+    await onDialog(page, (d) => d.accept());
     await page.goto(APP);
     await page.waitForSelector("#signin-screen:not([hidden])", { timeout: 20000 });
     const before = new Set(((await (await fetch(`${MAIL}/messages`)).json()).messages || []).map((m) => m.ID));

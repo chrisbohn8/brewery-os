@@ -1,7 +1,7 @@
 // Brew log, part 1: the batch page, cellar log (with stage changes), additions, corrections,
 // offline cellar logging, and brewhouse settings on a location. Real Chrome, local test copy.
 import { chromium } from "playwright-core";
-import { settings, floor } from "./helpers.mjs";
+import { settings, floor, onDialog } from "./helpers.mjs";
 
 const APP = "http://localhost:8123/";
 const MAIL = "http://127.0.0.1:54324/api/v1";
@@ -15,7 +15,7 @@ const browser = await chromium.launch({ executablePath: "/Applications/Google Ch
 const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
 const page = await context.newPage();
 const errors = [];
-page.on("dialog", (d) => d.accept());
+await onDialog(page, (d) => d.accept());
 page.on("pageerror", (e) => errors.push(e.message));
 const settle = async () => { await wait(150); await page.waitForFunction(() => !busy && !sending && !reloading); await wait(100); };
 const text = (sel) => page.evaluate((s) => document.querySelector(s)?.innerText.replace(/\s+/g, " ").trim(), sel);
