@@ -311,7 +311,7 @@ function explain(error) {
 let serverData = null;
 async function loadAll() {
   const b = brewery.id;
-  const [locations, beers, tanks, batches, events, cleanings, settings, members, invites, permissions, memberRows, levels, cellar, additions, readings, movements, packageTypes, packageCounts, places, stockMoves, pars] = await Promise.all([
+  const [locations, beers, tanks, batches, events, cleanings, settings, members, invites, permissions, memberRows, levels, cellar, additions, readings, movements, packageTypes, packageCounts, places, stockMoves, pars, rawItems, rawReceipts, rawAdjustments] = await Promise.all([
     must(db.from("locations").select("*").eq("brewery_id", b).order("created_at")),
     must(db.from("beers").select("*").eq("brewery_id", b)),
     must(db.from("tanks").select("*").eq("brewery_id", b).order("created_at")),
@@ -334,6 +334,9 @@ async function loadAll() {
     must(db.from("stock_places").select("*").eq("brewery_id", b).order("created_at")),
     must(db.from("stock_moves").select("*").eq("brewery_id", b).order("occurred_on").order("recorded_at")),
     must(db.from("stock_pars").select("*").eq("brewery_id", b)),
+    must(db.from("raw_items").select("*").eq("brewery_id", b).order("created_at")),
+    must(db.from("raw_receipts").select("*").eq("brewery_id", b).order("received_on").order("recorded_at")),
+    must(db.from("raw_adjustments").select("*").eq("brewery_id", b).order("adjusted_on").order("recorded_at")),
   ]);
   // Each member: email and level (from brewery_members) plus their personal adjustments
   const adjustments = Object.fromEntries(memberRows.map((r) => [r.user_id, r]));
@@ -393,6 +396,12 @@ async function loadAll() {
       toTankId: m.to_tank_id, volumeBbl: num(m.volume_bbl), notes: m.notes, recordedAt: m.recorded_at,
       sourceBatchId: m.source_batch_id,
     })),
+    rawItems: rawItems.map((i) => ({ id: i.id, name: i.name, kind: i.kind, unit: i.unit, packName: i.pack_name,
+      packSize: num(i.pack_size), reorderLevel: num(i.reorder_level), active: i.active })),
+    rawReceipts: rawReceipts.map((r) => ({ id: r.id, itemId: r.item_id, receivedOn: r.received_on, lot: r.lot, amount: num(r.amount),
+      supplier: r.supplier, cost: num(r.cost), notes: r.notes, recordedAt: r.recorded_at })),
+    rawAdjustments: rawAdjustments.map((a) => ({ id: a.id, itemId: a.item_id, lot: a.lot, adjustedOn: a.adjusted_on, change: num(a.change),
+      reason: a.reason, recordedAt: a.recorded_at })),
     pars: pars.map((p) => ({ id: p.id, placeId: p.place_id, beerId: p.beer_id, parBbl: num(p.par_bbl), parCases: num(p.par_cases) })),
     places: places.map((p) => ({ id: p.id, locationId: p.location_id, name: p.name, kind: p.kind, active: p.active })),
     stockMoves: stockMoves.map((m) => ({
@@ -613,6 +622,18 @@ Object.assign(SEND, {
   levelCheck: (a) => must(db.rpc("record_level_check", a)),
   makeBatch: (a) => must(db.rpc("make_batch_from", a)),
   stock: (a) => must(db.rpc("record_stock", a)),
+  receiveRaw: async (a) => {
+    try {
+      await must(db.from("raw_receipts").insert({ id: a.id, brewery_id: a.breweryId, item_id: a.itemId, received_on: a.receivedOn, lot: a.lot,
+        amount: a.amount, supplier: a.supplier, cost: a.cost, notes: a.notes }));
+    } catch (e) { if (e.code !== "23505") throw e; } // already there: sent before the connection dropped
+  },
+  adjustRaw: async (a) => {
+    try {
+      await must(db.from("raw_adjustments").insert({ id: a.id, brewery_id: a.breweryId, item_id: a.itemId, lot: a.lot, adjusted_on: a.adjustedOn,
+        change: a.change, reason: a.reason }));
+    } catch (e) { if (e.code !== "23505") throw e; }
+  },
   count: (a) => must(db.rpc("record_count", a)),
   logCellar: (a) => must(db.rpc("log_cellar_entry", a)),
   editCellar: (a) => must(db.from("cellar_entries").update(cellarRow(a)).eq("id", a.id)),
@@ -749,6 +770,8 @@ const SHOW = {
     }
     move({ id: a.p_id, kind: "level", toTankId: a.p_tank_id, volumeBbl: a.p_reading_bbl, notes: a.p_notes || "", recordedAt: at + "~" });
   },
+  receiveRaw(d, a) { if (!d.rawReceipts.some((r) => r.id === a.id)) d.rawReceipts.push({ ...a, recordedAt: new Date().toISOString() }); },
+  adjustRaw(d, a) { if (!d.rawAdjustments.some((r) => r.id === a.id)) d.rawAdjustments.push({ ...a, recordedAt: new Date().toISOString() }); },
   // Moving, removing, or returning stock, as the database records it (record_stock)
   stock(d, a) {
     if (d.stockMoves.some((m) => m.groupId === a.p_id)) return;
@@ -832,6 +855,9 @@ function withWaitingChanges(base) {
   d.places ??= [];
   d.stockMoves ??= [];
   d.pars ??= [];
+  d.rawItems ??= [];
+  d.rawReceipts ??= [];
+  d.rawAdjustments ??= [];
   for (const change of outbox) SHOW[change.kind](d, change.args);
   return d;
 }
@@ -1926,6 +1952,21 @@ async function loadIntoBrewery(source, description) {
             count: c.count, unit_volume_bbl: c.unitVolumeBbl,
           }))));
         }
+        // Raw materials: items match the brewery's own by name (or are added), then receipts and counts
+        if (d.rawItems?.length) {
+          const current = await must(db.from("raw_items").select("id, name").eq("brewery_id", b));
+          for (const item of d.rawItems) {
+            const same = current.find((c) => sameName(c.name, item.name));
+            if (same) ids.set(item.id, same.id);
+            else await must(db.from("raw_items").insert({ id: idFor(item.id), brewery_id: b, name: item.name, kind: item.kind, unit: item.unit,
+              pack_name: item.packName || "", pack_size: item.packSize ?? null, reorder_level: item.reorderLevel ?? null, active: item.active }));
+          }
+          if (d.rawReceipts?.length) await must(db.from("raw_receipts").insert(d.rawReceipts.map((r) => ({ brewery_id: b, item_id: idFor(r.itemId),
+            received_on: r.receivedOn, lot: r.lot || "", amount: r.amount, supplier: r.supplier || "", cost: r.cost ?? null, notes: r.notes || "",
+            ...(r.recordedAt && { recorded_at: r.recordedAt }) }))));
+          if (d.rawAdjustments?.length) await must(db.from("raw_adjustments").insert(d.rawAdjustments.map((a) => ({ brewery_id: b, item_id: idFor(a.itemId),
+            lot: a.lot || "", adjusted_on: a.adjustedOn, change: a.change, reason: a.reason || "", ...(a.recordedAt && { recorded_at: a.recordedAt }) }))));
+        }
         if (d.pars?.length) {
           await must(db.from("stock_pars").insert(d.pars.map((p) => ({
             brewery_id: b, place_id: idFor(p.placeId), beer_id: idFor(p.beerId), par_bbl: p.parBbl ?? null, par_cases: p.parCases ?? null,
@@ -1991,6 +2032,7 @@ async function clearBrewery() {
   await db.from("tanks").delete().eq("brewery_id", b);
   await db.from("beers").delete().eq("brewery_id", b);
   await db.from("stock_places").delete().eq("brewery_id", b);
+  await db.from("raw_items").delete().eq("brewery_id", b); // their deliveries and counts go with them
   await db.from("locations").delete().eq("brewery_id", b);
 }
 
@@ -3307,6 +3349,7 @@ function renderInventory() {
     : `<p class="muted">Nothing on hand${inventoryPlace === "all" ? "" : " here"}. Packaging puts kegs and cases into stock; a count adds what's already on the shelf.</p>`;
 
   renderPars();
+  if (inventoryTab === "raw") renderRaw();
 
   // Recent: one line per action (a count sheet or a move is one action)
   const groups = new Map();
@@ -3350,7 +3393,7 @@ document.getElementById("inv-table").addEventListener("click", (e) => {
   if (openBeers.has(id)) openBeers.delete(id); else openBeers.add(id);
   renderInventory();
 });
-document.getElementById("open-inventory").addEventListener("click", () => { showView("inventory"); renderInventory(); });
+document.getElementById("open-inventory").addEventListener("click", () => { showView("inventory"); renderInventory(); showInventoryTab(); });
 
 // ----- A count sheet for one place -----
 const countDialog = document.getElementById("count-editor");
@@ -3664,6 +3707,221 @@ parsForm.addEventListener("submit", async (e) => {
   });
   if (ok) parsDialog.close();
 });
+
+// ----- Raw materials (Inventory, step 3) -----
+// On hand by lot = received - used on batches (additions with the item's name and lot) + count
+// corrections. Usage is read straight from the batches' additions, so fixing an addition fixes stock.
+const RAW_KINDS = { malt: "Malt / grain", adjunct: "Adjunct / sugar", salt: "Water salt / acid", hop: "Hops", finings: "Finings / nutrient",
+  yeast: "Yeast", chemical: "Chemical / cleaning", other: "Other" };
+const MASS_LB = { lb: 1, kg: 2.20462, oz: 1 / 16, g: 0.00220462 };
+const VOLUME_GAL = { gal: 1, l: 0.264172, ml: 0.000264172 };
+// An amount in another unit (lb ⇄ kg ⇄ oz ⇄ g, gal ⇄ L ⇄ mL); null if they don't mix (kg and gal)
+function convertAmount(amount, from, to) {
+  if (amount == null) return null;
+  if (from === to) return amount;
+  if (MASS_LB[from] && MASS_LB[to]) return amount * MASS_LB[from] / MASS_LB[to];
+  if (VOLUME_GAL[from] && VOLUME_GAL[to]) return amount * VOLUME_GAL[from] / VOLUME_GAL[to];
+  return null;
+}
+const sameName = (a, b) => a.trim().toLowerCase() === b.trim().toLowerCase();
+
+// Per lot of an item: { lot, received, used, adjusted, onHand, receivedOn, uses: [additions] }
+function rawLots(item) {
+  const lots = new Map();
+  const lot = (key) => {
+    if (!lots.has(key)) lots.set(key, { lot: key, received: 0, used: 0, adjusted: 0, receivedOn: null, uses: [] });
+    return lots.get(key);
+  };
+  for (const r of (data.rawReceipts || []).filter((x) => x.itemId === item.id)) {
+    const l = lot(r.lot.trim());
+    l.received += r.amount;
+    if (!l.receivedOn || r.receivedOn < l.receivedOn) l.receivedOn = r.receivedOn;
+  }
+  for (const a of (data.rawAdjustments || []).filter((x) => x.itemId === item.id)) lot(a.lot.trim()).adjusted += a.change;
+  for (const add of data.additions.filter((x) => sameName(x.name, item.name))) {
+    const used = convertAmount(add.amount, add.unit, item.unit);
+    const l = lot((add.lot || "").trim());
+    if (used != null) l.used += used;
+    l.uses.push(add);
+  }
+  return [...lots.values()].map((l) => ({ ...l, onHand: l.received - l.used + l.adjusted }))
+    .sort((a, b) => (a.receivedOn || "9").localeCompare(b.receivedOn || "9"));
+}
+// "687.5 lb (12.5 sacks)"
+function rawAmount(item, amount) {
+  const base = `${+amount.toFixed(2)} ${item.unit}`;
+  if (!item.packSize) return base;
+  const packs = +(amount / item.packSize).toFixed(1);
+  const name = item.packName || "pack";
+  const plural = packs === 1 ? name : /(s|x|z|ch|sh)$/i.test(name) ? `${name}es` : `${name}s`;
+  return `${base} (${packs} ${plural})`;
+}
+
+let rawOpen = new Set();
+function renderRaw() {
+  const items = (data.rawItems || []).filter((i) => i.active).sort((a, b) => a.kind.localeCompare(b.kind) || a.name.localeCompare(b.name));
+  document.getElementById("raw-list").innerHTML = items.map((item) => {
+    const lots = rawLots(item);
+    const onHand = lots.reduce((sum, l) => sum + l.onHand, 0);
+    const low = item.reorderLevel != null && onHand < item.reorderLevel;
+    const lotRows = rawOpen.has(item.id) ? lots.filter((l) => Math.abs(l.onHand) > 1e-6 || l.uses.length).map((l) => `
+      <div class="raw-lot"><div><strong>${l.lot ? `Lot ${esc(l.lot)}` : "No lot number"}</strong>
+        <span class="muted">${l.receivedOn ? `received ${formatDate(l.receivedOn)} · ` : (l.received ? "" : "no receipt recorded · ")}${esc(rawAmount(item, l.onHand))} on hand</span></div>
+        ${l.uses.length ? `<div class="muted">Used in ${[...new Set(l.uses.map((u) => u.batchId))].map(batchLink).join(", ")}</div>` : ""}</div>`).join("") : "";
+    return `<li class="item raw-item${low ? " under" : ""}" data-raw-item="${item.id}">
+      <div class="tank-row"><span><strong>${esc(item.name)}</strong> <span class="muted">${RAW_KINDS[item.kind]}</span></span>
+        <span>${esc(rawAmount(item, onHand))}</span></div>
+      ${low ? `<div class="restock">Below the reorder level (${esc(rawAmount(item, item.reorderLevel))})</div>` : ""}${lotRows}</li>`;
+  }).join("") || `<li class="item muted">No raw materials yet. Add items, then record what you receive.</li>`;
+}
+document.getElementById("raw-list").addEventListener("click", (e) => {
+  if (e.target.closest("[data-open-batch]")) return;
+  const row = e.target.closest("[data-raw-item]");
+  if (!row) return;
+  const id = row.dataset.rawItem;
+  if (rawOpen.has(id)) rawOpen.delete(id); else rawOpen.add(id);
+  renderRaw();
+});
+
+// Tabs: finished goods / raw materials
+let inventoryTab = "finished";
+document.getElementById("inv-tabs").addEventListener("click", (e) => {
+  const tab = e.target.closest("[data-inv-tab]");
+  if (!tab) return;
+  inventoryTab = tab.dataset.invTab;
+  showInventoryTab();
+});
+function showInventoryTab() {
+  document.querySelectorAll("#inv-tabs [data-inv-tab]").forEach((t) => t.setAttribute("aria-selected", t.dataset.invTab === inventoryTab));
+  document.getElementById("inv-finished").hidden = inventoryTab !== "finished";
+  document.getElementById("inv-raw").hidden = inventoryTab !== "raw";
+  if (inventoryTab === "raw") renderRaw();
+}
+
+// ----- Receiving -----
+const receiveDialog = document.getElementById("receive-editor");
+const receiveForm = document.getElementById("receive-form");
+const rawItemOptions = () => (data.rawItems || []).filter((i) => i.active).sort((a, b) => a.name.localeCompare(b.name))
+  .map((i) => `<option value="${i.id}">${esc(i.name)}</option>`).join("");
+function openReceive() {
+  if (!(data.rawItems || []).some((i) => i.active)) { alert("Add an item first (Items)."); return; }
+  receiveForm.reset();
+  receiveForm.itemId.innerHTML = rawItemOptions();
+  receiveForm.receivedOn.value = today();
+  fillReceiveUnits();
+  receiveDialog.showModal();
+}
+function fillReceiveUnits() {
+  const item = data.rawItems.find((i) => i.id === receiveForm.itemId.value);
+  receiveForm.unit.innerHTML = `<option value="unit">${item.unit}</option>` +
+    (item.packSize ? `<option value="pack">${esc(item.packName || "packs")} (${+item.packSize} ${item.unit})</option>` : "");
+  receiveForm.unit.value = item.packSize ? "pack" : "unit";
+  // Suppliers used before
+  document.getElementById("supplier-list").innerHTML = [...new Set((data.rawReceipts || []).map((r) => r.supplier).filter(Boolean))]
+    .map((s) => `<option value="${esc(s)}">`).join("");
+}
+receiveForm.itemId.addEventListener("change", fillReceiveUnits);
+receiveForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const item = data.rawItems.find((i) => i.id === receiveForm.itemId.value);
+  const amount = Number(receiveForm.amount.value) * (receiveForm.unit.value === "pack" ? item.packSize : 1);
+  const ok = await saveOrKeep("receiveRaw", {
+    id: newId(), breweryId: brewery.id, itemId: item.id, receivedOn: receiveForm.receivedOn.value, lot: receiveForm.lot.value.trim(),
+    amount, supplier: receiveForm.supplier.value.trim(), cost: receiveForm.cost.value === "" ? null : Number(receiveForm.cost.value),
+    notes: receiveForm.notes.value.trim(),
+  }, `Received ${rawAmount(item, amount)} of ${item.name}`);
+  if (ok) receiveDialog.close();
+});
+
+// ----- Counting a raw material -----
+const rawCountDialog = document.getElementById("raw-count-editor");
+const rawCountForm = document.getElementById("raw-count-form");
+function openRawCount() {
+  if (!(data.rawItems || []).some((i) => i.active)) { alert("Add an item first (Items)."); return; }
+  rawCountForm.reset();
+  rawCountForm.itemId.innerHTML = rawItemOptions();
+  rawCountForm.adjustedOn.value = today();
+  fillRawCountLots();
+  rawCountDialog.showModal();
+}
+function fillRawCountLots() {
+  const item = data.rawItems.find((i) => i.id === rawCountForm.itemId.value);
+  const lots = rawLots(item).filter((l) => Math.abs(l.onHand) > 1e-6 || l.received);
+  rawCountForm.lot.innerHTML = lots.map((l) => `<option value="${esc(l.lot)}">${l.lot ? `Lot ${esc(l.lot)}` : "No lot number"} (${esc(rawAmount(item, l.onHand))})</option>`).join("")
+    || `<option value="">No lot number</option>`;
+  document.getElementById("raw-count-unit").textContent = item.unit;
+  updateRawCountNote();
+}
+function updateRawCountNote() {
+  const item = data.rawItems.find((i) => i.id === rawCountForm.itemId.value);
+  const expected = rawLots(item).find((l) => l.lot === rawCountForm.lot.value)?.onHand ?? 0;
+  const actual = rawCountForm.actual.value === "" ? null : Number(rawCountForm.actual.value);
+  document.getElementById("raw-count-note").textContent = actual == null ? `Expected: ${rawAmount(item, expected)}.`
+    : `Expected ${rawAmount(item, expected)}; the difference (${actual - expected >= 0 ? "+" : "−"}${+Math.abs(actual - expected).toFixed(2)} ${item.unit}) is recorded.`;
+}
+rawCountForm.itemId.addEventListener("change", fillRawCountLots);
+rawCountForm.addEventListener("input", updateRawCountNote);
+rawCountForm.addEventListener("change", updateRawCountNote);
+rawCountForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const item = data.rawItems.find((i) => i.id === rawCountForm.itemId.value);
+  const expected = rawLots(item).find((l) => l.lot === rawCountForm.lot.value)?.onHand ?? 0;
+  const change = Number(rawCountForm.actual.value) - expected;
+  if (Math.abs(change) < 1e-9) { rawCountDialog.close(); return; }
+  const ok = await saveOrKeep("adjustRaw", {
+    id: newId(), breweryId: brewery.id, itemId: item.id, lot: rawCountForm.lot.value, adjustedOn: rawCountForm.adjustedOn.value,
+    change, reason: rawCountForm.reason.value.trim() || "count",
+  }, `Count of ${item.name}`);
+  if (ok) rawCountDialog.close();
+});
+
+// ----- Items -----
+const itemDialog = document.getElementById("raw-item-editor");
+const itemForm = document.getElementById("raw-item-form");
+let editingItem = null;
+function openItems() {
+  document.getElementById("raw-items").innerHTML = (data.rawItems || []).sort((a, b) => a.name.localeCompare(b.name)).map((i) => `
+    <li class="item"><button type="button" class="row" data-edit-item="${i.id}"><span>${esc(i.name)}${i.active ? "" : " (hidden)"}</span>
+      <span class="muted">${RAW_KINDS[i.kind]} · ${i.packSize ? `${esc(i.packName || "pack")} of ${+i.packSize} ${i.unit}` : i.unit}</span></button></li>`).join("");
+  editItem(null);
+  itemDialog.showModal();
+}
+function editItem(item) {
+  editingItem = item;
+  itemForm.reset();
+  document.getElementById("raw-item-save").textContent = item ? "Save item" : "Add item";
+  if (!item) return;
+  itemForm.name.value = item.name; itemForm.kind.value = item.kind; itemForm.unit.value = item.unit;
+  itemForm.packName.value = item.packName; itemForm.packSize.value = item.packSize ?? "";
+  itemForm.reorderLevel.value = item.reorderLevel ?? ""; itemForm.active.checked = item.active;
+}
+document.getElementById("raw-items").addEventListener("click", (e) => {
+  const row = e.target.closest("[data-edit-item]");
+  if (row) editItem(data.rawItems.find((i) => i.id === row.dataset.editItem));
+});
+itemForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const row = {
+    name: itemForm.name.value.trim(), kind: itemForm.kind.value, unit: itemForm.unit.value, pack_name: itemForm.packName.value.trim(),
+    pack_size: itemForm.packSize.value === "" ? null : Number(itemForm.packSize.value),
+    reorder_level: itemForm.reorderLevel.value === "" ? null : Number(itemForm.reorderLevel.value), active: itemForm.active.checked,
+  };
+  const ok = await save(() => editingItem
+    ? must(db.from("raw_items").update(row).eq("id", editingItem.id))
+    : must(db.from("raw_items").insert({ brewery_id: brewery.id, ...row })));
+  if (ok) openItems();
+});
+document.getElementById("raw-receive").addEventListener("click", openReceive);
+document.getElementById("raw-count").addEventListener("click", openRawCount);
+document.getElementById("raw-items-open").addEventListener("click", openItems);
+
+// Ingredient form: suggest raw material names, and lots of that item that are on hand
+function suggestLots() {
+  const item = (data.rawItems || []).find((i) => sameName(i.name, additionForm.name.value));
+  document.getElementById("addition-lots").innerHTML = item
+    ? rawLots(item).filter((l) => l.lot && l.onHand > 1e-6).map((l) => `<option value="${esc(l.lot)}">${esc(rawAmount(item, l.onHand))} on hand</option>`).join("")
+    : "";
+}
 
 // ----- Stock places (Settings → Equipment) -----
 function renderPlaces() {
@@ -4543,7 +4801,7 @@ function openAdditionEditor(addition, { brewDay = false, turn = null } = {}) {
   additionForm.turn.value = String(addition ? addition.turn ?? "" : turn ?? "");
   document.getElementById("addition-turn-field").hidden = !additionBrewDay || b.turns < 2;
   // Suggest names used before
-  const names = [...new Set(data.additions.map((a) => a.name))].sort();
+  const names = [...new Set([...data.additions.map((a) => a.name), ...(data.rawItems || []).filter((i) => i.active).map((i) => i.name)])].sort();
   document.getElementById("addition-names").innerHTML = names.map((n) => `<option value="${esc(n)}">`).join("");
   additionForm.addedOn.value = addition?.addedOn ?? (additionBrewDay ? b.brewDate || today() : today());
   additionForm.kind.value = addition?.kind ?? (additionBrewDay ? "malt" : "hop");
@@ -4554,9 +4812,11 @@ function openAdditionEditor(addition, { brewDay = false, turn = null } = {}) {
   additionForm.lot.value = addition?.lot ?? "";
   additionForm.notes.value = addition?.notes ?? "";
   document.getElementById("delete-addition").hidden = !addition;
+  suggestLots();
   additionDialog.showModal();
 }
 document.getElementById("bv-add").addEventListener("click", () => openAdditionEditor(null));
+additionForm.name.addEventListener("input", suggestLots); // lots of that raw material that are on hand
 document.getElementById("bv-additions").addEventListener("click", (e) => {
   const row = e.target.closest("[data-addition]");
   if (row && can("cellar_log")) openAdditionEditor(data.additions.find((a) => a.id === row.dataset.addition));

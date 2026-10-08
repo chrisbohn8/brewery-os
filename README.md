@@ -137,6 +137,13 @@ These shape every decision, even for features that come later:
 - Everything works offline, and a new permission, **"Count and move finished goods"**, is part of Cellar and up by default.
 - **Pars** (step 2): how much of each beer a place should have, in barrels and/or cases (a taproom's pars), plus a **brewery-wide par** per beer. Each place shows **over / under**, and what to **bring up** ("Bring up 3 × ½ bbl keg from Storage", one tap fills in the move). A taproom also shows what's **on deck**: beers in storage that aren't there yet.
 
+### Raw materials (Phase 6, step 3)
+- **Inventory → Raw materials:** items (malt, hops, salts, yeast, chemicals...) with a unit, a pack (a 55 lb sack, a 44 lb box), and a reorder level.
+- **Receive** a delivery by lot, in packs or the item's unit, with the supplier and (optionally) the cost.
+- **Used up automatically:** brew-day ingredients and cellar additions with the item's name and lot count against it (lb, kg, oz, and g convert; so do gal, L, and mL). Nothing extra to enter, and fixing an addition fixes the stock.
+- **Count** an item's lot to correct what's on the shelf, with a reason.
+- **Low stock** shows below the reorder level. **Traceability:** each lot lists the batches that used it, and the ingredient form suggests the lots on hand.
+
 ### Splits and blends (moving beer, step 4)
 - **"Split / blend…"** on a batch page makes a **new batch** from part or all of this one, and optionally other batches (a blend). Each part is its own batch, with its own stage, additions, and packaging, so a tank always holds one batch.
 - A source keeps what's left in its tank, unless it's **all used**: then what's left is a loss, the source becomes **"Used in another batch"** (out of its tank, not packaged), and its tank goes to cleaning. A blend can go into one of its sources' own tanks if that source is all used.
@@ -355,7 +362,7 @@ The shared database (Phase 3) was pulled ahead of the brew log: real crews can o
 2. ~~Keep the data safe~~: nightly backups are running and a restore has been rehearsed. **Supabase's paid plan before real records** (decided).
 3. ~~Brew log~~ (done, Phase 2).
 4. ~~Moving beer and packaging~~ (done, Phase 5).
-5. **Inventory** (Phase 6, [design](docs/inventory-design.md)): ~~finished goods~~, ~~pars, restocking, and "on deck"~~ (done); next raw materials, then keg tracking.
+5. **Inventory** (Phase 6, [design](docs/inventory-design.md)): ~~finished goods~~, ~~pars, restocking, and "on deck"~~, ~~raw materials~~ (done); next keg tracking (optional).
 6. **API, import, and export** (Phase 6½, below).
 7. TTB reporting (Phase 7), and the rest in order; **onboarding last** (Phase 11).
 
@@ -465,7 +472,7 @@ Beer is tracked by **volume, not just location**: a batch has barrels in places,
 - [x] **Finished goods:** stock places, packaging into stock, count sheets, moves, removals by kind (oldest batch first), opening counts, and optional required reasons.
 - [x] **Pars, restocking, and "on deck"** (from the review of a real inventory workbook).
 - [ ] **Keg tracking:** which kegs are full, empty, or out at accounts.
-- [ ] **Raw materials:** malt, hops, yeast, and chemicals on hand, used up by batches as they're brewed.
+- [x] **Raw materials:** items, deliveries by lot, used up automatically by batches' ingredients, counts, low stock, and lot traceability.
 
 ### Phase 6½: API, import, and export
 The user's idea (API-first): outside tools and AI agents read and write through the same endpoints the app uses, spreadsheets come in with a one-shot import, and everything can go out again. "Nobody adopts software they can't leave."

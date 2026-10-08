@@ -109,6 +109,11 @@
 
   <!-- ===== Inventory: finished kegs and cases on hand, by place ===== -->
   <div id="inventory-view" hidden>
+  <div id="inv-tabs" class="turn-tabs inv-tabs" role="tablist">
+    <button type="button" role="tab" data-inv-tab="finished" aria-selected="true">Finished goods</button>
+    <button type="button" role="tab" data-inv-tab="raw" aria-selected="false">Raw materials</button>
+  </div>
+  <div id="inv-finished">
   <section class="list-section">
     <div class="actions wrap">
       <button id="inv-count" class="btn primary" data-needs="inventory">Count a place</button>
@@ -125,6 +130,18 @@
     <h2>Recent</h2>
     <ul id="inv-recent" class="plain log-list"></ul>
   </section>
+  </div>
+  <div id="inv-raw" hidden>
+  <section class="list-section">
+    <div class="actions wrap">
+      <button id="raw-receive" class="btn primary" data-needs="inventory">Receive</button>
+      <button id="raw-count" class="btn" data-needs="inventory">Count</button>
+      <button id="raw-items-open" class="btn" data-needs="inventory">Items</button>
+    </div>
+    <p class="muted">On hand = received − used on batches (ingredients and additions with the same name and lot) ± counts. Tap an item for its lots and the batches that used them.</p>
+    <ul id="raw-list" class="plain log-list"></ul>
+  </section>
+  </div>
   </div>
 
   <!-- ===== One batch: its cellar log, additions, and history (tap a full tank) ===== -->
@@ -736,7 +753,8 @@
           <datalist id="addition-timings"></datalist>
         </label>
         <label>Lot number
-          <input name="lot">
+          <input name="lot" list="addition-lots">
+          <datalist id="addition-lots"></datalist>
         </label>
       </div>
       <label id="addition-turn-field">Turn
@@ -851,6 +869,74 @@
         <button type="button" class="btn cancel">Cancel</button>
         <button type="submit" class="btn primary">Save count</button>
       </div>
+    </form>
+  </dialog>
+
+  <!-- Raw materials: receiving, counting, and items -->
+  <dialog id="receive-editor">
+    <form id="receive-form">
+      <h2 tabindex="-1" autofocus>Receive</h2>
+      <div class="two-col">
+        <label>Item <select name="itemId"></select></label>
+        <label>Date <input name="receivedOn" type="date" required></label>
+      </div>
+      <div class="two-col">
+        <label>How much <input name="amount" type="number" min="0" step="any" inputmode="decimal" required></label>
+        <label>In <select name="unit"></select></label>
+      </div>
+      <div class="two-col">
+        <label>Lot number <input name="lot" maxlength="80"></label>
+        <label>Supplier <input name="supplier" list="supplier-list" maxlength="120"><datalist id="supplier-list"></datalist></label>
+      </div>
+      <label>Cost (optional, for the whole delivery) <input name="cost" type="number" min="0" step="any" inputmode="decimal"></label>
+      <label>Notes <input name="notes" maxlength="500"></label>
+      <div class="actions"><span class="spacer"></span>
+        <button type="button" class="btn cancel">Cancel</button><button type="submit" class="btn primary">Save</button></div>
+    </form>
+  </dialog>
+  <dialog id="raw-count-editor">
+    <form id="raw-count-form">
+      <h2 tabindex="-1" autofocus>Count a raw material</h2>
+      <div class="two-col">
+        <label>Item <select name="itemId"></select></label>
+        <label>Lot <select name="lot"></select></label>
+      </div>
+      <div class="two-col">
+        <label><span>Actually there (<span id="raw-count-unit"></span>)</span> <input name="actual" type="number" min="0" step="any" inputmode="decimal" required></label>
+        <label>Date <input name="adjustedOn" type="date" required></label>
+      </div>
+      <label>Reason <input name="reason" maxlength="500" placeholder="Like: monthly count, torn sack"></label>
+      <p id="raw-count-note" class="muted"></p>
+      <div class="actions"><span class="spacer"></span>
+        <button type="button" class="btn cancel">Cancel</button><button type="submit" class="btn primary">Save</button></div>
+    </form>
+  </dialog>
+  <dialog id="raw-item-editor" class="wide">
+    <form id="raw-item-form">
+      <h2 tabindex="-1" autofocus>Raw material items</h2>
+      <p class="muted">The name is what's typed as an ingredient on brew day, so usage is counted automatically.</p>
+      <ul id="raw-items" class="plain"></ul>
+      <h3>Item</h3>
+      <div class="two-col">
+        <label>Name <input name="name" required maxlength="120" placeholder="Like: Pilsner malt"></label>
+        <label>Kind <select name="kind">
+          <option value="malt">Malt / grain</option><option value="adjunct">Adjunct / sugar</option><option value="salt">Water salt / acid</option>
+          <option value="hop">Hops</option><option value="finings">Finings / nutrient</option><option value="yeast">Yeast</option>
+          <option value="chemical">Chemical / cleaning</option><option value="other">Other</option></select></label>
+      </div>
+      <div class="two-col">
+        <label>Unit <select name="unit">
+          <option value="lb">lb</option><option value="kg">kg</option><option value="oz">oz</option><option value="g">g</option>
+          <option value="gal">gal</option><option value="l">L</option><option value="ml">mL</option><option value="each">each</option></select></label>
+        <label>Reorder below (in that unit) <input name="reorderLevel" type="number" min="0" step="any" inputmode="decimal"></label>
+      </div>
+      <div class="two-col">
+        <label>Pack name <input name="packName" maxlength="40" placeholder="Like: sack, box"></label>
+        <label>Pack size (in that unit) <input name="packSize" type="number" min="0" step="any" inputmode="decimal" placeholder="Like: 55"></label>
+      </div>
+      <label class="choice"><input type="checkbox" name="active" checked> In use</label>
+      <div class="actions"><span class="spacer"></span>
+        <button type="button" class="btn cancel">Close</button><button type="submit" class="btn primary" id="raw-item-save">Add item</button></div>
     </form>
   </dialog>
 

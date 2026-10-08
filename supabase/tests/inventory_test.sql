@@ -7,7 +7,7 @@ set local role postgres;
 create extension if not exists pgtap with schema extensions;
 set search_path = public, extensions;
 
-select plan(21);
+select plan(24);
 
 insert into auth.users (id, email) values
   ('00000000-0000-0000-0000-0000000000aa', 'admin@example.test'),
@@ -88,6 +88,18 @@ select throws_ok($$ insert into stock_pars (brewery_id, place_id, beer_id, par_b
   '23505', null, 'one brewery-wide par per beer');
 select throws_ok($$ insert into stock_pars (brewery_id, place_id, beer_id) select b, null, 'aa000000-0000-0000-0000-0000000000bf' from ids $$,
   '23514', null, 'a par needs barrels or cases');
+
+-- 5c. Raw materials: an item, a receipt by lot, and a count correction
+insert into raw_items (id, brewery_id, name, kind, unit, pack_name, pack_size, reorder_level)
+select 'aa000000-0000-0000-0000-0000000000d1', b, 'Pilsner malt', 'malt', 'lb', 'sack', 55, 550 from ids;
+insert into raw_receipts (brewery_id, item_id, received_on, lot, amount, supplier, cost)
+select b, 'aa000000-0000-0000-0000-0000000000d1', '2026-10-01', 'PM-778', 2200, 'Maltster', 1100 from ids;
+insert into raw_adjustments (brewery_id, item_id, lot, adjusted_on, change, reason)
+select b, 'aa000000-0000-0000-0000-0000000000d1', 'PM-778', '2026-10-20', -55, 'torn sack' from ids;
+select is((select sum(amount) from raw_receipts) + (select sum(change) from raw_adjustments), 2145::numeric, 'received 40 sacks, one torn');
+select throws_ok($$ insert into raw_items (brewery_id, name) select b, 'PILSNER MALT' from ids $$, '23505', null, 'item names are unique (any capitals)');
+update raw_adjustments set change = 1;
+select is((select change from raw_adjustments), -55::numeric, 'counts can''t be edited');
 
 -- 6. A brewery that asks for a reason on every stock change
 update breweries set require_stock_reason = true, stock_reasons = array['Stocked the taproom', 'Dock sale'];

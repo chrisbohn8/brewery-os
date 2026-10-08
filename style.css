@@ -561,3 +561,10 @@ dialog.wide { max-width: 720px; width: calc(100vw - 32px); }
 #reasons-form textarea { font: inherit; font-size: 16px; padding: 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--card); color: var(--text); width: 100%; }
 .par-row.under strong { color: var(--acid-due); }
 .par-row .restock { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 4px; font-size: 0.9rem; }
+.inv-tabs { max-width: 1100px; margin: 0 auto 12px; padding: 0 16px; }
+.raw-item .restock { color: var(--acid-due); font-size: 0.85rem; }
+.raw-item { cursor: pointer; }
+.raw-item.under strong { color: var(--acid-due); }
+.raw-lot { margin: 8px 0 0 10px; padding-left: 10px; border-left: 3px solid var(--border); font-size: 0.9rem; }
+#raw-item-editor label.choice { display: flex; gap: 8px; align-items: center; color: var(--text); margin: 8px 0; }
+#raw-item-editor label.choice input { width: 22px; height: 22px; }

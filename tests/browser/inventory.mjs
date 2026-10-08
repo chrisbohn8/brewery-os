@@ -229,6 +229,66 @@ try {
   check((await text("#inv-pars")).includes(`Inv Ale ${run}`) && (await text("#inv-pars")).includes("of 20 bbl"), "the brewery-wide par is shown against all places");
   check(await page.isHidden("#inv-deck"), "no 'on deck' for all places");
   await page.screenshot({ path: SHOTS + "inventory.png" });
+
+  console.log("10. Raw materials: an item, a delivery, use on a batch, a count, and traceability");
+  await page.click('#inv-tabs [data-inv-tab="raw"]');
+  await page.click("#raw-items-open");
+  await page.waitForSelector("#raw-item-editor[open]");
+  const malt = `Pils malt ${run}`;
+  await page.fill('#raw-item-form [name="name"]', malt);
+  await page.selectOption('#raw-item-form [name="kind"]', "malt");
+  await page.selectOption('#raw-item-form [name="unit"]', "lb");
+  await page.fill('#raw-item-form [name="packName"]', "sack");
+  await page.fill('#raw-item-form [name="packSize"]', "55");
+  await page.fill('#raw-item-form [name="reorderLevel"]', "1000");
+  await page.click("#raw-item-save");
+  await allSent();
+  await page.click("#raw-item-editor .cancel");
+  await page.click("#raw-receive");
+  await page.waitForSelector("#receive-editor[open]");
+  await page.selectOption('#receive-form [name="itemId"]', { label: malt });
+  check((await page.inputValue('#receive-form [name="unit"]')) === "pack", "a delivery is entered in sacks by default");
+  await page.fill('#receive-form [name="amount"]', "20");
+  await page.fill('#receive-form [name="lot"]', `L-${run}`);
+  await page.fill('#receive-form [name="supplier"]', "Maltster");
+  await page.click("#receive-form button[type=submit]");
+  await allSent();
+  const itemRow = async () => text(`[data-raw-item="${await page.evaluate((n) => data.rawItems.find((i) => i.name === n).id, malt)}"]`);
+  check((await itemRow()).includes("1100 lb (20 sacks)"), `20 sacks received: "${await itemRow()}"`);
+  check((await itemRow()).includes("Below the reorder level") === false, "above the reorder level");
+  // Use 900 lb on the batch's brew day, as an ingredient with that lot
+  await floor(page);
+  await page.click(`.card[data-tank="${tankId}"]`).catch(() => {});
+  const used = await page.evaluate(async ([name, lot, batchName]) => {
+    const batch = data.batches.find((b) => b.batchNumber === batchName);
+    await db.from("batch_additions").insert({ brewery_id: brewery.id, batch_id: batch.id, added_on: today(), kind: "malt", name,
+      amount: 900, unit: "lb", timing: "Mash", lot, brew_day: true });
+    await refresh();
+    return batch.id;
+  }, [malt, `L-${run}`, `I${run}`]);
+  await inventory();
+  await page.click('#inv-tabs [data-inv-tab="raw"]');
+  check((await itemRow()).includes("200 lb") && (await itemRow()).includes("Below the reorder level"), `used on brew day: "${await itemRow()}"`);
+  await page.click(`[data-raw-item="${await page.evaluate((n) => data.rawItems.find((i) => i.name === n).id, malt)}"]`);
+  check((await itemRow()).includes(`Lot L-${run}`) && (await itemRow()).includes(`Used in #I${run}`), "the lot shows the batch that used it");
+  await page.click("#raw-count");
+  await page.waitForSelector("#raw-count-editor[open]");
+  await page.selectOption('#raw-count-form [name="itemId"]', { label: malt });
+  await page.fill('#raw-count-form [name="actual"]', "165");
+  check((await text("#raw-count-note")).includes("−35 lb"), `count note: "${await text("#raw-count-note")}"`);
+  await page.fill('#raw-count-form [name="reason"]', "spilled");
+  await page.click("#raw-count-form button[type=submit]");
+  await allSent();
+  check((await itemRow()).includes("165 lb (3 sacks)"), `after the count: "${await itemRow()}"`);
+  await page.screenshot({ path: SHOTS + "raw.png" });
+  // The ingredient form offers the lot that's on hand
+  await page.evaluate((id) => openBatchView(id), used);
+  await page.click("#bv-add");
+  await page.waitForSelector("#addition-editor[open]");
+  await page.fill('#addition-form [name="name"]', malt);
+  await page.dispatchEvent('#addition-form [name="name"]', "input");
+  check((await page.evaluate(() => [...document.querySelectorAll("#addition-lots option")].map((o) => o.value))).includes(`L-${run}`), "the ingredient form suggests the lot on hand");
+  await page.keyboard.press("Escape");
   await page.evaluate((id) => db.from("stock_places").update({ active: false }).eq("id", id), taproom); // tidy up: hide this run's taproom
   check(errors.length === 0, `no page errors (${errors.join("; ")})`);
 } catch (e) {
