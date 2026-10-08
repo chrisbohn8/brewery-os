@@ -1,6 +1,7 @@
 // The planning calendar: a beer's schedule; planning a brew in a tank lays out its expected steps;
 // a second brew in the same tank too soon is a clash, shown before it happens; moving an item,
-// ticking it done, someday plans, and deleting. Real Chrome against the local test copy.
+// ticking it done, someday plans, and deleting; a batch behind its schedule shows its late step,
+// and "push the rest back" moves its steps (asking first if that clashes). Real Chrome, local test copy.
 import { chromium } from "playwright-core";
 import { floor, onDialog } from "./helpers.mjs";
 
@@ -17,7 +18,14 @@ const browser = await chromium.launch({ executablePath: "/Applications/Google Ch
 const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
 const page = await context.newPage();
 const errors = [];
-await onDialog(page, (d) => d.accept());
+const asked = [];
+let pushDays = null, refuseClash = false;
+await onDialog(page, (d) => {
+  asked.push(d.message());
+  if (d.type() === "prompt" && pushDays) return d.accept(pushDays);
+  if (/clashes with/.test(d.message()) && refuseClash) return d.dismiss();
+  return d.accept();
+});
 page.on("pageerror", (e) => errors.push(e.message));
 const settle = () => page.waitForFunction(() => !busy && !sending && !reloading);
 const plusDays = (n) => page.evaluate((k) => addDays(today(), k), n);
@@ -160,14 +168,62 @@ try {
   check(true, "seven days");
   await page.screenshot({ path: SHOTS + "calendar-computer.png" });
 
+  console.log("9. A batch behind its schedule: its late step, and pushing the rest back");
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.click("#cal-today");
+  const TANK2 = `C2-${run}`;
+  const batch = await page.evaluate(async ([tank, beerId]) => {
+    const tankId = newId(), batchId = newId();
+    await save(async () => {
+      await must(db.from("tanks").insert({ id: tankId, brewery_id: brewery.id, name: tank, capacity_bbl: 10, location_id: data.locations[0].id }));
+      await must(db.rpc("save_batch", { p_id: batchId, p_brewery_id: brewery.id, p_batch_number: `CB-${tank}`, p_beer_id: beerId,
+        p_brew_date: addDays(today(), -8), p_size_bbl: 7, p_stage: "fermenting", p_stage_started_on: addDays(today(), -8),
+        p_tank_id: tankId, p_action_date: today(), p_volume_bbl: null }));
+      // a brew planned in the same tank in 10 days (the batch's packaging is expected in 4)
+      await must(db.from("plan_items").insert({ brewery_id: brewery.id, kind: "brew", planned_on: addDays(today(), 10), tank_id: tankId, beer_id: beerId }));
+    });
+    return { tankId, batchId };
+  }, [TANK2, ids.beerId]);
+  const t0 = await plusDays(0);
+  let late = (await chips()).find((c) => c.tank === batch.tankId && c.cls.includes("late"));
+  check(late?.date === t0 && late.text.startsWith(`Dry hop: ${BEER} · late`), `its dry hop (due 3 days ago) shows on today, late: "${late?.text}"`);
+  pushDays = null; // take the suggested number: the days it's behind
+  await page.click(`[data-late-batch="${batch.batchId}"]`);
+  await page.waitForFunction((id) => data.shifts[id] === 3, batch.batchId, { timeout: 10000 }).catch(() => {});
+  const question = asked.find((m) => m.includes("behind its schedule")) || "";
+  check(question.includes("3 days behind its schedule (dry hop was due") && await page.evaluate((id) => data.shifts[id], batch.batchId) === 3,
+    `"Push" suggests the days it's behind, and pushes: "${question.split("\n")[0]}"`);
+  check(asked.some((m) => m.startsWith("Pushed ") && m.includes("back 3 days")), "and says so");
+  const dry = (await chips()).find((c) => c.tank === batch.tankId && c.text === `Dry hop: ${BEER}`);
+  check(dry?.date === t0 && dry.cls.includes("expected") && !dry.cls.includes("late"), "its dry hop is now expected today, not late");
+  check(!(await page.evaluate((t) => data.planItems.filter((p) => p.tankId === t).map(planClash).join(""), batch.tankId)),
+    "the brew planned in its tank still fits");
+
+  // Mark it dry hopped (the records say so): the step is done; then push 5 more: that would clash, and it asks
+  await page.evaluate(async (id) => {
+    const b = data.batches.find((x) => x.id === id);
+    await save(() => must(db.rpc("save_batch", { p_id: b.id, p_brewery_id: brewery.id, p_batch_number: b.batchNumber, p_beer_id: b.beerId,
+      p_brew_date: b.brewDate, p_size_bbl: b.sizeBbl, p_stage: "dry-hopping", p_stage_started_on: today(), p_tank_id: b.tankId,
+      p_action_date: today(), p_volume_bbl: null })));
+  }, batch.batchId);
+  check(!(await chips()).some((c) => c.tank === batch.tankId && c.text.startsWith("Dry hop")), "once it's dry hopping, the dry hop step is done");
+  pushDays = "5";
+  refuseClash = true;
+  await page.evaluate((id) => pushBatch(data.batches.find((b) => b.id === id)), batch.batchId);
+  check(asked.at(-1)?.includes("clashes with what's planned") && asked.at(-1).includes("still has"), `a push that clashes asks first: "${asked.at(-1)?.split("\n")[0]}"`);
+  check(await page.evaluate((id) => data.shifts[id], batch.batchId) === 3, "and saying no leaves it as it was");
+  pushDays = null;
+  refuseClash = false;
+
   // Clean up
-  await page.evaluate(async ([t, b]) => {
+  await page.evaluate(async ([t, t2, b, batchId]) => {
     await save(async () => {
       await must(db.from("plan_items").delete().eq("beer_id", b));
-      await must(db.from("tanks").delete().eq("id", t));
+      await must(db.from("batches").delete().eq("id", batchId));
+      await must(db.from("tanks").delete().in("id", [t, t2]));
       await must(db.from("beers").delete().eq("id", b));
     });
-  }, [ids.tankId, ids.beerId]);
+  }, [ids.tankId, batch.tankId, ids.beerId, batch.batchId]);
   await floor(page).catch(() => {});
   check(errors.length === 0, `no page errors (${errors.join("; ")})`);
 } catch (e) {

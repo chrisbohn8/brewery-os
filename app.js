@@ -456,7 +456,7 @@ async function loadAll() {
   // Bring the alerts up to date first, so the list below is current (a gravity just logged clears
   // its alert right away). A failed check never stops the data loading; the server checks too.
   await db.rpc("check_alerts", { p_brewery_id: b }).then(() => {}, () => {});
-  const [locations, beers, tanks, batches, events, cleanings, settings, members, invites, permissions, memberRows, levels, cellar, additions, readings, movements, packageTypes, packageCounts, places, stockMoves, pars, rawItems, rawReceipts, rawAdjustments, lines, inventoryViews, recipes, recipeIngredientRows, alertRules, alerts, planItems, schedules] = await Promise.all([
+  const [locations, beers, tanks, batches, events, cleanings, settings, members, invites, permissions, memberRows, levels, cellar, additions, readings, movements, packageTypes, packageCounts, places, stockMoves, pars, rawItems, rawReceipts, rawAdjustments, lines, inventoryViews, recipes, recipeIngredientRows, alertRules, alerts, planItems, schedules, shifts] = await Promise.all([
     must(db.from("locations").select("*").eq("brewery_id", b).order("created_at")),
     must(db.from("beers").select("*").eq("brewery_id", b)),
     must(db.from("tanks").select("*").eq("brewery_id", b).order("created_at")),
@@ -490,6 +490,7 @@ async function loadAll() {
     must(db.from("alerts").select("*").eq("brewery_id", b).is("resolved_at", null).order("opened_at")),
     must(db.from("plan_items").select("*").eq("brewery_id", b).order("planned_on").order("created_at")),
     must(db.from("beer_schedules").select("beer_id, steps").eq("brewery_id", b)),
+    must(db.from("plan_shifts").select("batch_id, days").eq("brewery_id", b)),
   ]);
   // Each member: email and level (from brewery_members) plus their personal adjustments
   const adjustments = Object.fromEntries(memberRows.map((r) => [r.user_id, r]));
@@ -564,6 +565,7 @@ async function loadAll() {
     planItems: planItems.map((i) => ({ id: i.id, kind: i.kind, title: i.title, plannedOn: i.planned_on, someday: i.someday,
       tankId: i.tank_id, beerId: i.beer_id, batchId: i.batch_id, notes: i.notes, doneAt: i.done_at })),
     schedules: Object.fromEntries(schedules.map((s) => [s.beer_id, s.steps || []])),
+    shifts: Object.fromEntries(shifts.map((s) => [s.batch_id, s.days])), // days a batch's schedule was pushed back
     recipes: recipes.map((r) => ({ id: r.id, beerId: r.beer_id, locationId: r.location_id, name: r.name, batchSizeBbl: num(r.batch_size_bbl),
       targetOg: num(r.target_og), targetFg: num(r.target_fg), ibu: num(r.ibu), notes: r.notes, source: r.source })),
     recipeIngredients: recipeIngredientRows.map((i) => ({ id: i.id, recipeId: i.recipe_id, position: i.position, kind: i.kind, name: i.name,
@@ -1043,6 +1045,7 @@ function withWaitingChanges(base) {
   d.recipeIngredients ??= [];
   d.planItems ??= [];
   d.schedules ??= {};
+  d.shifts ??= {};
   for (const change of outbox) SHOW[change.kind](d, change.args);
   return d;
 }
@@ -2204,6 +2207,7 @@ async function loadIntoBrewery(source, description) {
       someday: p.someday || "", tank_id: idFor(p.tankId), beer_id: idFor(p.beerId), batch_id: idFor(p.batchId), notes: p.notes || "",
       done_at: p.doneAt ?? null })));
     insert("beer_schedules", Object.entries(d.schedules || {}).map(([beerId, steps]) => ({ beer_id: idFor(beerId), steps })));
+    insert("plan_shifts", Object.entries(d.shifts || {}).map(([batchId, days]) => ({ batch_id: idFor(batchId), days })));
   }
   // The brew sheet's setup and units (an admin setting; skipped quietly for anyone else)
   if (can("manage_settings") && (d.prefs || d.sheetFields || d.sheetCustomFields?.length)) {
@@ -6328,7 +6332,23 @@ function brewedFor(p) {
 }
 const planDone = (p) => !!p.doneAt || !!brewedFor(p);
 
-// Expected items, from today on: each beer's schedule after a planned brew, and for batches in tanks
+// Has a batch already done this step of its schedule? Told from its records where they say: dry
+// hopped (the stage, or a dry hop addition), crashed (conditioning or later), carbonating, moved
+// out of its first tank, packaged. Null where the records can't tell (a diacetyl rest, a yeast harvest).
+function stepReached(b, kind) {
+  const at = (stage) => STAGES.findIndex((s) => s.id === b.stage) >= STAGES.findIndex((s) => s.id === stage);
+  if (kind === "dry_hop") return at("dry-hopping") || data.additions.some((a) => a.batchId === b.id && /^dry hop/i.test(a.timing || ""));
+  if (kind === "crash") return at("conditioning");
+  if (kind === "carbonate") return at("carbonating");
+  if (kind === "transfer") return new Set(data.events.filter((e) => e.batchId === b.id && e.tankId).map((e) => e.tankId)).size > 1;
+  if (kind === "package") return !isInTank(b);
+  return null;
+}
+const shiftOf = (batchId) => (data.shifts || {})[batchId] || 0;
+
+// Expected items: each beer's schedule after a planned brew, and for batches in tanks (moved by any
+// push). From today on; a step that's past, not done, and that the records can tell about is "late",
+// and shows on today.
 function expectedItems() {
   const out = [];
   const t0 = today();
@@ -6342,10 +6362,12 @@ function expectedItems() {
   for (const b of data.batches) {
     if (!isInTank(b) || !b.brewDate) continue;
     for (const s of scheduleOf(b.beerId)) {
-      const date = addDays(b.brewDate, s.day);
-      if (date < t0) continue;
+      const date = addDays(b.brewDate, s.day + shiftOf(b.id));
       if ((data.planItems || []).some((p) => p.batchId === b.id && p.kind === s.kind)) continue; // planned by hand instead
-      out.push({ kind: s.kind, date, tankId: b.tankId, beerId: b.beerId, batchId: b.id });
+      const reached = stepReached(b, s.kind);
+      if (reached) continue;
+      if (date >= t0) out.push({ kind: s.kind, date, tankId: b.tankId, beerId: b.beerId, batchId: b.id });
+      else if (reached === false) out.push({ kind: s.kind, date: t0, due: date, late: true, tankId: b.tankId, beerId: b.beerId, batchId: b.id });
     }
   }
   return out;
@@ -6360,7 +6382,7 @@ function leaveDate(beerId, startDate, tankId, batchId) {
     .map((p) => p.plannedOn).sort()[0];
   if (planned) return planned;
   const step = scheduleOf(beerId).filter((s) => LEAVES_TANK.includes(s.kind)).sort((a, b) => a.day - b.day)[0];
-  return step ? addDays(startDate, step.day) : null;
+  return step ? addDays(startDate, step.day + (batchId ? shiftOf(batchId) : 0)) : null;
 }
 
 // Why a planned brew can't go where it's planned, or "" if it can (shown before it happens)
@@ -6416,13 +6438,19 @@ function renderCalendar() {
 
   const planChip = (p) => {
     const clash = planClash(p);
-    return `<button type="button" class="cal-chip${p.kind === "brew" ? " brew" : ""}${planDone(p) ? " done" : ""}${clash ? " clash" : ""}"
-      data-plan="${p.id}" title="${esc(clash || planText(p))}">${esc(planText(p))}${clash ? " ⚠" : ""}</button>`;
+    const late = p.plannedOn && p.plannedOn < t0 && !planDone(p);
+    return `<button type="button" class="cal-chip${p.kind === "brew" ? " brew" : ""}${planDone(p) ? " done" : ""}${clash ? " clash" : ""}${late ? " late" : ""}"
+      data-plan="${p.id}" title="${esc(clash || planText(p))}">${esc(planText(p))}${late ? ` · late (${formatDate(p.plannedOn)})` : ""}${clash ? " ⚠" : ""}</button>`;
   };
-  const expectedChip = (e) => `<button type="button" class="cal-chip expected" ${e.batchId ? `data-expected-batch="${e.batchId}"` : `data-plan="${e.planId}"`}
-      title="Expected, from the beer's schedule">${esc(labelFrom(PLAN_KINDS, e.kind))}: ${esc(findBeer(e.beerId)?.name || "")}</button>`;
+  const expectedChip = (e) => e.late
+    ? `<button type="button" class="cal-chip expected late" data-late-batch="${e.batchId}"
+        title="Late: due ${formatDate(e.due)}. Tap to push the rest back.">${esc(labelFrom(PLAN_KINDS, e.kind))}: ${esc(findBeer(e.beerId)?.name || "")} · late (${formatDate(e.due)})</button>`
+    : `<button type="button" class="cal-chip expected" ${e.batchId ? `data-expected-batch="${e.batchId}"` : `data-plan="${e.planId}"`}
+        title="Expected, from the beer's schedule">${esc(labelFrom(PLAN_KINDS, e.kind))}: ${esc(findBeer(e.beerId)?.name || "")}</button>`;
+  // A planned item left undone in the past shows on today, marked late, so nothing quietly drops off
+  const isLate = (p) => p.plannedOn && p.plannedOn < t0 && !planDone(p);
   const cell = (tankId, date) => {
-    const here = items.filter((p) => (p.tankId ?? null) === tankId && p.plannedOn === date).map(planChip)
+    const here = items.filter((p) => (p.tankId ?? null) === tankId && (p.plannedOn === date || (date === t0 && isLate(p)))).map(planChip)
       .concat(expected.filter((e) => (e.tankId ?? null) === tankId && e.date === date).map(expectedChip));
     return `<div class="cal-cell${date === t0 ? " today" : ""}" data-cell-tank="${tankId ?? ""}" data-cell-date="${date}">${here.join("")}</div>`;
   };
@@ -6453,12 +6481,45 @@ window.matchMedia("(min-width: 700px)").addEventListener("change", () => { if (c
 document.getElementById("calendar-view").addEventListener("click", (e) => {
   const chip = e.target.closest("[data-plan]");
   if (chip) return openPlanEditor(data.planItems.find((p) => p.id === chip.dataset.plan));
+  const late = e.target.closest("[data-late-batch]");
+  if (late) return pushBatch(data.batches.find((b) => b.id === late.dataset.lateBatch));
   const fromBatch = e.target.closest("[data-expected-batch]");
   if (fromBatch) return openBatchView(fromBatch.dataset.expectedBatch);
   const cellEl = e.target.closest("[data-cell-date]");
   if (cellEl && can("plan_schedule")) openPlanEditor(null, { tankId: cellEl.dataset.cellTank || null, plannedOn: cellEl.dataset.cellDate });
 });
 document.getElementById("cal-add").addEventListener("click", () => openPlanEditor(null, { plannedOn: today() }));
+
+// ----- Push the rest back: a batch behind its schedule -----
+// Moves its remaining steps later by a number of days (kept as the batch's push, never on the
+// batch itself). If that makes a planned brew in its tank clash, it says so and asks first.
+async function pushBatch(b) {
+  if (!b) return;
+  const name = `${beerName(b)}${b.batchNumber ? ` #${b.batchNumber}` : ""}`;
+  const late = expectedItems().filter((e) => e.late && e.batchId === b.id).sort((x, y) => x.due.localeCompare(y.due))[0];
+  if (!can("plan_schedule") && !can("move_schedule")) {
+    warn(`${name} is behind its schedule${late ? ` (${labelFrom(PLAN_KINDS, late.kind).toLowerCase()} was due ${formatDate(late.due)})` : ""}. ` +
+      "Pushing it back takes the \"Move items\" permission.");
+    return;
+  }
+  const behind = late ? daysSince(late.due) : 1;
+  const typed = await ask(`${name} in ${tankName(b.tankId)} is ${count(behind, "day", "days")} behind its schedule` +
+    `${late ? ` (${labelFrom(PLAN_KINDS, late.kind).toLowerCase()} was due ${formatDate(late.due)})` : ""}.\n\nPush the rest of its steps back by how many days?`,
+    { ok: "Push", input: { value: String(behind) } });
+  if (typed === null) return;
+  const days = Number(typed);
+  if (!Number.isInteger(days) || days < 1 || days > 120) { warn("Type a whole number of days, 1 to 120."); return; }
+  // Would it clash with a brew planned in this tank? Try it on a copy first.
+  const before = data.shifts[b.id] || 0;
+  data.shifts[b.id] = before + days;
+  const clashes = (data.planItems || []).filter((p) => p.tankId === b.tankId).map(planClash).filter(Boolean);
+  if (before) data.shifts[b.id] = before;
+  else delete data.shifts[b.id];
+  if (clashes.length && !(await ask(`Pushing ${name} back clashes with what's planned in ${tankName(b.tankId)}:\n${clashes.join("\n")}\n\nPush anyway?`,
+    { ok: "Push anyway" }))) return;
+  const ok = await save(() => must(db.from("plan_shifts").upsert({ brewery_id: brewery.id, batch_id: b.id, days: before + days })));
+  if (ok) notify(`Pushed ${name} back ${count(days, "day", "days")}.`);
+}
 
 // ----- One item: add, change, move, tick done -----
 const planDialog = document.getElementById("plan-editor");

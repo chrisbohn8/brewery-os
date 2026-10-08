@@ -95,7 +95,7 @@ Everything above goes through the API too, under the same permission (product pr
 ## Build order
 
 1. **Week view, planned brews, beer schedules (days only), the permission, and clashes.** The calendar is useful from here on. **Built 2026-10-08** (someday plans and both permissions included).
-2. **Push the rest back** and late flags.
+2. **Push the rest back** and late flags. **Built 2026-10-08.**
 3. **Raw materials look ahead:** needs per planned brew, on order, shortfalls, dismiss, the shopping list, and the alert.
 4. **Gravity triggers** (due-now items and alerts from logged readings), and schedules filled in from recipes and past batches.
 5. **Calendar subscription, people on items, import from the Google Sheet, and the printable week.**

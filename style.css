@@ -704,3 +704,4 @@ button.cal-cell { cursor: pointer; }
 .schedule-step { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
 .schedule-step select { flex: 1; }
 .schedule-step input { width: 5.5em; }
+.cal-chip.late { border: 2px dashed var(--maintenance); color: var(--text); }
