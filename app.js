@@ -511,6 +511,9 @@ async function loadAll() {
       id: x.id, code: x.code, name: x.name, style: x.style,
       targetOg: x.target_og === null ? null : Number(x.target_og),
       targetFg: x.target_fg === null ? null : Number(x.target_fg),
+      // What the taproom's menu says (typed by a person, never worked out on its own)
+      menuDescription: x.menu_description || "", menuAbv: num(x.menu_abv), menuIbu: num(x.menu_ibu),
+      menuPrices: x.menu_prices || [],
     })),
     tanks: tanks.map((t) => ({
       id: t.id, name: t.name, type: t.type, status: t.status, locationId: t.location_id,
@@ -1838,8 +1841,12 @@ function openBeerEditor(beer) {
 
   document.getElementById("beer-title").textContent = beer ? `${can("manage_beers") ? "Edit " : ""}${beer.name}` : "Add beer";
   document.getElementById("delete-beer").hidden = !beer || !(can("manage_beers") && can("delete_records"));
+  // The beer itself needs "Beers and recipes"; its menu details need "Beer menu details"
+  const menu = document.getElementById("beer-menu");
   for (const el of beerForm.querySelectorAll("input")) el.disabled = !can("manage_beers");
-  beerForm.querySelector("button[type=submit]").hidden = !can("manage_beers");
+  for (const el of menu.querySelectorAll("input, textarea, button")) el.disabled = !can("menu");
+  menu.hidden = !beer && !can("menu");
+  beerForm.querySelector("button[type=submit]").hidden = !(can("manage_beers") || (beer && can("menu")));
 
   // Suggest styles you've already used
   const styles = [...new Set(data.beers.map((x) => x.style).filter(Boolean))].sort();
@@ -1851,8 +1858,63 @@ function openBeerEditor(beer) {
   fillUnitInput(beerForm.targetOg, "gravity", b.targetOg);
   fillUnitInput(beerForm.targetFg, "gravity", b.targetFg);
   showTargetAbv();
+  beerForm.menuDescription.value = b.menuDescription || "";
+  beerForm.menuAbv.value = b.menuAbv ?? "";
+  beerForm.menuIbu.value = b.menuIbu ?? "";
+  document.getElementById("menu-prices").replaceChildren();
+  (b.menuPrices || []).forEach(addPriceRow);
+  document.getElementById("menu-fill-note").textContent = "";
   beerDialog.showModal();
 }
+
+// ----- A beer's menu details: prices per pour size, and ABV / IBU filled in for a person to check -----
+function addPriceRow(p = { size: "", price: null }) {
+  const row = document.createElement("div");
+  row.className = "price-row";
+  row.innerHTML = `<label>Size <input class="price-size" maxlength="40" placeholder="16 oz"></label>
+    <label>Price ($) <input class="price-amount" type="number" min="0" step="0.01" inputmode="decimal"></label>
+    <button type="button" class="btn small" aria-label="Remove this price">Remove</button>`;
+  row.querySelector(".price-size").value = p.size || "";
+  row.querySelector(".price-amount").value = p.price ?? "";
+  row.querySelector("button").addEventListener("click", () => row.remove());
+  if (!can("menu")) row.querySelectorAll("input, button").forEach((el) => { el.disabled = true; });
+  document.getElementById("menu-prices").append(row);
+}
+document.getElementById("menu-add-price").addEventListener("click", () => {
+  addPriceRow();
+  document.querySelector("#menu-prices .price-row:last-child .price-size").focus();
+});
+const menuPrices = () => [...document.querySelectorAll("#menu-prices .price-row")]
+  .map((row) => ({ size: row.querySelector(".price-size").value.trim(), price: row.querySelector(".price-amount").value }))
+  .filter((p) => p.size || p.price !== "")
+  .map((p) => ({ size: p.size, price: p.price === "" ? null : Number(p.price) }));
+
+// ABV from the latest finished batch's gravities (or the beer's targets), IBU from its recipe.
+// Only fills the boxes: a person checks them and taps Save.
+document.getElementById("menu-fill").addEventListener("click", () => {
+  if (!editingBeer) return;
+  const from = [];
+  const latest = data.batches.filter((b) => b.beerId === editingBeer.id && b.stage !== "fermenting")
+    .sort((x, y) => (y.brewDate || "").localeCompare(x.brewDate || ""))
+    .map((b) => ({ b, og: batchOg(b), fg: cellarLog(b).filter((c) => c.gravitySg != null).at(-1)?.gravitySg }))
+    .find((x) => x.og && x.fg);
+  const measured = latest && abv(latest.og, latest.fg);
+  const target = abv(editingBeer.targetOg, editingBeer.targetFg);
+  if (measured != null) {
+    beerForm.menuAbv.value = measured.toFixed(1);
+    from.push(`ABV from batch ${latest.b.batchNumber ? "#" + latest.b.batchNumber : "(no number)"}`);
+  } else if (target != null) {
+    beerForm.menuAbv.value = target.toFixed(1);
+    from.push("ABV from the beer's targets (no finished batch with gravities yet)");
+  }
+  const recipe = recipesOf(editingBeer.id).filter((r) => r.ibu != null).at(-1);
+  if (recipe) {
+    beerForm.menuIbu.value = Math.round(recipe.ibu);
+    from.push(`IBU from the recipe "${recipe.name}"`);
+  }
+  document.getElementById("menu-fill-note").textContent = from.length
+    ? `${from.join("; ")}. Check them, then Save.` : "Nothing to fill in from yet: no finished batch, targets, or recipe IBU.";
+});
 
 // Update the ABV line as you type the gravities
 function showTargetAbv() {
@@ -1864,11 +1926,27 @@ beerForm.targetFg.addEventListener("input", showTargetAbv);
 
 beerForm.addEventListener("submit", async (e) => {
   e.preventDefault();
+  const menu = {
+    menu_description: beerForm.menuDescription.value.trim(),
+    menu_abv: beerForm.menuAbv.value === "" ? null : Number(beerForm.menuAbv.value),
+    menu_ibu: beerForm.menuIbu.value === "" ? null : Number(beerForm.menuIbu.value),
+    menu_prices: menuPrices(),
+  };
+  if (menu.menu_prices.some((p) => !p.size || p.price == null)) {
+    warn("Each price needs a size and an amount (or remove it).");
+    return;
+  }
+  // Only menu details: just those (the database also checks)
+  if (editingBeer && !can("manage_beers")) {
+    if (await save(() => must(db.from("beers").update(menu).eq("id", editingBeer.id)))) beerDialog.close();
+    return;
+  }
   const values = {
     name: beerForm.name.value.trim(),
     style: beerForm.style.value.trim(),
     target_og: readUnitInput(beerForm.targetOg, "gravity"), // typed in the brewery's unit, stored as SG
     target_fg: readUnitInput(beerForm.targetFg, "gravity"),
+    ...(can("menu") ? menu : {}),
   };
   if (data.beers.some((b) => b !== editingBeer && b.name.toLowerCase() === values.name.toLowerCase())) {
     warn(`There's already a beer called ${values.name}.`);
@@ -2117,7 +2195,8 @@ async function loadIntoBrewery(source, description) {
   insert("beers", d.beers.map((x) => {
     const code = beerCodeFor(x.name, codes);
     codes.push({ code });
-    return { id: idFor(x.id), code, name: x.name, style: x.style || "", target_og: x.targetOg ?? null, target_fg: x.targetFg ?? null };
+    return { id: idFor(x.id), code, name: x.name, style: x.style || "", target_og: x.targetOg ?? null, target_fg: x.targetFg ?? null,
+      menu_description: x.menuDescription || "", menu_abv: x.menuAbv ?? null, menu_ibu: x.menuIbu ?? null, menu_prices: x.menuPrices || [] };
   }));
   insert("tanks", d.tanks.map((t) => ({
     id: idFor(t.id), name: t.name, type: t.type, status: t.status,
@@ -2234,7 +2313,7 @@ async function loadIntoBrewery(source, description) {
       recipes_per: d.recipesPer || "turn", gravity_trigger_readings: d.gravityReadings || 1 });
   }
   // Deliveries on order (raw materials; matched to items above)
-  if (can("inventory") && d.rawItems?.length && d.batches.length) { // (items load with the batches, above)
+  if (can("raw_materials") && d.rawItems?.length && d.batches.length) { // (items load with the batches, above)
     insert("raw_orders", (d.rawOrders || []).map((o) => ({ item_id: idFor(o.itemId), amount: o.amount, expected_on: o.expectedOn,
       supplier: o.supplier || "", notes: o.notes || "" })));
   }
@@ -2534,8 +2613,10 @@ const PERMISSIONS = [
   { id: "move_beer",        label: "Change stages and transfer beer" },
   { id: "package",          label: "Package beer" },
   { id: "inventory",        label: "Count and move finished goods" },
+  { id: "raw_materials",    label: "Receive, count, and order raw materials" },
   { id: "start_batch",      label: "Start batches and edit batch details" },
   { id: "manage_beers",     label: "Beers and recipes" },
+  { id: "menu",             label: "Beer menu details (description, ABV, IBU, prices)" },
   { id: "manage_equipment", label: "Tanks and locations" },
   { id: "manage_cleaning",  label: "Acid rules" },
   { id: "manage_settings",  label: "Units, time zone, targets, and brew sheet fields" },
@@ -2547,6 +2628,7 @@ const PERMISSIONS = [
 ];
 const ROLES = [
   { id: "viewer",      label: "Viewer",      short: "View" },
+  { id: "taproom",     label: "Taproom",     short: "Taproom" },
   { id: "cellar",      label: "Cellar",      short: "Cellar" },
   { id: "brewer",      label: "Brewer",      short: "Brewer" },
   { id: "head_brewer", label: "Head brewer", short: "Head" },
@@ -2555,10 +2637,11 @@ const ROLES = [
 // What each level includes until a brewery changes it (same as default_permissions() in the database)
 const DEFAULT_LEVELS = {
   viewer: [],
-  cellar: ["cellar_log", "tank_status", "acid_log", "move_beer", "package", "inventory"],
-  brewer: ["cellar_log", "tank_status", "acid_log", "move_beer", "package", "inventory", "start_batch", "move_schedule"],
-  head_brewer: ["cellar_log", "tank_status", "acid_log", "move_beer", "package", "inventory", "start_batch",
-                "manage_beers", "manage_equipment", "manage_cleaning", "manage_settings", "plan_schedule", "move_schedule"],
+  taproom: ["inventory", "menu"],
+  cellar: ["cellar_log", "tank_status", "acid_log", "move_beer", "package", "inventory", "raw_materials"],
+  brewer: ["cellar_log", "tank_status", "acid_log", "move_beer", "package", "inventory", "raw_materials", "start_batch", "move_schedule"],
+  head_brewer: ["cellar_log", "tank_status", "acid_log", "move_beer", "package", "inventory", "raw_materials", "start_batch",
+                "manage_beers", "menu", "manage_equipment", "manage_cleaning", "manage_settings", "plan_schedule", "move_schedule"],
 };
 
 // Can the signed-in person do this here?
@@ -4279,7 +4362,7 @@ function renderRaw() {
   // Deliveries on order: counted toward planned brews after the day they're due
   const orders = (data.rawOrders || []).filter((o) => data.rawItems.some((i) => i.id === o.itemId));
   document.getElementById("raw-orders-area").hidden = !orders.length;
-  const canKeep = can("inventory");
+  const canKeep = can("raw_materials");
   document.getElementById("raw-orders").innerHTML = orders.map((o) => {
     const item = data.rawItems.find((i) => i.id === o.itemId);
     const late = o.expectedOn < today();
@@ -4743,7 +4826,9 @@ function exportLists() {
         [`In the tank (${vol})`]: b ? v(tankBalance(b.id, tk.id)) : "" };
     }),
     "beers": data.beers.map((b) => ({ "Beer": b.name, "Style": b.style || "", [`Target OG (${grav})`]: g(b.targetOg), [`Target FG (${grav})`]: g(b.targetFg),
-      "Target ABV (%)": abv(b.targetOg, b.targetFg) ? abv(b.targetOg, b.targetFg).toFixed(1) : "" })),
+      "Target ABV (%)": abv(b.targetOg, b.targetFg) ? abv(b.targetOg, b.targetFg).toFixed(1) : "",
+      "Menu description": b.menuDescription || "", "Menu ABV (%)": b.menuAbv ?? "", "Menu IBU": b.menuIbu ?? "",
+      "Menu prices": (b.menuPrices || []).map((p) => `${p.size} $${p.price}`).join("; ") })),
     "batches": data.batches.map((b) => {
       const og = batchOg(b), last = cellarLog(b).filter((c) => c.gravitySg != null).at(-1);
       return { "Batch": b.batchNumber, "Beer": beerName(b), "Brewed": b.brewDate || "", [`Size (${vol})`]: v(b.sizeBbl), "Turns": b.turns,
@@ -6791,7 +6876,7 @@ function renderPlanShort(item) {
   const box = document.getElementById("plan-short");
   const shorts = item ? shortsFor(item.id) : [];
   const unmatched = item ? (data.unmatched || []).filter((u) => u.planId === item.id) : [];
-  const canDismiss = can("plan_schedule") || can("move_schedule") || can("inventory");
+  const canDismiss = can("plan_schedule") || can("move_schedule") || can("raw_materials");
   box.innerHTML = (shorts.length ? `<p class="muted">Raw materials for this brew (on hand, plus deliveries due by then, minus earlier planned brews):</p>
     <ul class="short-list">${shorts.map((x) => `<li><strong>${esc(x.itemName)}:</strong> needs ${esc(amountText(x.needed, x.unit))};
       there'll be ${esc(amountText(Math.max(x.available, 0), x.unit))}: <strong>${esc(amountText(x.short, x.unit))} short</strong>${esc(packsText(x))}.
@@ -6869,7 +6954,7 @@ document.getElementById("cal-shopping").addEventListener("click", () => {
     "on hand, plus deliveries on order, minus each planned brew in date order. Dismissed shortfalls aren't listed.";
   document.getElementById("shopping-list").innerHTML = lines.map(({ it, text, first, orderBy }) => `<li class="item"><span class="who">
       <strong>${esc(text)}</strong><br><span class="muted">first needed ${formatDate(first.plannedOn)} for ${esc(first.beerName)}${it.brews.length > 1 ? ` (and ${it.brews.length - 1} more)` : ""}${orderBy ? ` · order by ${formatDate(orderBy)}${orderBy < today() ? " (late)" : ""}` : ""}</span></span>
-      ${can("inventory") ? `<span class="actions"><button type="button" class="btn small" data-order-item="${it.itemId}" data-order-amount="${+it.short.toFixed(3)}">On order…</button></span>` : ""}</li>`).join("")
+      ${can("raw_materials") ? `<span class="actions"><button type="button" class="btn small" data-order-item="${it.itemId}" data-order-amount="${+it.short.toFixed(3)}">On order…</button></span>` : ""}</li>`).join("")
     || `<li class="item muted">Nothing short. ${data.planItems?.some((p) => p.kind === "brew") ? "" : "Plan brews (with their beer and tank) to see what they'll need."}</li>`;
   const unmatched = [...new Set((data.unmatched || []).map((u) => u.ingredient))];
   document.getElementById("shopping-unmatched").innerHTML = unmatched.length

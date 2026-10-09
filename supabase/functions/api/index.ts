@@ -13,7 +13,7 @@
 //   GET   /batches                 batches in tanks (?all=true for every batch)
 //   GET   /batches/{id or number}  one batch, with its cellar log
 //   POST  /batches/{id or number}/log   a cellar log entry (gravity, pH, temperature, notes...)
-//   GET   /beers                   beers with targets, their recipes, and the latest batch's ingredients
+//   GET   /beers                   beers with targets, menu details, their recipes, and the latest batch's ingredients
 //   GET   /inventory               finished goods on hand, by beer, place, and package
 import { Pool } from "jsr:@db/postgres@0.19.5";
 
@@ -189,7 +189,7 @@ async function route(tx: Tx, b: string, email: string, method: string, resource?
   }
 
   if (is("GET", "beers", false)) {
-    const beers = await tx`select id, name, style, target_og, target_fg from public.beers where brewery_id = ${b} order by name`;
+    const beers = await tx`select id, name, style, target_og, target_fg, menu_description, menu_abv, menu_ibu, menu_prices from public.beers where brewery_id = ${b} order by name`;
     // The recipe, as it's kept here: the latest batch's brew-day ingredients
     const ingredients = await tx`select distinct on (bt.beer_id, a.id) bt.beer_id, a.kind, a.name, a.amount, a.unit, a.timing
                                    from public.batch_additions a join public.batches bt on bt.id = a.batch_id
@@ -203,6 +203,7 @@ async function route(tx: Tx, b: string, email: string, method: string, resource?
                                from public.recipes r left join public.locations l on l.id = r.location_id where r.brewery_id = ${b}`;
     return { body: beers.map((x: Record<string, unknown>) => ({
       id: x.id, name: x.name, style: x.style, target_og: gravity(x.target_og), target_fg: gravity(x.target_fg),
+      menu: { description: x.menu_description, abv: num(x.menu_abv), ibu: num(x.menu_ibu), prices: x.menu_prices },
       recipes: recipes.filter((r: Record<string, unknown>) => r.beer_id === x.id).map((r: Record<string, unknown>) => ({
         id: r.id, name: r.name, location: r.location ?? "any", batch_size_bbl: round(num(r.batch_size_bbl), 2), target_og: gravity(r.target_og),
         target_fg: gravity(r.target_fg), ibu: num(r.ibu), ingredients: r.ingredients })),

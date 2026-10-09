@@ -348,6 +348,9 @@ ul.plain.log-list .item { display: block; } /* (beats the side-by-side layout of
 dialog fieldset.group { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px 4px; margin: 0 0 12px; }
 dialog fieldset.group legend { font-weight: 600; padding: 0 4px; }
 dialog fieldset.group p { margin: 0 0 8px; }
+#beer-menu textarea { font: inherit; font-size: 16px; padding: 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--card); color: var(--text); width: 100%; }
+.price-row { display: grid; grid-template-columns: 1fr 7em auto; gap: 8px; align-items: end; margin-bottom: 8px; }
+.price-row label { margin: 0; }
 
 /* ---- The brew-day sheet ---- */
 .turn-bar { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin: 8px 0; }

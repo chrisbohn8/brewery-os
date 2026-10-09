@@ -23,7 +23,7 @@ const CORS = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 const LEVELS: Record<string, string> = {
-  viewer: "Viewer", cellar: "Cellar", brewer: "Brewer", head_brewer: "Head brewer", admin: "Admin",
+  viewer: "Viewer", taproom: "Taproom", cellar: "Cellar", brewer: "Brewer", head_brewer: "Head brewer", admin: "Admin",
 };
 // Don't send the same invite again within this many minutes (a double tap, an impatient retry)
 const RESEND_AFTER_MINUTES = 2;

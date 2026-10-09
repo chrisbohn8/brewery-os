@@ -205,7 +205,7 @@
 
   <section id="raw-materials">
     <h2>Inventory: raw materials</h2>
-    <p>Inventory → <span class="ui">Raw materials</span>. On hand by lot = received − used on batches + counts.</p>
+    <p>Inventory → <span class="ui">Raw materials</span>. On hand by lot = received − used on batches + counts. Receiving, counting, ordering, and setting up items need their own permission, "Receive, count, and order raw materials" (separate from finished goods).</p>
     <ul>
       <li><span class="ui">Items</span>: malt, hops, salts, yeast, chemicals, each with a unit, a pack (a 55 lb sack), a reorder level, and (optionally) how many days it takes to arrive when ordered. <strong>The item's name is what's typed as an ingredient</strong>, so usage is counted automatically.</li>
       <li><span class="ui">Receive</span>: a delivery by lot, in packs or the item's unit, with the supplier and (optionally) the cost.</li>
@@ -260,25 +260,28 @@
     <h2>Who can do what</h2>
     <p>Each person has a level. An admin can change what a level includes, or adjust one person (<a href="#settings-team">Settings → Team and permissions</a>). The usual levels:</p>
     <div class="table-wrap"><table>
-      <tr><th>Permission</th><th>Viewer</th><th>Cellar</th><th>Brewer</th><th>Head brewer</th><th>Admin</th></tr>
-      <tr><td data-permission="cellar_log">Log readings and cellar work</td><td></td><td>✓</td><td>✓</td><td>✓</td><td>✓</td></tr>
-      <tr><td data-permission="tank_status">Set a tank's status (cleaning, maintenance)</td><td></td><td>✓</td><td>✓</td><td>✓</td><td>✓</td></tr>
-      <tr><td data-permission="acid_log">Log acid cycles</td><td></td><td>✓</td><td>✓</td><td>✓</td><td>✓</td></tr>
-      <tr><td data-permission="move_beer">Change stages and transfer beer</td><td></td><td>✓</td><td>✓</td><td>✓</td><td>✓</td></tr>
-      <tr><td data-permission="package">Package beer</td><td></td><td>✓</td><td>✓</td><td>✓</td><td>✓</td></tr>
-      <tr><td data-permission="inventory">Count and move finished goods</td><td></td><td>✓</td><td>✓</td><td>✓</td><td>✓</td></tr>
-      <tr><td data-permission="start_batch">Start batches and edit batch details</td><td></td><td></td><td>✓</td><td>✓</td><td>✓</td></tr>
-      <tr><td data-permission="manage_beers">Beers and recipes</td><td></td><td></td><td></td><td>✓</td><td>✓</td></tr>
-      <tr><td data-permission="manage_equipment">Tanks and locations</td><td></td><td></td><td></td><td>✓</td><td>✓</td></tr>
-      <tr><td data-permission="manage_cleaning">Acid rules</td><td></td><td></td><td></td><td>✓</td><td>✓</td></tr>
-      <tr><td data-permission="manage_settings">Units, time zone, targets, and brew sheet fields</td><td></td><td></td><td></td><td>✓</td><td>✓</td></tr>
-      <tr><td data-permission="rename_brewery">Rename the brewery</td><td></td><td></td><td></td><td></td><td>✓</td></tr>
-      <tr><td data-permission="backups">Download and load backups</td><td></td><td></td><td></td><td></td><td>✓</td></tr>
-      <tr><td data-permission="delete_records">Delete batches, beers, tanks, and locations</td><td></td><td></td><td></td><td></td><td>✓</td></tr>
-      <tr><td data-permission="plan_schedule">Plan the schedule (calendar and beer schedules)</td><td></td><td></td><td></td><td>✓</td><td>✓</td></tr>
-      <tr><td data-permission="move_schedule">Move items on the calendar and tick them done</td><td></td><td></td><td>✓</td><td>✓</td><td>✓</td></tr>
+      <tr><th>Permission</th><th>Viewer</th><th>Taproom</th><th>Cellar</th><th>Brewer</th><th>Head brewer</th><th>Admin</th></tr>
+      <tr><td data-permission="cellar_log">Log readings and cellar work</td><td></td><td></td><td>✓</td><td>✓</td><td>✓</td><td>✓</td></tr>
+      <tr><td data-permission="tank_status">Set a tank's status (cleaning, maintenance)</td><td></td><td></td><td>✓</td><td>✓</td><td>✓</td><td>✓</td></tr>
+      <tr><td data-permission="acid_log">Log acid cycles</td><td></td><td></td><td>✓</td><td>✓</td><td>✓</td><td>✓</td></tr>
+      <tr><td data-permission="move_beer">Change stages and transfer beer</td><td></td><td></td><td>✓</td><td>✓</td><td>✓</td><td>✓</td></tr>
+      <tr><td data-permission="package">Package beer</td><td></td><td></td><td>✓</td><td>✓</td><td>✓</td><td>✓</td></tr>
+      <tr><td data-permission="inventory">Count and move finished goods</td><td></td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td></tr>
+      <tr><td data-permission="raw_materials">Receive, count, and order raw materials</td><td></td><td></td><td>✓</td><td>✓</td><td>✓</td><td>✓</td></tr>
+      <tr><td data-permission="start_batch">Start batches and edit batch details</td><td></td><td></td><td></td><td>✓</td><td>✓</td><td>✓</td></tr>
+      <tr><td data-permission="manage_beers">Beers and recipes</td><td></td><td></td><td></td><td></td><td>✓</td><td>✓</td></tr>
+      <tr><td data-permission="menu">Beer menu details (description, ABV, IBU, prices)</td><td></td><td>✓</td><td></td><td></td><td>✓</td><td>✓</td></tr>
+      <tr><td data-permission="manage_equipment">Tanks and locations</td><td></td><td></td><td></td><td></td><td>✓</td><td>✓</td></tr>
+      <tr><td data-permission="manage_cleaning">Acid rules</td><td></td><td></td><td></td><td></td><td>✓</td><td>✓</td></tr>
+      <tr><td data-permission="manage_settings">Units, time zone, targets, and brew sheet fields</td><td></td><td></td><td></td><td></td><td>✓</td><td>✓</td></tr>
+      <tr><td data-permission="rename_brewery">Rename the brewery</td><td></td><td></td><td></td><td></td><td></td><td>✓</td></tr>
+      <tr><td data-permission="backups">Download and load backups</td><td></td><td></td><td></td><td></td><td></td><td>✓</td></tr>
+      <tr><td data-permission="delete_records">Delete batches, beers, tanks, and locations</td><td></td><td></td><td></td><td></td><td></td><td>✓</td></tr>
+      <tr><td data-permission="plan_schedule">Plan the schedule (calendar and beer schedules)</td><td></td><td></td><td></td><td></td><td>✓</td><td>✓</td></tr>
+      <tr><td data-permission="move_schedule">Move items on the calendar and tick them done</td><td></td><td></td><td></td><td>✓</td><td>✓</td><td>✓</td></tr>
     </table></div>
     <p>Everyone in the brewery can see everything. Anything you can't do is hidden or greyed out, and the database checks it too.</p>
+    <p><strong>The Taproom level</strong> is for a taproom manager: finished goods (counts, moves, pars, draft lines) and the beer menu, but nothing on the brewhouse side (batches, tanks, recipes, brew sheets, or raw materials).</p>
   </section>
 
   <section id="settings-brewery">
@@ -313,6 +316,7 @@
     <h2>Settings: Beers and recipes</h2>
     <ul>
       <li><strong>Beers:</strong> name, style, target OG and FG (the target ABV is worked out).</li>
+      <li><strong>On the menu:</strong> what the taproom's menu says about a beer: a description, ABV, IBU, and a price for each pour size (<span class="ui">+ Price</span>: "16 oz", $7). <span class="ui">Fill in ABV and IBU</span> fills the boxes from the latest finished batch's gravities (or the beer's targets) and the recipe's IBU, and says where each came from; check them, then Save. Someone with only "Beer menu details" (like the Taproom level) can change these, but not the beer itself.</li>
       <li><strong>Recipes are written for</strong> one turn (the calendar multiplies by the brewhouse's usual turns) or the whole batch.</li>
       <li><strong>Recipes:</strong> <span class="ui">Import BeerXML…</span> from BeerSmith, Brewfather, Brewer's Friend, or other recipe software. A preview shows each recipe (size, OG, FG, IBU, ingredients); match it to a beer or a new one (a new beer takes the recipe's style and targets), optionally for one location. Ingredients come in your units with their timing. Tap a recipe to see it. Recipes aren't scaled; adjust by hand.</li>
     </ul>

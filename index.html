@@ -182,10 +182,10 @@
   <div id="inv-raw" hidden>
   <section class="list-section">
     <div class="actions wrap">
-      <button id="raw-receive" class="btn primary" data-needs="inventory">Receive</button>
-      <button id="raw-count" class="btn" data-needs="inventory">Count</button>
-      <button id="raw-order" class="btn" data-needs="inventory">On order</button>
-      <button id="raw-items-open" class="btn" data-needs="inventory">Items</button>
+      <button id="raw-receive" class="btn primary" data-needs="raw_materials">Receive</button>
+      <button id="raw-count" class="btn" data-needs="raw_materials">Count</button>
+      <button id="raw-order" class="btn" data-needs="raw_materials">On order</button>
+      <button id="raw-items-open" class="btn" data-needs="raw_materials">Items</button>
     </div>
     <p class="muted">On hand = received − used on batches (ingredients and additions with the same name and lot) ± counts. Tap an item for its lots and the batches that used them.</p>
     <div id="raw-orders-area" hidden>
@@ -908,6 +908,20 @@
         </label>
       </div>
       <p class="muted">Target ABV: <strong id="target-abv">—</strong> (worked out from OG and FG)</p>
+
+      <!-- What the taproom's menu says about this beer ("Beer menu details" permission) -->
+      <fieldset class="group" id="beer-menu">
+        <legend>On the menu</legend>
+        <label>Description <textarea name="menuDescription" rows="3" maxlength="600" placeholder="Juicy and bright, with notes of mango"></textarea></label>
+        <div class="two-col">
+          <label><span>ABV (%)</span> <input name="menuAbv" type="number" min="0" max="25" step="0.1" inputmode="decimal"></label>
+          <label><span>IBU</span> <input name="menuIbu" type="number" min="0" max="200" step="1" inputmode="numeric"></label>
+        </div>
+        <p><button type="button" id="menu-fill" class="btn small">Fill in ABV and IBU</button>
+          <span id="menu-fill-note" class="muted"></span></p>
+        <div id="menu-prices"></div>
+        <p><button type="button" id="menu-add-price" class="btn small">+ Price</button></p>
+      </fieldset>
 
       <div class="actions">
         <button type="button" id="delete-beer" class="btn danger">Delete</button>

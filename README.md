@@ -258,9 +258,10 @@ These shape every decision, even for features that come later:
   | Level | By default can |
   |---|---|
   | **Viewer** | look only |
-  | **Cellar** | log readings and cellar work, set tank status, log acid cycles, change stages and transfer beer, package beer |
+  | **Taproom** | finished goods (counts, moves, pars, draft lines) and beers' menu details; nothing on the brewhouse side |
+  | **Cellar** | log readings and cellar work, set tank status, log acid cycles, change stages and transfer beer, package beer, finished goods and raw materials |
   | **Brewer** | everything Cellar can, plus start batches and edit batch details |
-  | **Head brewer** | everything Brewer can, plus beers, tanks and locations, acid rules, units |
+  | **Head brewer** | everything Brewer can, plus beers (and their menu details), tanks and locations, acid rules, units, planning the schedule |
   | **Admin** | everything, including the team, permissions, renaming the brewery, backups, and deleting things |
 
 - Admins can change **what a level includes** for their brewery (the table under Team & permissions), or **adjust one person** on top of their level. When an admin changes a person's permission, the app asks: *just this person, or everyone at their level?*
@@ -494,6 +495,7 @@ These make the app trustworthy and quick on the floor. They aren't a separate ph
   People only see the pages they're allowed to use.
 - [x] **Permission levels, enforced by the database,** with per-person adjustments and editable levels. Admins pick one per person:
     - **Viewer:** look at everything, change nothing.
+    - **Taproom:** finished goods and beers' menu details (added 2026-10-09).
     - **Cellar:** daily floor work (readings, cellar log, acid cycles, tank status).
     - **Brewer:** adds batches, stages, transfers, packaging, and brew-day sheets.
     - **Head brewer:** adds beers and recipes, tanks and locations, acid rules, and units.
@@ -597,7 +599,7 @@ The payoff for keeping accurate volumes at every step.
     - **A TV view** of the menu (sharing the work with the Cellar TV), a **printable menu**, and a **public link** or embed for the brewery's website and social posts. The public link shows only menu details, never the rest of the brewery, and can be turned off.
     - Changes on the lines (a keg kicked, a new beer tapped) show on the board right away. "On deck" can show what's coming next.
     - Pour sizes and prices are the same ones a POS connection needs, so this is a step toward it.
-- [ ] **A Taproom level** (the user's idea, 2026-10-08), for a taproom manager: draft lines, finished-goods counts and moves, pars, and menu details, but nothing on the brewhouse side (batches, tanks, recipes, brew sheets). It needs one permission split first: today "Beers and recipes" covers everything about a beer, so it becomes **"Beers and recipes"** and **"Beer menu details"** (description, prices). An admin can still change what the Taproom level includes, like any level.
+- [x] **A Taproom level** (the user's idea, 2026-10-08; done 2026-10-09), for a taproom manager: draft lines, finished-goods counts and moves, pars, and menu details, but nothing on the brewhouse side (batches, tanks, recipes, brew sheets). Two permissions split off for it: **"Beer menu details"** (description, ABV, IBU, prices per pour size, on the beer's form) and **"Receive, count, and order raw materials"** (raw materials were part of finished goods). Every level that had the old permission keeps the new one, and so do API keys. An admin can still change what the Taproom level includes, like any level. Next: the menu board itself.
 - **Stay open to the common taproom POS systems** (the user's reminder): Toast, Square, Clover, and brewery-focused ones like Arryved, among others. Choices made now that keep the door open: **draft lines** map onto a POS's menu items (pours by line), pours become **taproom removals** (and level checks for serving tanks), and the **API** (Phase 6½) is the way in for a POS or a connector. Pour sizes (16 oz, 10 oz, flights) turn sales into volume.
 
 ### Phase 9: State returns
