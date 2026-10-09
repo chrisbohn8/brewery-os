@@ -50,7 +50,7 @@ These are poured rarely, so for now a draft line's "something else" label shows 
 - **Arrange a tap's entry:** drag its parts (name, style, ABV, IBU, short line, tags, color, prices, your own fields) into the order you want, or into "Hidden". Drag sections into order. Every drag also has up / down buttons (phones, and anyone who finds dragging fiddly).
 - **Style it** (the user's picks):
   - **Colors:** a few ready-made color schemes, or your own background, text, and accent colors. A contrast check warns before saving a combination that's hard to read from across a room.
-  - **Fonts:** a list of good pairings (a headline font with a body font), or **any Google Font by name**. Fonts are loaded from Google Fonts on the board's page (free, nothing to install). Uploading a font file is possible later.
+  - **Fonts:** a list of good pairings (a headline font with a body font), or **any Google Font by name**. Fonts are loaded from Google Fonts on the board's page (free, nothing to install). An **Admin can also upload the brewery's own font files** (for example your brand's headline font), which then appear in the font list for every board. Only Admins upload, since a font's license is the brewery's responsibility; the upload screen says so.
   - **Your logo** and the board's title. (The first picture the app stores; kept with the brewery's files.)
   - Light or dark.
 - **A live preview** at TV size, phone size, and print, while you build.
@@ -74,4 +74,4 @@ These are poured rarely, so for now a draft line's "something else" label shows 
 2. **Sections:** *Answered: pick one for each beer.* No style rule for now; "by style" is left out of step 1.
 3. **Guest taps, cider, wine, non-alcoholic:** *Answered: rarely.* A label on the line is enough for now; real menu entries for them wait.
 4. **Your TVs:** *Answered: a small computer plugged into each TV.* The TV view is a full-screen browser page, so it can run there directly.
-5. **Fonts:** is a list of pairings plus "any Google Font by name" enough, or does your brand use a font you'd need to upload?
+5. **Fonts:** *Answered: the pairings and any Google Font by name, plus Admins can upload the brewery's own font files for a consistent brand look.*
