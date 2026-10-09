@@ -102,6 +102,14 @@ try {
   await page.waitForSelector("#toasts .toast button:not(.toast-close)");
   check((await toastText()).startsWith(`Saved: `) && (await page.textContent("#toasts .toast button:not(.toast-close)")) === "Undo",
     `the message offers Undo: "${await toastText()}"`);
+  const size = await page.evaluate(() => {
+    const t = document.querySelector("#toasts .toast").getBoundingClientRect();
+    const holder = document.getElementById("toasts").getBoundingClientRect();
+    const below = document.elementFromPoint(innerWidth / 2, t.bottom + 40); // just under the message
+    return { toast: Math.round(t.height), holder: Math.round(holder.height), screen: innerHeight, through: !document.getElementById("toasts").contains(below) };
+  });
+  check(size.toast < 120 && size.holder < 200, `the message is a bar, not the whole screen (message ${size.toast}px, holder ${size.holder}px of ${size.screen}px)`);
+  check(size.through, "the page just under the message can still be tapped");
   check((await page.textContent(card)).includes(`U${run}a`), "the tank shows the batch right away");
   check(await page.evaluate(() => document.getElementById("offline-banner").hidden), "no 'waiting to send' banner while it can be undone");
   await page.click("#toasts .toast button:not(.toast-close)");

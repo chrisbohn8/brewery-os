@@ -308,7 +308,7 @@ function explain(error) {
 
 // ----- Messages and questions, on the page -----
 // Instead of the browser's pop-ups (alert, confirm, prompt), which some apps block and which stop
-// everything until answered. Messages show as a bar at the bottom, above everything (even an open
+// everything until answered. Messages show as a bar at the top, above everything (even an open
 // form); questions show as a box with clear buttons.
 const toasts = document.getElementById("toasts");
 function showToasts() {
