@@ -81,6 +81,9 @@ try {
   check(Math.abs(mine[0].gravity.plato - 4.2) < 0.05 && Math.abs(mine[0].temperature.f - 64) < 0.05, `stored and returned in both units: ${JSON.stringify(mine[0].gravity)} ${JSON.stringify(mine[0].temperature)}`);
   const beers = await call(key, "GET", "/beers");
   check(beers.status === 200 && beers.json.length > 0 && "ingredients" in beers.json[0] && Array.isArray(beers.json[0].recipes), `beers: ${beers.json.length}, with targets, recipes, and ingredients`);
+  const menu = beers.json[0]?.menu || {};
+  check(["short", "section", "tags", "fields", "prices", "on_public_menu"].every((k) => k in menu) && menu.prices.every((p) => typeof p.size === "string" && Array.isArray(p.at_taprooms)),
+    `each beer's menu reads by name (${JSON.stringify(menu.prices)})`);
   check((await call(key, "GET", "/inventory")).status === 200, "inventory");
   check((await call(key, "GET", "/nowhere")).status === 404, "an unknown address says so");
 

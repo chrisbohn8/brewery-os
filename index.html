@@ -291,6 +291,7 @@
     <button data-page="equipment">Equipment</button>
     <button data-page="sheet">Brew sheet</button>
     <button data-page="beers">Beers</button>
+    <button data-page="menu">Menu</button>
     <button data-page="packages">Packages</button>
     <button data-page="cleaning">Cleaning</button>
     <button data-page="team">Team &amp; permissions</button>
@@ -547,6 +548,23 @@
         <option value="batch">the whole batch</option>
       </select></label>
     <ul id="recipe-list" class="plain"></ul>
+  </section>
+  </div>
+
+  <div class="settings-page" data-page="menu">
+  <!-- The menu's lists: pour sizes, sections, tags, and the brewery's own fields. Each beer fills them in under "On the menu". -->
+  <section id="menu-setup" class="list-section">
+    <h2>Menu</h2>
+    <p class="muted">What the taproom's menu is made of. Each beer fills these in under "On the menu" (Settings → Beers).
+      Renaming one here changes it on every beer.</p>
+    <div id="menu-lists"></div>
+    <p id="menu-setup-note" class="muted" hidden>You don't have permission to change these.</p>
+    <div id="menu-setup-actions" class="actions">
+      <span id="menu-setup-status" class="muted"></span>
+      <span class="spacer"></span>
+      <button type="button" id="menu-setup-undo" class="btn">Undo changes</button>
+      <button type="button" id="menu-setup-save" class="btn primary">Save menu</button>
+    </div>
   </section>
   </div>
 
@@ -912,15 +930,23 @@
       <!-- What the taproom's menu says about this beer ("Beer menu details" permission) -->
       <fieldset class="group" id="beer-menu">
         <legend>On the menu</legend>
+        <label>Short line for the TV <input name="menuShort" maxlength="80" placeholder="Juicy, bright, mango"></label>
         <label>Description <textarea name="menuDescription" rows="3" maxlength="600" placeholder="Juicy and bright, with notes of mango"></textarea></label>
-        <div class="two-col">
+        <div class="three-col">
           <label><span>ABV (%)</span> <input name="menuAbv" type="number" min="0" max="25" step="0.1" inputmode="decimal"></label>
           <label><span>IBU</span> <input name="menuIbu" type="number" min="0" max="200" step="1" inputmode="numeric"></label>
+          <label><span class="beer-srm">Color <span id="menu-swatch" class="swatch" hidden></span></span>
+            <input name="menuSrm" type="number" min="0" max="100" step="0.1" inputmode="decimal" aria-label="Color (SRM)" placeholder="SRM"></label>
         </div>
-        <p><button type="button" id="menu-fill" class="btn small">Fill in ABV and IBU</button>
+        <p><button type="button" id="menu-fill" class="btn small">Fill in ABV, IBU, and color</button>
           <span id="menu-fill-note" class="muted"></span></p>
+        <label id="menu-section-label">Section <select name="menuSection"></select></label>
+        <div id="menu-tags"></div>
+        <div id="menu-extra"></div>
         <div id="menu-prices"></div>
-        <p><button type="button" id="menu-add-price" class="btn small">+ Price</button></p>
+        <label class="check-label"><input type="checkbox" name="menuHidden"> <span>Leave off the public menu <span class="muted">(still on the TV and print)</span></span></label>
+        <p id="menu-no-setup" class="muted" hidden>Pour sizes, sections, tags, and your own fields are set up in
+          <button type="button" class="link" id="menu-open-setup">Settings → Menu</button>.</p>
       </fieldset>
 
       <div class="actions">

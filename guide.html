@@ -49,6 +49,7 @@
       <li><a href="#settings-equipment">Settings: Equipment</a></li>
       <li><a href="#settings-sheet">Settings: Brew sheet</a></li>
       <li><a href="#settings-beers">Settings: Beers and recipes</a></li>
+      <li><a href="#settings-menu">Settings: Menu</a></li>
       <li><a href="#settings-packages">Settings: Packages</a></li>
       <li><a href="#settings-cleaning">Settings: Cleaning</a></li>
       <li><a href="#settings-team">Settings: Team and permissions</a></li>
@@ -270,7 +271,7 @@
       <tr><td data-permission="raw_materials">Receive, count, and order raw materials</td><td></td><td></td><td>✓</td><td>✓</td><td>✓</td><td>✓</td></tr>
       <tr><td data-permission="start_batch">Start batches and edit batch details</td><td></td><td></td><td></td><td>✓</td><td>✓</td><td>✓</td></tr>
       <tr><td data-permission="manage_beers">Beers and recipes</td><td></td><td></td><td></td><td></td><td>✓</td><td>✓</td></tr>
-      <tr><td data-permission="menu">Beer menu details (description, ABV, IBU, prices)</td><td></td><td>✓</td><td></td><td></td><td>✓</td><td>✓</td></tr>
+      <tr><td data-permission="menu">Beer menu details (description, ABV, IBU, prices, and the menu's lists)</td><td></td><td>✓</td><td></td><td></td><td>✓</td><td>✓</td></tr>
       <tr><td data-permission="manage_equipment">Tanks and locations</td><td></td><td></td><td></td><td></td><td>✓</td><td>✓</td></tr>
       <tr><td data-permission="manage_cleaning">Acid rules</td><td></td><td></td><td></td><td></td><td>✓</td><td>✓</td></tr>
       <tr><td data-permission="manage_settings">Units, time zone, targets, and brew sheet fields</td><td></td><td></td><td></td><td></td><td>✓</td><td>✓</td></tr>
@@ -316,9 +317,29 @@
     <h2>Settings: Beers and recipes</h2>
     <ul>
       <li><strong>Beers:</strong> name, style, target OG and FG (the target ABV is worked out).</li>
-      <li><strong>On the menu:</strong> what the taproom's menu says about a beer: a description, ABV, IBU, and a price for each pour size (<span class="ui">+ Price</span>: "16 oz", $7). <span class="ui">Fill in ABV and IBU</span> fills the boxes from the latest finished batch's gravities (or the beer's targets) and the recipe's IBU, and says where each came from; check them, then Save. Someone with only "Beer menu details" (like the Taproom level) can change these, but not the beer itself.</li>
+      <li><strong>On the menu:</strong> what the taproom's menu says about a beer, using the pour sizes, sections, tags, and fields set up in <a href="#settings-menu">Settings → Menu</a>:
+        <ul>
+          <li>a <strong>short line for the TV</strong> (up to 80 characters) and a longer <strong>description</strong> (for print and the public page);</li>
+          <li><strong>ABV</strong>, <strong>IBU</strong>, and <strong>color</strong> (SRM, shown as a swatch). <span class="ui">Fill in ABV, IBU, and color</span> fills the boxes from the latest finished batch's gravities (or the beer's targets) and the recipe's IBU and color, and says where each came from; check them, then Save;</li>
+          <li>its <strong>section</strong>, its <strong>tags</strong>, and the brewery's <strong>own fields</strong>;</li>
+          <li><strong>prices:</strong> a price for each pour size it's poured in (leave the others empty). With two or more taprooms, each has its own column: a price there is used at that taproom instead; leave it empty for the usual price;</li>
+          <li><strong>Leave off the public menu</strong>: still on the TV and print, but not on the menu page for the public.</li>
+        </ul>
+        Someone with only "Beer menu details" (like the Taproom level) can change these, but not the beer itself.</li>
       <li><strong>Recipes are written for</strong> one turn (the calendar multiplies by the brewhouse's usual turns) or the whole batch.</li>
       <li><strong>Recipes:</strong> <span class="ui">Import BeerXML…</span> from BeerSmith, Brewfather, Brewer's Friend, or other recipe software. A preview shows each recipe (size, OG, FG, IBU, ingredients); match it to a beer or a new one (a new beer takes the recipe's style and targets), optionally for one location. Ingredients come in your units with their timing. Tap a recipe to see it. Recipes aren't scaled; adjust by hand.</li>
+    </ul>
+  </section>
+
+  <section id="settings-menu">
+    <h2>Settings: Menu</h2>
+    <p>What the taproom's menu is made of. Each beer fills these in under <strong>On the menu</strong> (<a href="#settings-beers">Settings → Beers</a>). Anyone with "Beer menu details" (Head brewer, Admin, and the Taproom level) sets them up.</p>
+    <ul>
+      <li><strong>Four lists:</strong> <strong>pour sizes</strong> (each with its ounces, which can be left empty), <strong>sections</strong> (groups on the menu), <strong>tags</strong> (badges like "New", and allergens and dietary notes), and <strong>your own fields</strong> (text, a number, yes / no, or picked from a list of choices you type, separated by commas).</li>
+      <li><strong>Adding:</strong> tap one of the usual ones under a list (<em>+ 16 oz</em>, <em>+ IPAs</em>...), or <span class="ui">+ Your own</span> to name one yourself.</li>
+      <li><strong>Changing:</strong> type a new name (renaming changes it on every beer), use ↑ and ↓ to put the list in the order the menu shows it, or <strong>Remove</strong>. A list shows how many beers use each one; removing one that's in use asks first, and takes it off those beers' menus.</li>
+      <li>Changes wait until <span class="ui">Save menu</span>; <span class="ui">Undo changes</span> goes back to what's saved.</li>
+      <li>Typed prices from before the lists existed became pour sizes, named as they were typed.</li>
     </ul>
   </section>
 

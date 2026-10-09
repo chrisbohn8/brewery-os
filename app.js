@@ -463,7 +463,7 @@ async function loadAll() {
     must(db.from("batch_status").select("*").eq("brewery_id", b)),
     must(db.from("batch_events").select("*").eq("brewery_id", b).order("effective_date").order("recorded_at")),
     must(db.from("tank_cleanings").select("*").eq("brewery_id", b).order("cleaned_on").order("recorded_at")),
-    must(db.from("breweries").select("acid_after_styles, temperature_unit, gravity_unit, volume_unit, time_zone, target_limits, sheet_fields, sheet_custom_fields, sheet_field_settings, stock_reasons, require_stock_reason, alert_quiet_start, alert_quiet_end, plan_lookahead_days, recipes_per, gravity_trigger_readings").eq("id", b).single()),
+    must(db.from("breweries").select("acid_after_styles, temperature_unit, gravity_unit, volume_unit, time_zone, target_limits, sheet_fields, sheet_custom_fields, sheet_field_settings, stock_reasons, require_stock_reason, alert_quiet_start, alert_quiet_end, plan_lookahead_days, recipes_per, gravity_trigger_readings, menu_sizes, menu_sections, menu_tags, menu_fields").eq("id", b).single()),
     must(db.rpc("brewery_members", { p_brewery_id: b })),
     must(db.from("invites").select("*").eq("brewery_id", b).order("created_at")), // admins only; others get none
     must(db.rpc("my_permissions", { b })),
@@ -513,7 +513,9 @@ async function loadAll() {
       targetFg: x.target_fg === null ? null : Number(x.target_fg),
       // What the taproom's menu says (typed by a person, never worked out on its own)
       menuDescription: x.menu_description || "", menuAbv: num(x.menu_abv), menuIbu: num(x.menu_ibu),
-      menuPrices: x.menu_prices || [],
+      menuPrices: x.menu_prices || [], menuShort: x.menu_short || "", menuSrm: num(x.menu_srm),
+      menuSection: x.menu_section || null, menuTags: x.menu_tags || [], menuExtra: x.menu_extra || {},
+      menuPublic: x.menu_public !== false,
     })),
     tanks: tanks.map((t) => ({
       id: t.id, name: t.name, type: t.type, status: t.status, locationId: t.location_id,
@@ -532,6 +534,8 @@ async function loadAll() {
     })),
     cleanings: cleanings.map((c) => ({ id: c.id, tankId: c.tank_id, cleanedOn: c.cleaned_on, note: c.note })),
     acidAfterStyles: settings.acid_after_styles,
+    // The menu's lists (Settings → Menu): pour sizes, sections, tags, and the brewery's own fields
+    menu: { sizes: settings.menu_sizes || [], sections: settings.menu_sections || [], tags: settings.menu_tags || [], fields: settings.menu_fields || [] },
     sheetFields: settings.sheet_fields,
     sheetCustomFields: settings.sheet_custom_fields,
     sheetFieldSettings: settings.sheet_field_settings,
@@ -585,7 +589,7 @@ async function loadAll() {
     gravityReadings: settings.gravity_trigger_readings || 1,
     gravityDue: gravityDue.map((g) => ({ batchId: g.batch_id, kind: g.kind, triggerSg: num(g.trigger_sg), latestSg: num(g.latest_sg) })),
     recipes: recipes.map((r) => ({ id: r.id, beerId: r.beer_id, locationId: r.location_id, name: r.name, batchSizeBbl: num(r.batch_size_bbl),
-      targetOg: num(r.target_og), targetFg: num(r.target_fg), ibu: num(r.ibu), notes: r.notes, source: r.source })),
+      targetOg: num(r.target_og), targetFg: num(r.target_fg), ibu: num(r.ibu), colorSrm: num(r.color_srm), notes: r.notes, source: r.source })),
     recipeIngredients: recipeIngredientRows.map((i) => ({ id: i.id, recipeId: i.recipe_id, position: i.position, kind: i.kind, name: i.name,
       amount: num(i.amount), unit: i.unit, timing: i.timing })),
     views: inventoryViews.map((v) => ({ id: v.id, name: v.name, placeIds: v.place_ids || [], splitByPlace: v.split_by_place,
@@ -1341,6 +1345,7 @@ function render() {
   applyPermissions();
   renderSettings();
   renderSheetPicker();
+  renderMenuSetup();
   renderPackageTypes();
   renderPlaces();
   renderReasons();
@@ -1843,8 +1848,9 @@ function openBeerEditor(beer) {
   document.getElementById("delete-beer").hidden = !beer || !(can("manage_beers") && can("delete_records"));
   // The beer itself needs "Beers and recipes"; its menu details need "Beer menu details"
   const menu = document.getElementById("beer-menu");
+  fillBeerMenu(b);
   for (const el of beerForm.querySelectorAll("input")) el.disabled = !can("manage_beers");
-  for (const el of menu.querySelectorAll("input, textarea, button")) el.disabled = !can("menu");
+  for (const el of menu.querySelectorAll("input, textarea, select, button:not(#menu-open-setup)")) el.disabled = !can("menu");
   menu.hidden = !beer && !can("menu");
   beerForm.querySelector("button[type=submit]").hidden = !(can("manage_beers") || (beer && can("menu")));
 
@@ -1858,36 +1864,110 @@ function openBeerEditor(beer) {
   fillUnitInput(beerForm.targetOg, "gravity", b.targetOg);
   fillUnitInput(beerForm.targetFg, "gravity", b.targetFg);
   showTargetAbv();
-  beerForm.menuDescription.value = b.menuDescription || "";
-  beerForm.menuAbv.value = b.menuAbv ?? "";
-  beerForm.menuIbu.value = b.menuIbu ?? "";
-  document.getElementById("menu-prices").replaceChildren();
-  (b.menuPrices || []).forEach(addPriceRow);
   document.getElementById("menu-fill-note").textContent = "";
   beerDialog.showModal();
 }
 
-// ----- A beer's menu details: prices per pour size, and ABV / IBU filled in for a person to check -----
-function addPriceRow(p = { size: "", price: null }) {
-  const row = document.createElement("div");
-  row.className = "price-row";
-  row.innerHTML = `<label>Size <input class="price-size" maxlength="40" placeholder="16 oz"></label>
-    <label>Price ($) <input class="price-amount" type="number" min="0" step="0.01" inputmode="decimal"></label>
-    <button type="button" class="btn small" aria-label="Remove this price">Remove</button>`;
-  row.querySelector(".price-size").value = p.size || "";
-  row.querySelector(".price-amount").value = p.price ?? "";
-  row.querySelector("button").addEventListener("click", () => row.remove());
-  if (!can("menu")) row.querySelectorAll("input, button").forEach((el) => { el.disabled = true; });
-  document.getElementById("menu-prices").append(row);
+// ----- A beer's menu details: the brewery's pour sizes, sections, tags, and fields (Settings → Menu)
+// filled in for this beer; ABV, IBU, and color filled in for a person to check -----
+function fillBeerMenu(b) {
+  const m = menuSetup();
+  beerForm.menuShort.value = b.menuShort || "";
+  beerForm.menuDescription.value = b.menuDescription || "";
+  beerForm.menuAbv.value = b.menuAbv ?? "";
+  beerForm.menuIbu.value = b.menuIbu ?? "";
+  beerForm.menuSrm.value = b.menuSrm ?? "";
+  showSwatch();
+  beerForm.menuSection.innerHTML = `<option value="">No section</option>` +
+    m.sections.map((x) => `<option value="${esc(x.id)}">${esc(x.name)}</option>`).join("");
+  beerForm.menuSection.value = m.sections.some((x) => x.id === b.menuSection) ? b.menuSection : "";
+  document.getElementById("menu-section-label").hidden = !m.sections.length;
+  document.getElementById("menu-tags").innerHTML = TAG_KINDS.map((kind) => {
+    const tags = m.tags.filter((t) => (t.kind || "badge") === kind.id);
+    return tags.length ? `<fieldset class="menu-group"><legend>${kind.plural}</legend><div class="check-grid">${tags.map((t) => `
+      <label class="check-label"><input type="checkbox" data-menu-tag="${esc(t.id)}" ${(b.menuTags || []).includes(t.id) ? "checked" : ""}> ${esc(t.name)}</label>`).join("")}
+      </div></fieldset>` : "";
+  }).join("");
+  const extra = b.menuExtra || {};
+  document.getElementById("menu-extra").innerHTML = m.fields.map((f) => {
+    const v = extra[f.id], id = `data-menu-extra="${esc(f.id)}"`;
+    if (f.type === "yesno") return `<label class="check-label"><input type="checkbox" ${id} ${v === true ? "checked" : ""}> ${esc(f.name)}</label>`;
+    if (f.type === "list") return `<label>${esc(f.name)} <select ${id}><option value=""></option>${(f.options || []).map((o) =>
+      `<option ${o === v ? "selected" : ""}>${esc(o)}</option>`).join("")}</select></label>`;
+    if (f.type === "number") return `<label>${esc(f.name)} <input type="number" step="any" inputmode="decimal" ${id} value="${v ?? ""}"></label>`;
+    return `<label>${esc(f.name)} <input maxlength="120" ${id} value="${esc(v ?? "")}"></label>`;
+  }).join("");
+  // Prices: one row per pour size. With two or more taprooms, a column for each, used there instead
+  const taprooms = menuTaprooms();
+  document.getElementById("menu-prices").innerHTML = m.sizes.length ? `
+    <table class="price-table"><thead><tr><th>Pour size</th><th>Price ($)</th>${taprooms.map((t) => `<th>${esc(t.name)}</th>`).join("")}</tr></thead>
+    <tbody>${m.sizes.map((size) => {
+      const p = (b.menuPrices || []).find((x) => x.size === size.id);
+      return `<tr data-size="${esc(size.id)}"><th scope="row">${esc(size.name)}</th>
+        <td><input class="price-amount" type="number" min="0" step="0.01" inputmode="decimal" aria-label="${esc(size.name)} price" value="${p?.price ?? ""}"></td>
+        ${taprooms.map((t) => `<td><input class="price-at" data-place="${t.id}" type="number" min="0" step="0.01" inputmode="decimal"
+          aria-label="${esc(size.name)} price at ${esc(t.name)}" value="${p?.at?.[t.id] ?? ""}"></td>`).join("")}</tr>`;
+    }).join("")}</tbody></table>
+    <p class="muted">Leave a size empty if this beer isn't poured in it.${taprooms.length
+      ? " A price under a taproom is used there instead; leave it empty for the usual price." : ""}</p>` : "";
+  beerForm.menuHidden.checked = b.menuPublic === false;
 }
-document.getElementById("menu-add-price").addEventListener("click", () => {
-  addPriceRow();
-  document.querySelector("#menu-prices .price-row:last-child .price-size").focus();
+
+// Taprooms get their own price column only when there are two or more (with one, it's just the price)
+function menuTaprooms() {
+  const taprooms = data.places.filter((p) => p.kind === "taproom" && p.active);
+  return taprooms.length > 1 ? taprooms : [];
+}
+
+// The beer form's menu details, ready to save (or { error } to show)
+function readBeerMenu() {
+  const prices = [];
+  for (const row of document.querySelectorAll("#menu-prices tr[data-size]")) {
+    const amount = row.querySelector(".price-amount").value;
+    const at = {};
+    for (const input of row.querySelectorAll(".price-at")) if (input.value !== "") at[input.dataset.place] = Number(input.value);
+    if (amount === "" && Object.keys(at).length) {
+      return { error: `${row.querySelector("th").textContent}: a price at one taproom needs the usual price too.` };
+    }
+    if (amount !== "") prices.push({ size: row.dataset.size, price: Number(amount), ...(Object.keys(at).length ? { at } : {}) });
+  }
+  const extra = {};
+  for (const el of document.querySelectorAll("#menu-extra [data-menu-extra]")) {
+    const key = el.dataset.menuExtra;
+    if (el.type === "checkbox") { if (el.checked) extra[key] = true; }
+    else if (el.type === "number") { if (el.value !== "") extra[key] = Number(el.value); }
+    else if (el.value.trim()) extra[key] = el.value.trim();
+  }
+  return {
+    menu_short: beerForm.menuShort.value.trim(),
+    menu_description: beerForm.menuDescription.value.trim(),
+    menu_abv: beerForm.menuAbv.value === "" ? null : Number(beerForm.menuAbv.value),
+    menu_ibu: beerForm.menuIbu.value === "" ? null : Number(beerForm.menuIbu.value),
+    menu_srm: beerForm.menuSrm.value === "" ? null : Number(beerForm.menuSrm.value),
+    menu_section: beerForm.menuSection.value || null,
+    menu_tags: [...document.querySelectorAll("#menu-tags [data-menu-tag]:checked")].map((el) => el.dataset.menuTag),
+    menu_extra: extra,
+    menu_prices: prices,
+    menu_public: !beerForm.menuHidden.checked,
+  };
+}
+
+// A beer's color as a swatch: the usual approximation of SRM to a color on screen
+function srmColor(srm) {
+  const c = (base) => Math.round(255 * base ** Math.min(Math.max(srm, 0), 40));
+  return `rgb(${c(0.975)}, ${c(0.88)}, ${c(0.7)})`;
+}
+function showSwatch() {
+  const swatch = document.getElementById("menu-swatch");
+  const srm = beerForm.menuSrm.value === "" ? null : Number(beerForm.menuSrm.value);
+  swatch.hidden = srm == null || !Number.isFinite(srm);
+  if (!swatch.hidden) swatch.style.background = srmColor(srm);
+}
+beerForm.menuSrm.addEventListener("input", showSwatch);
+document.getElementById("menu-open-setup").addEventListener("click", () => {
+  beerDialog.close();
+  showSettings(true, "menu");
 });
-const menuPrices = () => [...document.querySelectorAll("#menu-prices .price-row")]
-  .map((row) => ({ size: row.querySelector(".price-size").value.trim(), price: row.querySelector(".price-amount").value }))
-  .filter((p) => p.size || p.price !== "")
-  .map((p) => ({ size: p.size, price: p.price === "" ? null : Number(p.price) }));
 
 // ABV from the latest finished batch's gravities (or the beer's targets), IBU from its recipe.
 // Only fills the boxes: a person checks them and taps Save.
@@ -1912,8 +1992,14 @@ document.getElementById("menu-fill").addEventListener("click", () => {
     beerForm.menuIbu.value = Math.round(recipe.ibu);
     from.push(`IBU from the recipe "${recipe.name}"`);
   }
+  const colored = recipesOf(editingBeer.id).filter((r) => r.colorSrm != null).at(-1);
+  if (colored) {
+    beerForm.menuSrm.value = +colored.colorSrm.toFixed(1);
+    showSwatch();
+    from.push(`color from the recipe "${colored.name}"`);
+  }
   document.getElementById("menu-fill-note").textContent = from.length
-    ? `${from.join("; ")}. Check them, then Save.` : "Nothing to fill in from yet: no finished batch, targets, or recipe IBU.";
+    ? `${from.join("; ")}. Check them, then Save.` : "Nothing to fill in from yet: no finished batch, targets, or recipe IBU or color.";
 });
 
 // Update the ABV line as you type the gravities
@@ -1926,14 +2012,9 @@ beerForm.targetFg.addEventListener("input", showTargetAbv);
 
 beerForm.addEventListener("submit", async (e) => {
   e.preventDefault();
-  const menu = {
-    menu_description: beerForm.menuDescription.value.trim(),
-    menu_abv: beerForm.menuAbv.value === "" ? null : Number(beerForm.menuAbv.value),
-    menu_ibu: beerForm.menuIbu.value === "" ? null : Number(beerForm.menuIbu.value),
-    menu_prices: menuPrices(),
-  };
-  if (menu.menu_prices.some((p) => !p.size || p.price == null)) {
-    warn("Each price needs a size and an amount (or remove it).");
+  const menu = readBeerMenu();
+  if (menu.error) {
+    warn(menu.error);
     return;
   }
   // Only menu details: just those (the database also checks)
@@ -2149,6 +2230,25 @@ function upgradeData(d) {
     batch.batchNumber ??= batch.batchId ?? "";
     delete batch.batchId;
   }
+
+  // The menu's lists (October 2026). Backups from just before them have prices with typed sizes
+  // ("16 oz"): those become pour sizes, as they did in the database. In newer backups, a price for
+  // a size that was removed is already off the menu, so it's left out.
+  const typedSizes = !d.menu;
+  d.menu ??= { sizes: [], sections: [], tags: [], fields: [] };
+  for (const beer of d.beers) {
+    beer.menuPrices = (beer.menuPrices || []).filter((p) => p.size && p.price != null
+      && (typedSizes || d.menu.sizes.some((x) => x.id === p.size))).map((p) => {
+      if (d.menu.sizes.some((x) => x.id === p.size)) return p;
+      let size = d.menu.sizes.find((x) => x.name.toLowerCase() === String(p.size).trim().toLowerCase());
+      if (!size) {
+        const oz = String(p.size).match(/(\d+(?:\.\d+)?)\s*oz/i);
+        size = { id: newId(), name: String(p.size).trim(), oz: oz ? Number(oz[1]) : null };
+        d.menu.sizes.push(size);
+      }
+      return { ...p, size: size.id };
+    });
+  }
   return d;
 }
 
@@ -2196,8 +2296,15 @@ async function loadIntoBrewery(source, description) {
     const code = beerCodeFor(x.name, codes);
     codes.push({ code });
     return { id: idFor(x.id), code, name: x.name, style: x.style || "", target_og: x.targetOg ?? null, target_fg: x.targetFg ?? null,
-      menu_description: x.menuDescription || "", menu_abv: x.menuAbv ?? null, menu_ibu: x.menuIbu ?? null, menu_prices: x.menuPrices || [] };
+      menu_description: x.menuDescription || "", menu_abv: x.menuAbv ?? null, menu_ibu: x.menuIbu ?? null,
+      // (prices at one taproom are added at the end, once the taprooms are in)
+      menu_prices: x.menuPrices.map(({ at, ...p }) => p), menu_short: x.menuShort || "", menu_srm: x.menuSrm ?? null,
+      menu_section: x.menuSection ?? null, menu_tags: x.menuTags || [], menu_extra: x.menuExtra || {}, menu_public: x.menuPublic !== false };
   }));
+  // The menu's lists (they need "Beer menu details"; skipped quietly for anyone else)
+  if (can("menu") && Object.values(d.menu).some((list) => list.length)) {
+    update("breweries", brewery.id, { menu_sizes: d.menu.sizes, menu_sections: d.menu.sections, menu_tags: d.menu.tags, menu_fields: d.menu.fields });
+  }
   insert("tanks", d.tanks.map((t) => ({
     id: idFor(t.id), name: t.name, type: t.type, status: t.status,
     capacity_bbl: t.capacityBbl, location_id: idFor(t.locationId), acid_every_turns: t.acidEveryTurns,
@@ -2269,7 +2376,7 @@ async function loadIntoBrewery(source, description) {
         adjusted_on: a.adjustedOn, change: a.change, reason: a.reason || "", ...recorded(a.recordedAt) })));
     }
     insert("recipes", (d.recipes || []).map((r) => ({ id: idFor(r.id), beer_id: idFor(r.beerId), location_id: idFor(r.locationId),
-      name: r.name, batch_size_bbl: r.batchSizeBbl, target_og: r.targetOg, target_fg: r.targetFg, ibu: r.ibu, notes: r.notes || "", source: r.source || "" })));
+      name: r.name, batch_size_bbl: r.batchSizeBbl, target_og: r.targetOg, target_fg: r.targetFg, ibu: r.ibu, color_srm: r.colorSrm ?? null, notes: r.notes || "", source: r.source || "" })));
     insert("recipe_ingredients", (d.recipes?.length ? d.recipeIngredients || [] : []).map((i) => ({
       recipe_id: idFor(i.recipeId), position: i.position, kind: i.kind, name: i.name, amount: i.amount, unit: i.unit, timing: i.timing || "" })));
     insert("inventory_views", (d.views || []).map((v) => ({ name: v.name, place_ids: v.placeIds.map(idFor),
@@ -2325,6 +2432,12 @@ async function loadIntoBrewery(source, description) {
       sheet_fields: d.sheetFields ?? null, sheet_custom_fields: d.sheetCustomFields || [],
       sheet_field_settings: d.sheetFieldSettings || {},
     });
+  }
+
+  // Beers' prices at one taproom, last: the taprooms are in by now (and matched to the brewery's own)
+  for (const x of can("menu") ? d.beers.filter((b) => b.menuPrices.some((p) => p.at)) : []) {
+    update("beers", idFor(x.id), { menu_prices: x.menuPrices.map((p) => p.at
+      ? { ...p, at: Object.fromEntries(Object.entries(p.at).map(([place, price]) => [idFor(place), price])) } : p) });
   }
 
   const ok = await save(async () => {
@@ -2616,7 +2729,7 @@ const PERMISSIONS = [
   { id: "raw_materials",    label: "Receive, count, and order raw materials" },
   { id: "start_batch",      label: "Start batches and edit batch details" },
   { id: "manage_beers",     label: "Beers and recipes" },
-  { id: "menu",             label: "Beer menu details (description, ABV, IBU, prices)" },
+  { id: "menu",             label: "Beer menu details (description, ABV, IBU, prices, and the menu's lists)" },
   { id: "manage_equipment", label: "Tanks and locations" },
   { id: "manage_cleaning",  label: "Acid rules" },
   { id: "manage_settings",  label: "Units, time zone, targets, and brew sheet fields" },
@@ -2751,6 +2864,159 @@ document.getElementById("help-body").addEventListener("click", (e) => {
   if (!link) return;
   e.preventDefault();
   showHelp(link.getAttribute("href").slice(1));
+});
+
+// ----- Settings → Menu: the menu's lists -----
+// Pour sizes, sections, tags, and the brewery's own fields. Like the brew sheet: tick the usual ones,
+// rename them, add your own. Beers point at each one by its id, so a rename changes every beer.
+// Changes are kept here until "Save menu" (so a background refresh doesn't undo them).
+const MENU_CATALOG = {
+  sizes: [{ name: "16 oz", oz: 16 }, { name: "12 oz", oz: 12 }, { name: "10 oz", oz: 10 }, { name: "20 oz", oz: 20 },
+    { name: "5 oz taster", oz: 5 }, { name: "Flight (4 × 4 oz)", oz: 16 }, { name: "32 oz crowler", oz: 32 },
+    { name: "32 oz growler", oz: 32 }, { name: "64 oz growler", oz: 64 }],
+  sections: ["IPAs", "Pale ales", "Lagers", "Wheat", "Sours", "Dark", "Seasonal", "Guest taps", "Cider & wine", "Non-alcoholic"]
+    .map((name) => ({ name })),
+  tags: [...["New", "Seasonal", "Limited", "Award winner", "Brewer's pick", "Last call"].map((name) => ({ name, kind: "badge" })),
+    ...["Contains lactose", "Contains wheat", "Contains nuts", "Contains fruit", "Gluten-reduced", "Vegan"].map((name) => ({ name, kind: "allergen" }))],
+  fields: [{ name: "Hops", type: "text" }, { name: "Malts", type: "text" }, { name: "Collab with", type: "text" },
+    { name: "Pairs with", type: "text" }, { name: "Barrel-aged", type: "yesno" }],
+};
+const MENU_LISTS = [
+  { key: "sizes", title: "Pour sizes", one: "size", help: "In the order they're shown. Each beer gets a price for the sizes it's poured in." },
+  { key: "sections", title: "Sections", one: "section", help: "Groups on the menu, in this order. Each beer picks one." },
+  { key: "tags", title: "Tags", one: "tag", help: "Small labels on a beer: badges, and allergens and dietary notes." },
+  { key: "fields", title: "Your own fields", one: "field", help: "Anything else a beer's menu should say." },
+];
+const TAG_KINDS = [{ id: "badge", label: "Badge", plural: "Badges" }, { id: "allergen", label: "Allergen or dietary", plural: "Allergens and dietary" }];
+const MENU_FIELD_TYPES = [{ id: "text", label: "Text" }, { id: "number", label: "Number" }, { id: "yesno", label: "Yes / no" }, { id: "list", label: "Pick from a list" }];
+
+const menuSetup = () => data.menu || { sizes: [], sections: [], tags: [], fields: [] };
+const menuName = (list, id) => menuSetup()[list].find((x) => x.id === id)?.name || "";
+let menuDraft = null; // a copy while someone is changing the lists; null = show what's saved
+const menuDraftNow = () => (menuDraft ??= structuredClone(menuSetup()));
+
+// How many beers use one item (shown, and asked about before removing it)
+function menuUses(list, id) {
+  return data.beers.filter((b) => list === "sizes" ? (b.menuPrices || []).some((p) => p.size === id)
+    : list === "sections" ? b.menuSection === id : list === "tags" ? (b.menuTags || []).includes(id)
+    : (b.menuExtra || {})[id] != null).length;
+}
+
+function renderMenuSetup() {
+  const box = document.getElementById("menu-lists");
+  const allowed = can("menu");
+  document.getElementById("menu-setup-note").hidden = allowed;
+  document.getElementById("menu-setup-actions").hidden = !allowed;
+  document.getElementById("menu-setup-status").textContent = menuDraft ? "Changes not saved yet." : "";
+  document.getElementById("menu-setup-save").disabled = document.getElementById("menu-setup-undo").disabled = !menuDraft;
+  if (menuDraft && box.contains(document.activeElement) && document.activeElement.matches("input, select")) return; // not under someone's cursor
+  const m = menuDraft ?? menuSetup();
+  const off = allowed ? "" : "disabled";
+  box.innerHTML = MENU_LISTS.map((list) => {
+    const items = m[list.key];
+    const have = new Set(items.map((x) => x.name.trim().toLowerCase()));
+    const usual = MENU_CATALOG[list.key].map((x, i) => ({ ...x, i })).filter((x) => !have.has(x.name.toLowerCase()));
+    return `<fieldset class="picker-section menu-list" data-list="${list.key}">
+      <legend>${list.title} <span class="muted">· ${items.length}</span></legend>
+      <p class="muted">${list.help}</p>
+      ${items.length ? "" : `<p class="muted">None yet.${allowed ? " Add the usual ones below, or your own." : ""}</p>`}
+      ${items.map((x, i) => {
+        const uses = menuUses(list.key, x.id);
+        return `<div class="menu-row" data-index="${i}">
+        <input class="menu-name" data-prop="name" maxlength="60" value="${esc(x.name)}" aria-label="${list.one} name" ${off}>
+        ${list.key === "sizes" ? `<label class="menu-oz"><input type="number" min="0" step="0.1" inputmode="decimal" data-prop="oz" value="${x.oz ?? ""}" aria-label="Ounces" ${off}> oz</label>` : ""}
+        ${list.key === "tags" ? `<select data-prop="kind" aria-label="Kind of tag" ${off}>${TAG_KINDS.map((k) =>
+          `<option value="${k.id}" ${(x.kind || "badge") === k.id ? "selected" : ""}>${k.label}</option>`).join("")}</select>` : ""}
+        ${list.key === "fields" ? `<select data-prop="type" aria-label="Kind of field" ${off}>${MENU_FIELD_TYPES.map((t) =>
+          `<option value="${t.id}" ${x.type === t.id ? "selected" : ""}>${t.label}</option>`).join("")}</select>` : ""}
+        ${allowed ? `<span class="menu-row-buttons">
+          <button type="button" class="btn small" data-move="-1" aria-label="Move ${esc(x.name)} up" ${i === 0 ? "disabled" : ""}>↑</button>
+          <button type="button" class="btn small" data-move="1" aria-label="Move ${esc(x.name)} down" ${i === items.length - 1 ? "disabled" : ""}>↓</button>
+          <button type="button" class="btn small" data-remove aria-label="Remove ${esc(x.name)}">Remove</button></span>` : ""}
+        ${list.key === "fields" && x.type === "list" ? `<input class="menu-options" data-prop="options" maxlength="400"
+          placeholder="The choices, separated by commas" aria-label="Choices for ${esc(x.name)}" value="${esc((x.options || []).join(", "))}" ${off}>` : ""}
+        ${uses ? `<span class="muted menu-uses">on ${uses} beer${uses === 1 ? "" : "s"}</span>` : ""}
+      </div>`;
+      }).join("")}
+      ${allowed ? `<div class="place-chips menu-add">
+        ${usual.map((x) => `<button type="button" class="add-view" data-add="${x.i}">+ ${esc(x.name)}</button>`).join("")}
+        <button type="button" class="add-view" data-add-own>+ Your own ${list.one}</button></div>` : ""}
+    </fieldset>`;
+  }).join("");
+}
+
+// Typing in a list changes the draft (no rebuild, so the cursor stays put)
+document.getElementById("menu-lists").addEventListener("input", (e) => {
+  const prop = e.target.dataset.prop;
+  if (!prop) return;
+  const listKey = e.target.closest("[data-list]").dataset.list;
+  const item = menuDraftNow()[listKey][Number(e.target.closest("[data-index]").dataset.index)];
+  item[prop] = prop === "oz" ? (e.target.value === "" ? null : Number(e.target.value))
+    : prop === "options" ? e.target.value.split(",").map((o) => o.trim()).filter(Boolean) : e.target.value;
+  if (prop === "type") { // "Pick from a list" shows its choices box
+    e.target.blur();
+    renderMenuSetup();
+    return;
+  }
+  document.getElementById("menu-setup-status").textContent = "Changes not saved yet.";
+  document.getElementById("menu-setup-save").disabled = document.getElementById("menu-setup-undo").disabled = false;
+});
+
+document.getElementById("menu-lists").addEventListener("click", async (e) => {
+  const button = e.target.closest("button");
+  const fieldset = e.target.closest("[data-list]");
+  if (!button || !fieldset) return;
+  const listKey = fieldset.dataset.list;
+  const list = MENU_LISTS.find((l) => l.key === listKey);
+  const index = Number(button.closest("[data-index]")?.dataset.index);
+  if (button.dataset.move) {
+    const items = menuDraftNow()[listKey];
+    const to = index + Number(button.dataset.move);
+    [items[index], items[to]] = [items[to], items[index]];
+  } else if (button.hasAttribute("data-remove")) {
+    const item = menuDraftNow()[listKey][index];
+    const uses = menuUses(listKey, item.id);
+    if (uses && !(await ask(`${uses} beer${uses === 1 ? " uses" : "s use"} "${item.name}". Removing it takes it off ` +
+      `${uses === 1 ? "that beer's" : "their"} menu (once you save).`, { ok: "Remove", danger: true }))) return;
+    menuDraftNow()[listKey].splice(index, 1);
+  } else if (button.dataset.add) {
+    menuDraftNow()[listKey].push({ id: newId(), ...structuredClone(MENU_CATALOG[listKey][Number(button.dataset.add)]),
+      ...(listKey === "fields" ? { options: [] } : {}) });
+  } else if (button.hasAttribute("data-add-own")) {
+    const name = await ask(`Name of the new ${list.one}:`, { ok: "Add", input: { placeholder: list.key === "sizes" ? "Half pour" : "" } });
+    if (!name?.trim()) return;
+    menuDraftNow()[listKey].push({ id: newId(), name: name.trim().slice(0, 60),
+      ...{ sizes: { oz: null }, sections: {}, tags: { kind: "badge" }, fields: { type: "text", options: [] } }[listKey] });
+  } else return;
+  renderMenuSetup();
+});
+
+document.getElementById("menu-setup-undo").addEventListener("click", () => {
+  menuDraft = null;
+  renderMenuSetup();
+});
+
+document.getElementById("menu-setup-save").addEventListener("click", async () => {
+  if (!menuDraft) return;
+  const m = menuDraft;
+  for (const list of MENU_LISTS) {
+    for (const x of m[list.key]) x.name = x.name.trim();
+    if (m[list.key].some((x) => !x.name)) return warn(`Every ${list.one} needs a name.`);
+    const names = m[list.key].map((x) => x.name.toLowerCase());
+    const twice = names.find((n, i) => names.indexOf(n) !== i);
+    if (twice) return warn(`There are two ${list.title.toLowerCase()} called "${m[list.key].find((x) => x.name.toLowerCase() === twice).name}".`);
+  }
+  if (m.sizes.some((x) => x.oz != null && !(x.oz > 0))) return warn("A pour size's ounces should be more than 0 (or left empty).");
+  const noChoices = m.fields.find((f) => f.type === "list" && !(f.options || []).length);
+  if (noChoices) return warn(`"${noChoices.name}" picks from a list, so it needs its choices (separated by commas).`);
+  for (const f of m.fields) if (f.type !== "list") f.options = [];
+  const ok = await save(async () => {
+    const saved = await must(db.from("breweries").update({ menu_sizes: m.sizes, menu_sections: m.sections, menu_tags: m.tags, menu_fields: m.fields })
+      .eq("id", brewery.id).select("id"));
+    if (!saved.length) throw new Error("You don't have permission to change the menu.");
+    menuDraft = null;
+  });
+  if (ok) { document.activeElement?.blur(); renderMenuSetup(); notify("Menu saved."); }
 });
 
 // ----- Brew sheet: which fields this brewery measures -----
@@ -4827,8 +5093,13 @@ function exportLists() {
     }),
     "beers": data.beers.map((b) => ({ "Beer": b.name, "Style": b.style || "", [`Target OG (${grav})`]: g(b.targetOg), [`Target FG (${grav})`]: g(b.targetFg),
       "Target ABV (%)": abv(b.targetOg, b.targetFg) ? abv(b.targetOg, b.targetFg).toFixed(1) : "",
-      "Menu description": b.menuDescription || "", "Menu ABV (%)": b.menuAbv ?? "", "Menu IBU": b.menuIbu ?? "",
-      "Menu prices": (b.menuPrices || []).map((p) => `${p.size} $${p.price}`).join("; ") })),
+      "Menu short line": b.menuShort || "", "Menu description": b.menuDescription || "", "Menu ABV (%)": b.menuAbv ?? "", "Menu IBU": b.menuIbu ?? "",
+      "Menu color (SRM)": b.menuSrm ?? "", "Menu section": menuName("sections", b.menuSection),
+      "Menu tags": (b.menuTags || []).map((id) => menuName("tags", id)).filter(Boolean).join("; "),
+      "Menu prices": (b.menuPrices || []).filter((p) => menuName("sizes", p.size)).map((p) => `${menuName("sizes", p.size)} $${p.price}${
+        Object.entries(p.at || {}).map(([place, price]) => ` (${placeName(place)} $${price})`).join("")}`).join("; "),
+      ...Object.fromEntries(menuSetup().fields.map((f) => [`Menu: ${f.name}`, (b.menuExtra || {})[f.id] === true ? "yes" : (b.menuExtra || {})[f.id] ?? ""])),
+      "On the public menu": b.menuPublic === false ? "no" : "yes" })),
     "batches": data.batches.map((b) => {
       const og = batchOg(b), last = cellarLog(b).filter((c) => c.gravitySg != null).at(-1);
       return { "Batch": b.batchNumber, "Beer": beerName(b), "Brewed": b.brewDate || "", [`Size (${vol})`]: v(b.sizeBbl), "Turns": b.turns,
@@ -5262,8 +5533,18 @@ function parseBeerXml(text) {
     }
     const liters = n(r, "BATCH_SIZE");
     const ibu = parseFloat((val(r, "IBU") || val(r, "EST_IBU")).replace(",", "."));
+    // Color (SRM): the recipe tool's own estimate ("12.3 SRM", or EBC), or else the usual Morey
+    // formula from the malt bill (each malt's °L and weight, over the batch size)
+    const est = val(r, "EST_COLOR"), estN = parseFloat(est.replace(",", "."));
+    let color = Number.isFinite(estN) ? (/ebc/i.test(est) ? estN * 0.508 : estN) : null;
+    if (color == null && liters) {
+      const mcu = [...r.querySelectorAll(":scope > FERMENTABLES > FERMENTABLE")]
+        .reduce((sum, f) => sum + (n(f, "COLOR") || 0) * (n(f, "AMOUNT") || 0) * 2.20462, 0) / (liters / 3.78541);
+      if (mcu > 0) color = 1.4922 * mcu ** 0.6859;
+    }
     return { name: val(r, "NAME") || "Recipe", style: r.querySelector(":scope > STYLE > NAME")?.textContent.trim() ?? "",
       batchSizeBbl: liters ? liters / 117.348 : null, og: n(r, "OG"), fg: n(r, "FG"), ibu: Number.isFinite(ibu) ? ibu : null,
+      colorSrm: color != null && color >= 0 && color <= 100 ? +color.toFixed(1) : null,
       notes: val(r, "NOTES"), brewer: val(r, "BREWER"), ingredients: ingredients.filter((i) => i.name) };
   });
   if (!recipes.length) throw new Error("No recipes found in that file.");
@@ -5325,7 +5606,7 @@ document.getElementById("recipe-import-form").addEventListener("submit", async (
       }
       const recipeId = newId();
       await must(db.from("recipes").insert({ id: recipeId, brewery_id: brewery.id, beer_id: beerId, location_id: location, name: r.name,
-        batch_size_bbl: r.batchSizeBbl, target_og: r.og, target_fg: r.fg, ibu: r.ibu, notes: r.notes.slice(0, 4000), source: "BeerXML" }));
+        batch_size_bbl: r.batchSizeBbl, target_og: r.og, target_fg: r.fg, ibu: r.ibu, color_srm: r.colorSrm, notes: r.notes.slice(0, 4000), source: "BeerXML" }));
       if (r.ingredients.length) await must(db.from("recipe_ingredients").insert(r.ingredients.map((x, position) => ({
         brewery_id: brewery.id, recipe_id: recipeId, position, kind: x.kind, name: x.name.slice(0, 120), amount: x.amount || null, unit: x.unit, timing: x.timing }))));
     }

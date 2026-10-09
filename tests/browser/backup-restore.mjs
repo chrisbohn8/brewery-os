@@ -40,6 +40,7 @@ const empty = (page) => page.evaluate(async () => {
   for (const table of ["plan_items", "stock_moves", "batches", "tanks", "beers", "stock_places", "raw_items", "locations"]) {
     await must(db.from(table).delete().eq("brewery_id", b));
   }
+  await must(db.from("breweries").update({ menu_sizes: [], menu_sections: [], menu_tags: [], menu_fields: [] }).eq("id", b));
   await refresh();
 });
 const counts = (page) => page.evaluate(() => ({
@@ -49,14 +50,27 @@ const counts = (page) => page.evaluate(() => ({
   ownFields: (brewery.sheetCustomFields || []).length, sheetFields: (brewery.sheetFields || []).length,
 }));
 
+let firstPage = null, firstBefore = null;
 try {
   console.log("1. Back up the first brewery");
-  const first = await signIn("brewer1@example.test");
+  const first = firstPage = await signIn("brewer1@example.test");
   await first.evaluate(async () => { // a plan item and a beer schedule, so the backup has them to bring back
     const beer = data.beers[0], tank = data.tanks[0];
     if (!data.planItems.length) await save(() => must(db.from("plan_items").insert({ brewery_id: brewery.id, kind: "brew", planned_on: addDays(today(), 3), tank_id: tank.id, beer_id: beer.id })));
     if (!Object.keys(data.schedules).length) await save(() => must(db.from("beer_schedules").insert({ brewery_id: brewery.id, beer_id: beer.id, steps: [{ kind: "crash", day: 9 }] })));
   });
+  // The menu's lists, and one beer's menu with a price at one place (put back at the end)
+  const TEST_MENU = { sizes: [{ id: "bk-pint", name: "Pint", oz: 16 }], sections: [{ id: "bk-ipa", name: "IPAs" }],
+    tags: [{ id: "bk-new", name: "New", kind: "badge" }], fields: [{ id: "bk-hops", name: "Hops", type: "text", options: [] }] };
+  firstBefore = await first.evaluate(async (m) => {
+    const beer = data.beers[0], place = data.places[0];
+    const was = { menu: data.menu, beerId: beer.id, beer: (await db.from("beers").select("menu_prices, menu_short, menu_srm, menu_section, menu_tags, menu_extra, menu_public").eq("id", beer.id).single()).data };
+    await must(db.from("breweries").update({ menu_sizes: m.sizes, menu_sections: m.sections, menu_tags: m.tags, menu_fields: m.fields }).eq("id", brewery.id));
+    await must(db.from("beers").update({ menu_short: "Bright", menu_srm: 5, menu_section: "bk-ipa", menu_tags: ["bk-new"], menu_extra: { "bk-hops": "Citra" },
+      menu_public: false, menu_prices: [{ size: "bk-pint", price: 7, at: { [place.id]: 8 } }] }).eq("id", beer.id));
+    await refresh();
+    return was;
+  }, TEST_MENU);
   const backup = await first.evaluate(() => structuredClone(data));
   const source = await counts(first);
   check(source.movements > 0 && source.cellar > 0 && source.additions > 0 && source.readings > 0,
@@ -94,6 +108,15 @@ try {
     return `${t.name}:${b ? tankBalance(b.id, t.id) : "-"}`;
   }).sort().join(","));
   const [a, b2] = [(await balances(first)).split(","), (await balances(second)).split(",")];
+  const menuOf = (page, name) => page.evaluate((n) => {
+    const b = data.beers.find((x) => x.name === n);
+    return { menu: data.menu, short: b.menuShort, srm: b.menuSrm, section: b.menuSection, tags: b.menuTags, extra: b.menuExtra, public: b.menuPublic,
+      prices: b.menuPrices.map((p) => ({ size: p.size, price: p.price, at: Object.entries(p.at || {}).map(([id, v]) => [data.places.find((pl) => pl.id === id)?.name, v]) })) };
+  }, name);
+  const beerName = await first.evaluate((id) => data.beers.find((b) => b.id === id).name, firstBefore.beerId);
+  const tidy = (x) => JSON.stringify(x, (k, v) => (v && typeof v === "object" && !Array.isArray(v) ? Object.fromEntries(Object.entries(v).sort()) : v));
+  const [menuA, menuB] = [await menuOf(first, beerName), await menuOf(second, beerName)];
+  check(tidy(menuA) === tidy(menuB) && menuB.prices[0].at[0][1] === 8, `the menu's lists and the beer's menu came back, with its price at one place (${tidy(menuB.prices)})`);
   const diff = a.filter((x, i) => x !== b2[i]).slice(0, 5);
   check(!diff.length, `every tank holds the same volume${diff.length ? ` (first differences: ${diff.join(" ")} vs ${b2.filter((x) => !a.includes(x)).slice(0, 5).join(" ")})` : ""}`);
 
@@ -105,6 +128,10 @@ try {
   fails.push("crashed: " + e.message);
   console.log("CRASH", e.message.split("\n")[0]);
 } finally {
+  if (firstBefore) await firstPage?.evaluate(async (w) => {
+    await db.from("breweries").update({ menu_sizes: w.menu.sizes, menu_sections: w.menu.sections, menu_tags: w.menu.tags, menu_fields: w.menu.fields }).eq("id", brewery.id);
+    await db.from("beers").update(w.beer).eq("id", w.beerId);
+  }, firstBefore).catch((e) => console.log("tidy-up failed:", e.message));
   await browser.close();
 }
 console.log(fails.length ? `\n${fails.length} FAILED` : "\nALL PASSED");

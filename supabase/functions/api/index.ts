@@ -189,7 +189,28 @@ async function route(tx: Tx, b: string, email: string, method: string, resource?
   }
 
   if (is("GET", "beers", false)) {
-    const beers = await tx`select id, name, style, target_og, target_fg, menu_description, menu_abv, menu_ibu, menu_prices from public.beers where brewery_id = ${b} order by name`;
+    const beers = await tx`select id, name, style, target_og, target_fg, menu_description, menu_abv, menu_ibu, menu_prices, menu_short, menu_srm,
+                                  menu_section, menu_tags, menu_extra, menu_public from public.beers where brewery_id = ${b} order by name`;
+    // The menu's lists (Settings → Menu), so a beer's menu reads by name ("16 oz", "IPAs"), not by id
+    const [setup] = await tx`select menu_sizes, menu_sections, menu_tags, menu_fields from public.breweries where id = ${b}`;
+    const places = await tx`select id, name from public.stock_places where brewery_id = ${b}`;
+    type Item = { id: string; name: string; oz?: number | null; kind?: string };
+    const byId = (list: Item[], id: unknown) => list.find((i) => i.id === id);
+    const menuOf = (x: Record<string, unknown>) => {
+      const extra = (x.menu_extra || {}) as Record<string, unknown>;
+      return {
+        short: x.menu_short, description: x.menu_description, abv: num(x.menu_abv), ibu: num(x.menu_ibu), color_srm: num(x.menu_srm),
+        section: byId(setup.menu_sections, x.menu_section)?.name ?? null,
+        tags: ((x.menu_tags || []) as string[]).map((id) => byId(setup.menu_tags, id)).filter(Boolean).map((t) => ({ name: t!.name, kind: t!.kind })),
+        fields: Object.fromEntries((setup.menu_fields as Item[]).filter((f) => extra[f.id] != null).map((f) => [f.name, extra[f.id]])),
+        prices: ((x.menu_prices || []) as { size: string; price: number; at?: Record<string, number> }[])
+          .filter((p) => byId(setup.menu_sizes, p.size)).map((p) => ({
+            size: byId(setup.menu_sizes, p.size)!.name, oz: byId(setup.menu_sizes, p.size)!.oz ?? null, price: num(p.price),
+            at_taprooms: Object.entries(p.at || {}).map(([place, price]) => ({
+              taproom: places.find((pl: Record<string, unknown>) => pl.id === place)?.name ?? null, price: num(price) })) })),
+        on_public_menu: x.menu_public,
+      };
+    };
     // The recipe, as it's kept here: the latest batch's brew-day ingredients
     const ingredients = await tx`select distinct on (bt.beer_id, a.id) bt.beer_id, a.kind, a.name, a.amount, a.unit, a.timing
                                    from public.batch_additions a join public.batches bt on bt.id = a.batch_id
@@ -203,7 +224,7 @@ async function route(tx: Tx, b: string, email: string, method: string, resource?
                                from public.recipes r left join public.locations l on l.id = r.location_id where r.brewery_id = ${b}`;
     return { body: beers.map((x: Record<string, unknown>) => ({
       id: x.id, name: x.name, style: x.style, target_og: gravity(x.target_og), target_fg: gravity(x.target_fg),
-      menu: { description: x.menu_description, abv: num(x.menu_abv), ibu: num(x.menu_ibu), prices: x.menu_prices },
+      menu: menuOf(x),
       recipes: recipes.filter((r: Record<string, unknown>) => r.beer_id === x.id).map((r: Record<string, unknown>) => ({
         id: r.id, name: r.name, location: r.location ?? "any", batch_size_bbl: round(num(r.batch_size_bbl), 2), target_og: gravity(r.target_og),
         target_fg: gravity(r.target_fg), ibu: num(r.ibu), ingredients: r.ingredients })),

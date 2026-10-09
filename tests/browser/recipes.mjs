@@ -16,7 +16,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 // A made-up recipe, the way BeerSmith and friends write BeerXML (kg, liters, minutes)
 const BEERXML = `<?xml version="1.0" encoding="ISO-8859-1"?>
 <RECIPES><RECIPE><NAME>Test Pale ${run}</NAME><VERSION>1</VERSION><TYPE>All Grain</TYPE><BREWER>Someone</BREWER>
-<STYLE><NAME>American Pale Ale</NAME></STYLE><BATCH_SIZE>117.348</BATCH_SIZE><OG>1.052</OG><FG>1.011</FG><IBU>38.5 IBUs</IBU>
+<STYLE><NAME>American Pale Ale</NAME></STYLE><BATCH_SIZE>117.348</BATCH_SIZE><OG>1.052</OG><FG>1.011</FG><IBU>38.5 IBUs</IBU><EST_COLOR>6.5 SRM</EST_COLOR>
 <NOTES>Mash at 152.</NOTES>
 <FERMENTABLES>
  <FERMENTABLE><NAME>Pale Malt (2 Row)</NAME><TYPE>Grain</TYPE><AMOUNT>5.0</AMOUNT></FERMENTABLE>
@@ -73,6 +73,11 @@ try {
   await allSent();
   const beer = await page.evaluate((n) => data.beers.find((b) => b.name === n), `Test Pale ${run}`);
   check(beer && Math.abs(beer.targetOg - 1.052) < 1e-6 && beer.style === "American Pale Ale", "the beer, with the recipe's targets and style");
+  check(await page.evaluate((id) => data.recipes.find((r) => r.beerId === id).colorSrm, beer.id) === 6.5, "the recipe's color (SRM), for the beer's menu");
+  // No color in the file: worked out from the malt bill (Morey: 5 kg of 2 °L malt in 117 L is about 1.2 SRM); EBC converted
+  const colors = await page.evaluate((xml) => [parseBeerXml(xml.replace(/<EST_COLOR>.*<\/EST_COLOR>/, "").replace("<AMOUNT>5.0</AMOUNT>", "<AMOUNT>5.0</AMOUNT><COLOR>2</COLOR>"))[0].colorSrm,
+    parseBeerXml(xml.replace("6.5 SRM", "20 EBC"))[0].colorSrm], BEERXML);
+  check(colors[0] === 1.2 && colors[1] === 10.2, `color from the malt bill, and from EBC (${colors})`);
 
   console.log("2. The recipe, in the brewery's units");
   await page.click(`[data-recipe="${await page.evaluate((id) => data.recipes.find((r) => r.beerId === id).id, beer.id)}"]`);

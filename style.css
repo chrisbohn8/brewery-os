@@ -349,8 +349,6 @@ dialog fieldset.group { border: 1px solid var(--border); border-radius: 10px; pa
 dialog fieldset.group legend { font-weight: 600; padding: 0 4px; }
 dialog fieldset.group p { margin: 0 0 8px; }
 #beer-menu textarea { font: inherit; font-size: 16px; padding: 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--card); color: var(--text); width: 100%; }
-.price-row { display: grid; grid-template-columns: 1fr 7em auto; gap: 8px; align-items: end; margin-bottom: 8px; }
-.price-row label { margin: 0; }
 
 /* ---- The brew-day sheet ---- */
 .turn-bar { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin: 8px 0; }
@@ -737,3 +735,23 @@ button.cal-cell { cursor: pointer; }
   .pw-item.done { text-decoration: line-through; color: #444; }
 }
 #cal-mine[aria-pressed="true"] { background: var(--text); color: var(--bg); }
+
+/* Settings → Menu, and a beer's menu details */
+.menu-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding: 6px 0; border-bottom: 1px solid var(--border); }
+.menu-row input, .menu-row select { font: inherit; font-size: 16px; padding: 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--card); color: var(--text); }
+.menu-row .menu-name { flex: 1 1 9em; min-width: 0; }
+.menu-row select { flex: 0 1 auto; width: auto; }
+.menu-row .menu-oz { display: flex; align-items: center; gap: 4px; margin: 0; color: var(--muted); }
+.menu-row .menu-oz input { width: 5em; }
+.menu-row .menu-options { flex: 1 1 100%; }
+.menu-row .menu-uses { flex: 1 1 100%; font-size: 0.85rem; }
+.menu-row-buttons { display: flex; gap: 4px; }
+.menu-add { margin-top: 10px; }
+.menu-group { border: 0; padding: 0; margin: 8px 0; }
+.menu-group legend { font-size: 0.9rem; color: var(--muted); padding: 0; }
+.price-table { width: 100%; border-collapse: collapse; margin: 8px 0 4px; }
+.price-table th, .price-table td { text-align: left; padding: 4px 6px 4px 0; font-weight: 400; }
+.price-table thead th { font-size: 0.85rem; color: var(--muted); }
+.price-table input { width: 100%; min-width: 4em; }
+.swatch { display: inline-block; width: 1em; height: 1em; border-radius: 3px; border: 1px solid var(--border); vertical-align: -2px; }
+.beer-srm { white-space: nowrap; }

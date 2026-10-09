@@ -47,6 +47,7 @@ async function person(email) {
   await wait(300);
   return page;
 }
+let savedSizes = null;
 const settle = async (p) => { await wait(150); await p.waitForFunction(() => !busy && !reloading); await wait(100); };
 const beerOf = (p, id) => p.evaluate((i) => data.beers.find((b) => b.id === i), id);
 async function openBeer(p, id) {
@@ -58,19 +59,19 @@ async function openBeer(p, id) {
 try {
   console.log("1. The admin fills in a beer's menu details");
   const admin = await person(ADMIN);
+  // Two pour sizes to price (set up in Settings → Menu; menu.mjs tests that page), put back at the end
+  savedSizes = await admin.evaluate(() => data.menu.sizes);
+  await admin.evaluate(async (run) => { await db.from("breweries").update({ menu_sizes: [{ id: `pint-${run}`, name: "16 oz", oz: 16 },
+    { id: `flight-${run}`, name: "Flight", oz: 16 }] }).eq("id", brewery.id); }, run);
+  await admin.reload();
+  await admin.waitForSelector("#app-screen:not([hidden])");
   // A beer with a recipe IBU, if there is one (so "Fill in" has something to use)
   const beerId = await admin.evaluate(() => (data.recipes.find((r) => r.ibu != null)?.beerId) || data.beers[0].id);
   await openBeer(admin, beerId);
   check(await admin.isVisible("#beer-menu") && !(await admin.isDisabled('#beer-form [name="name"]')), "the form has an 'On the menu' part, and the beer itself can be changed");
-  // (start from no prices: an earlier run may have left some)
-  while (await admin.$("#menu-prices .price-row button")) await admin.click("#menu-prices .price-row button");
   await admin.fill('#beer-form [name="menuDescription"]', `Bright and juicy ${run}`);
-  await admin.click("#menu-add-price");
-  await admin.fill("#menu-prices .price-row:last-child .price-size", "16 oz");
-  await admin.fill("#menu-prices .price-row:last-child .price-amount", "7");
-  await admin.click("#menu-add-price");
-  await admin.fill("#menu-prices .price-row:last-child .price-size", "Flight");
-  await admin.fill("#menu-prices .price-row:last-child .price-amount", "12.5");
+  await admin.fill('#menu-prices tr:has(th:text-is("16 oz")) .price-amount', "7");
+  await admin.fill('#menu-prices tr:has(th:text-is("Flight")) .price-amount', "12.5");
   await admin.click("#menu-fill");
   const note = await admin.textContent("#menu-fill-note");
   const filledAbv = await admin.inputValue('#beer-form [name="menuAbv"]');
@@ -80,20 +81,11 @@ try {
   await settle(admin);
   let beer = await beerOf(admin, beerId);
   check(beer.menuDescription === `Bright and juicy ${run}`, "the description saved");
-  check(JSON.stringify(beer.menuPrices) === JSON.stringify([{ size: "16 oz", price: 7 }, { size: "Flight", price: 12.5 }]), `the prices saved, in order (${JSON.stringify(beer.menuPrices)})`);
+  check(JSON.stringify(beer.menuPrices.map((p) => [p.size, p.price])) === JSON.stringify([[`pint-${run}`, 7], [`flight-${run}`, 12.5]]),
+    `the prices saved, by pour size (${JSON.stringify(beer.menuPrices)})`);
   check(beer.menuAbv === Number(filledAbv || "6.2"), `the ABV saved (${beer.menuAbv})`);
 
-  console.log("2. A price needs a size and an amount");
-  await openBeer(admin, beerId);
-  await admin.click("#menu-add-price");
-  await admin.fill("#menu-prices .price-row:last-child .price-size", "Crowler");
-  await admin.click("#beer-form button[type=submit]");
-  await wait(400);
-  check(await admin.isVisible("#beer-editor[open]") && /Each price needs a size and an amount/.test(await admin.textContent("#toasts")), "half a price isn't saved");
-  await admin.click("#menu-prices .price-row:last-child button");
-  await admin.click("#beer-editor .cancel");
-
-  console.log("3. The admin invites a taproom manager");
+  console.log("2. The admin invites a taproom manager");
   await settings(admin, "team");
   check(await admin.evaluate(() => [...document.querySelectorAll('#invite-form [name="role"] option')].some((o) => o.value === "taproom" && o.textContent === "Taproom")),
     "Taproom is one of the levels");
@@ -103,7 +95,7 @@ try {
   await settle(admin);
   check(await admin.evaluate((e) => data.invites.find((i) => i.email === e)?.role, TAP) === "taproom", "invited as Taproom");
 
-  console.log("4. The taproom manager: finished goods and the menu, not the brewhouse");
+  console.log("3. The taproom manager: finished goods and the menu, not the brewhouse");
   const tap = await person(TAP);
   check(await tap.evaluate(() => brewery.role) === "taproom", "joined as Taproom");
   check(JSON.stringify(await tap.evaluate(() => [...brewery.permissions].sort())) === JSON.stringify(["inventory", "menu"]), "can do: finished goods and the menu");
@@ -130,8 +122,10 @@ try {
   check(raw === "42501", `the database refuses raw materials (${raw})`);
   await settings(tap, "beers");
   check(!(await tap.isVisible("#add-beer")), "no 'add beer' button");
+  await settings(tap, "menu");
+  check(await tap.isVisible("#menu-setup-save") && !(await tap.isVisible("#menu-setup-note")), "can set up the menu's lists (Settings → Menu)");
 
-  console.log("5. The admin removes the taproom manager (tidy up)");
+  console.log("4. The admin removes the taproom manager (tidy up)");
   await admin.reload();
   await admin.waitForSelector("#app-screen:not([hidden])");
   const removed = await admin.evaluate(async (e) => {
@@ -139,6 +133,7 @@ try {
     return m ? (await db.from("memberships").delete().eq("brewery_id", brewery.id).eq("user_id", m.userId)).error?.message || "ok" : "not found";
   }, TAP);
   check(removed === "ok", `removed (${removed})`);
+  await admin.evaluate(async (sizes) => { await db.from("breweries").update({ menu_sizes: sizes }).eq("id", brewery.id); }, savedSizes);
   check(pages.every((p) => p.errors.length === 0), `no page errors (${pages.flatMap((p) => p.errors).join("; ")})`);
 } catch (e) {
   fails.push("crashed: " + e.message);
