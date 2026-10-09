@@ -594,7 +594,7 @@ The payoff for keeping accurate volumes at every step.
 
 ### Phase 8: Taproom connection (POS sync)
 - [ ] Connect one point-of-sale system first (chosen by what pilot breweries use), so taproom sales draw down keg and serving-tank levels and count as taxable removals for TTB.
-- [ ] **Menu boards from the taproom's draft lines** (the user's idea, 2026-10-08). The draft lines already know what's on each tap, so the menu comes almost free:
+- [ ] **Menu boards from the taproom's draft lines** (the user's idea, 2026-10-08; **[design draft](docs/menu-board-design.md)**, 2026-10-09: admin-made pour sizes, sections, tags, and fields like the brew sheet; then one good board; then a guided builder with colors and fonts). The draft lines already know what's on each tap, so the menu comes almost free:
     - **Each beer gets menu details:** a short description, ABV, IBU, color, and prices per pour size (16 oz, 10 oz, flight, crowler...). ABV and IBU fill in from the batch and recipe, for a person to confirm.
     - **A TV view** of the menu (sharing the work with the Cellar TV), a **printable menu**, and a **public link** or embed for the brewery's website and social posts. The public link shows only menu details, never the rest of the brewery, and can be turned off.
     - Changes on the lines (a keg kicked, a new beer tapped) show on the board right away. "On deck" can show what's coming next.
