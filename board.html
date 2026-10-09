@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Menu</title>
+  <link rel="stylesheet" href="board.css">
+  <style>
+    html, body { margin: 0; height: 100%; background: #111110; }
+    body.public { background: #fbfaf7; }
+    @media (prefers-color-scheme: dark) { body.public { background: #161514; } }
+    /* TV: the board fills the screen exactly (board.js sizes the text to fit); no cursor */
+    #board.tv { position: fixed; inset: 0; overflow: hidden; cursor: none; }
+    #board.tv > .mb { height: 100%; }
+    .note { font: 16px/1.4 system-ui, sans-serif; color: #b4ada1; padding: 24px; max-width: 34em; }
+    body.public .note { color: #5f5b54; }
+    /* When the last update is a while ago: small, in a corner, so staff notice and guests don't */
+    #stale { position: fixed; right: 8px; bottom: 6px; font: 12px system-ui, sans-serif; color: #8a847a; }
+  </style>
+</head>
+<body>
+  <!--
+    A taproom's menu board, opened from a private link (made in the app: Settings → Menu → Menu boards):
+      board.html#t=tv_…      the TV: fills the screen, updates on its own every 15 seconds
+      board.html#t=public_…  the public page: phone-friendly, can be embedded in a website
+    The link's secret stays after the "#", so it isn't sent to the website's server. With no signal,
+    the last good copy stays on screen (and is kept on this device for the next time the page opens).
+  -->
+  <div id="board"><p class="note">Loading the menu…</p></div>
+  <div id="stale" hidden></div>
+  <script src="config.js"></script>
+  <script src="board.js"></script>
+  <script>
+    const token = (new URLSearchParams(location.hash.slice(1)).get("t") || new URLSearchParams(location.search).get("t") || "").trim();
+    const isTv = token.startsWith("tv_");
+    const KEY = `brewery-os.menu-board.${token.slice(0, 12)}`;
+    const box = document.getElementById("board");
+    const stale = document.getElementById("stale");
+    document.body.className = isTv ? "tv" : "public";
+    let shown = "", lastGood = null;
+
+    function show(board) {
+      const html = BoardView.render(board, board.public ? "public" : "tv");
+      document.title = `${board.title} · ${board.brewery}`;
+      if (html !== shown) {
+        shown = html;
+        box.className = board.public ? "public" : "tv";
+        box.innerHTML = html;
+      }
+      if (!board.public) BoardView.fit(box);
+    }
+    function note(text) {
+      shown = "";
+      box.className = "";
+      box.innerHTML = `<p class="note">${text}</p>`;
+    }
+    // "Updated 3:02 PM" only when the last good update is over two minutes old
+    function showAge() {
+      const old = lastGood && Date.now() - lastGood > 2 * 60 * 1000;
+      stale.hidden = !old;
+      if (old) stale.textContent = `Updated ${new Date(lastGood).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`;
+    }
+
+    async function load() {
+      try {
+        const response = await fetch(`${SUPABASE_URL}/rest/v1/rpc/menu_board_data`, {
+          method: "POST", headers: { apikey: SUPABASE_KEY, "Content-Type": "application/json" },
+          body: JSON.stringify({ p_token: token }), cache: "no-store",
+        });
+        if (!response.ok) throw new Error(`The menu didn't load (${response.status}).`);
+        const board = await response.json();
+        if (!board) { // turned off, or replaced by a new link
+          try { localStorage.removeItem(KEY); } catch {}
+          note("This menu link has been turned off or replaced. Ask the taproom for the new one.");
+          return;
+        }
+        lastGood = Date.now();
+        try { localStorage.setItem(KEY, JSON.stringify({ board, at: lastGood })); } catch {}
+        show(board);
+      } catch (e) {
+        // No signal: keep what's on screen (or the copy kept on this device)
+        if (!shown) {
+          let kept = null;
+          try { kept = JSON.parse(localStorage.getItem(KEY) || "null"); } catch {}
+          if (kept) { lastGood = kept.at; show(kept.board); } else note("The menu can't load right now (no connection?). It will keep trying.");
+        }
+      } finally {
+        showAge();
+      }
+    }
+
+    if (!token) note("This page shows a taproom's menu. Open it with the menu link from the app.");
+    else {
+      load();
+      setInterval(load, isTv ? 15000 : 60000);
+      addEventListener("resize", () => { if (isTv && shown) BoardView.fit(box); });
+      // TV: keep the screen awake, where the browser allows it
+      if (isTv && navigator.wakeLock) {
+        const awake = () => navigator.wakeLock.request("screen").catch(() => {});
+        awake();
+        document.addEventListener("visibilitychange", () => { if (!document.hidden) awake(); });
+      }
+      // Keep this page for when there's no signal (the app's service worker)
+      if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
+    }
+  </script>
+</body>
+</html>

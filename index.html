@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Brewery OS — Tanks</title>
   <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="board.css">
   <link rel="icon" href="data:,"> <!-- no tab icon yet; this stops the browser asking for one -->
 </head>
 <body>
@@ -566,6 +567,13 @@
       <button type="button" id="menu-setup-save" class="btn primary">Save menu</button>
     </div>
   </section>
+  <!-- Each taproom's menu board: on a TV, on a public page, or printed (board.html and board.js) -->
+  <section id="menu-boards" class="list-section">
+    <h2>Menu boards</h2>
+    <p class="muted">Each taproom's menu, made from its draft lines and each beer's menu details: on a TV, on a public page,
+      or printed. A change to a line or a beer shows on the TV within seconds.</p>
+    <div id="board-list"></div>
+  </section>
   </div>
 
   <div class="settings-page" data-page="cleaning">
@@ -955,6 +963,20 @@
         <button type="button" class="btn cancel">Cancel</button>
         <button type="submit" class="btn primary">Save</button>
       </div>
+    </form>
+  </dialog>
+
+  <!-- A menu board's preview: as the TV shows it (16:9), or as the public page does (a phone) -->
+  <dialog id="board-preview" class="board-preview-dialog">
+    <form method="dialog">
+      <h2 id="board-preview-title" tabindex="-1" autofocus>Preview</h2>
+      <div class="place-chips" role="group" aria-label="Show it as">
+        <button type="button" data-preview-as="tv" aria-pressed="true">TV</button>
+        <button type="button" data-preview-as="public" aria-pressed="false">Public page</button>
+      </div>
+      <div id="board-preview-frame" class="board-frame"></div>
+      <p class="muted" id="board-preview-note"></p>
+      <div class="actions"><span class="spacer"></span><button type="submit" class="btn primary">Done</button></div>
     </form>
   </dialog>
 
@@ -1485,6 +1507,8 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"
           integrity="sha512-CNgIRecGo7nphbeZ04Sc13ka07paqdeTu0WR1IM4kNcpmBAUSHSQX0FslNhTDadL4O5SAGapGt4FodqL8My0mA=="
           crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+  <script src="config.js"></script>
+  <script src="board.js"></script>
   <script src="app.js"></script>
   <!-- The printed brew-day sheet: only shown on paper (filled in when "Print" is tapped) -->
   <div id="print-sheet"></div>

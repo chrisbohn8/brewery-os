@@ -755,3 +755,24 @@ button.cal-cell { cursor: pointer; }
 .price-table input { width: 100%; min-width: 4em; }
 .swatch { display: inline-block; width: 1em; height: 1em; border-radius: 3px; border: 1px solid var(--border); vertical-align: -2px; }
 .beer-srm { white-space: nowrap; }
+
+/* Settings → Menu → Menu boards */
+.board-card { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; margin: 12px 0; }
+.board-card h3 { margin: 0 0 6px; font-size: 1.05rem; }
+.board-settings { display: grid; gap: 6px; }
+.board-settings input:not([type=checkbox]), .board-settings select, .board-url { font: inherit; font-size: 16px; padding: 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--card); color: var(--text); width: 100%; }
+.board-actions { display: flex; gap: 8px; margin: 10px 0 4px; }
+.board-link { border-top: 1px solid var(--border); padding: 8px 0 4px; }
+.board-link .muted { font-size: 0.85rem; }
+.board-link-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 6px; }
+.board-link-row .board-url { flex: 1 1 12em; min-width: 0; font-size: 14px; }
+.board-preview-dialog { width: min(96vw, 1100px); max-width: none; }
+[data-preview-as][aria-pressed="true"] { background: var(--text); color: var(--bg); border-color: var(--text); }
+.board-frame { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.board-frame-tv { aspect-ratio: 16 / 9; width: 100%; }
+.board-frame-tv > .mb { height: 100%; }
+.board-frame-public { max-height: 70vh; overflow-y: auto; width: min(100%, 420px); margin: 0 auto; }
+@media print {
+  #print-sheet.print-menu .mb { background: #fff; }
+}
+a.btn { text-decoration: none; display: inline-block; }

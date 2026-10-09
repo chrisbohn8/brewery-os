@@ -59,7 +59,7 @@ try {
   const onlineTanks = await tankCount();
   const cached = await page.evaluate(async () => (await (await caches.open("brewery-os-app-v1")).keys()).map((r) => r.url));
   const copy = await page.evaluate(() => JSON.parse(localStorage.getItem("brewery-os.offline-copy")));
-  check(cached.length === 6, `the app's 6 files (the guide too) are saved on the device (${cached.length})`);
+  check(cached.length === 10, `the app's 10 files (the guide and the menu board page too) are saved on the device (${cached.length})`);
   check(copy && copy.data.tanks.length === onlineTanks, `the data is saved on the device (${onlineTanks} tanks)`);
   check((await banner()) === null, "no offline banner while online");
 

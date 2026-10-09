@@ -264,17 +264,8 @@ function sampleData() {
 }
 
 // ---------- 4. Connecting to the database ----------
-// The URL and "publishable" key are meant to be public: they let the page talk to the
-// database, but the database's row-level security only shows each signed-in person
-// their own brewery's data. (The secret keys are never put in this file.)
-//
-// When the app runs on the developer's own computer (localhost), it uses a private test copy
-// of the database running in Docker (`supabase start`), so testing never touches real data.
-const ON_THIS_COMPUTER = ["localhost", "127.0.0.1"].includes(location.hostname);
-const SUPABASE_URL = ON_THIS_COMPUTER ? "http://127.0.0.1:54321" : "https://itxshxihltidwgwtzdcj.supabase.co";
-const SUPABASE_KEY = ON_THIS_COMPUTER
-  ? "sb_publishable_ACJWlzQHlZjBrEguHvfOxg_3BJgxAaH" // the standard key every local Supabase copy uses
-  : "sb_publishable_hcERCBatEZUWfy9iret5sw_x2cTAXb5";
+// Where the database is (SUPABASE_URL and SUPABASE_KEY) is in config.js, shared with the menu
+// board page.
 const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
   // "implicit" lets an emailed sign-in link work even if it opens in a different browser
   auth: { flowType: "implicit" },
@@ -456,7 +447,7 @@ async function loadAll() {
   // Bring the alerts up to date first, so the list below is current (a gravity just logged clears
   // its alert right away). A failed check never stops the data loading; the server checks too.
   await db.rpc("check_alerts", { p_brewery_id: b }).then(() => {}, () => {});
-  const [locations, beers, tanks, batches, events, cleanings, settings, members, invites, permissions, memberRows, levels, cellar, additions, readings, movements, packageTypes, packageCounts, places, stockMoves, pars, rawItems, rawReceipts, rawAdjustments, lines, inventoryViews, recipes, recipeIngredientRows, alertRules, alerts, planItems, schedules, shifts, rawOrders, shortfalls, needs, gravityDue] = await Promise.all([
+  const [locations, beers, tanks, batches, events, cleanings, settings, members, invites, permissions, memberRows, levels, cellar, additions, readings, movements, packageTypes, packageCounts, places, stockMoves, pars, rawItems, rawReceipts, rawAdjustments, lines, inventoryViews, recipes, recipeIngredientRows, alertRules, alerts, planItems, schedules, shifts, rawOrders, shortfalls, needs, gravityDue, boards] = await Promise.all([
     must(db.from("locations").select("*").eq("brewery_id", b).order("created_at")),
     must(db.from("beers").select("*").eq("brewery_id", b)),
     must(db.from("tanks").select("*").eq("brewery_id", b).order("created_at")),
@@ -497,6 +488,7 @@ async function loadAll() {
     must(db.rpc("plan_needs", { p_brewery_id: b })),
     // Schedule steps a logged gravity has reached ("dry hop at 4 °P"): gravity_due in the database
     must(db.rpc("gravity_due", { p_brewery_id: b })),
+    must(db.from("menu_boards").select("*").eq("brewery_id", b)),
   ]);
   // Each member: email and level (from brewery_members) plus their personal adjustments
   const adjustments = Object.fromEntries(memberRows.map((r) => [r.user_id, r]));
@@ -535,6 +527,9 @@ async function loadAll() {
     cleanings: cleanings.map((c) => ({ id: c.id, tankId: c.tank_id, cleanedOn: c.cleaned_on, note: c.note })),
     acidAfterStyles: settings.acid_after_styles,
     // The menu's lists (Settings → Menu): pour sizes, sections, tags, and the brewery's own fields
+    // Each taproom's menu board: its settings and links (Settings → Menu → Menu boards)
+    boards: boards.map((x) => ({ placeId: x.place_id, title: x.title, orderBy: x.order_by, showComingSoon: x.show_coming_soon,
+      showToGo: x.show_to_go, tvToken: x.tv_token, publicToken: x.public_token })),
     menu: { sizes: settings.menu_sizes || [], sections: settings.menu_sections || [], tags: settings.menu_tags || [], fields: settings.menu_fields || [] },
     sheetFields: settings.sheet_fields,
     sheetCustomFields: settings.sheet_custom_fields,
@@ -1346,6 +1341,7 @@ function render() {
   renderSettings();
   renderSheetPicker();
   renderMenuSetup();
+  renderBoards();
   renderPackageTypes();
   renderPlaces();
   renderReasons();
@@ -1952,16 +1948,12 @@ function readBeerMenu() {
   };
 }
 
-// A beer's color as a swatch: the usual approximation of SRM to a color on screen
-function srmColor(srm) {
-  const c = (base) => Math.round(255 * base ** Math.min(Math.max(srm, 0), 40));
-  return `rgb(${c(0.975)}, ${c(0.88)}, ${c(0.7)})`;
-}
+// A beer's color as a swatch (the same color as on the menu board: board.js)
 function showSwatch() {
   const swatch = document.getElementById("menu-swatch");
   const srm = beerForm.menuSrm.value === "" ? null : Number(beerForm.menuSrm.value);
   swatch.hidden = srm == null || !Number.isFinite(srm);
-  if (!swatch.hidden) swatch.style.background = srmColor(srm);
+  if (!swatch.hidden) swatch.style.background = BoardView.srmColor(srm);
 }
 beerForm.menuSrm.addEventListener("input", showSwatch);
 document.getElementById("menu-open-setup").addEventListener("click", () => {
@@ -2149,7 +2141,9 @@ const BACKUP_FORMAT = 2;
 
 function downloadBackup() {
   const backup = {
-    app: "brewery-os", format: BACKUP_FORMAT, exportedAt: new Date().toISOString(), brewery: brewery.name, data,
+    app: "brewery-os", format: BACKUP_FORMAT, exportedAt: new Date().toISOString(), brewery: brewery.name,
+    // (menu boards' links aren't kept in a backup: they're made again after loading one)
+    data: { ...data, boards: (data.boards || []).map(({ tvToken, publicToken, ...board }) => board) },
   };
   const file = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
   const link = document.createElement("a");
@@ -2434,6 +2428,12 @@ async function loadIntoBrewery(source, description) {
     });
   }
 
+  // Menu boards' settings (their links are made again), once the taprooms are in
+  if (can("inventory") && d.batches.length) { // (places load with the batches, above)
+    insert("menu_boards", (d.boards || []).filter((x) => (d.places || []).some((p) => p.id === x.placeId)).map((x) => ({
+      place_id: idFor(x.placeId), title: x.title || "", order_by: x.orderBy || "lines",
+      show_coming_soon: x.showComingSoon !== false, show_to_go: !!x.showToGo })));
+  }
   // Beers' prices at one taproom, last: the taprooms are in by now (and matched to the brewery's own)
   for (const x of can("menu") ? d.beers.filter((b) => b.menuPrices.some((p) => p.at)) : []) {
     update("beers", idFor(x.id), { menu_prices: x.menuPrices.map((p) => p.at
@@ -3018,6 +3018,156 @@ document.getElementById("menu-setup-save").addEventListener("click", async () =>
   });
   if (ok) { document.activeElement?.blur(); renderMenuSetup(); notify("Menu saved."); }
 });
+
+// ----- Settings → Menu → Menu boards: each taproom's board -----
+// Its settings (title, order, coming soon, to go), its TV and public links, a preview, and print.
+// What's on a board is worked out by the database (menu_board_json) and drawn by board.js, the same
+// way for the TV, the public page, the preview, and paper. Running boards needs the inventory permission.
+const boardOf = (placeId) => (data.boards || []).find((b) => b.placeId === placeId) ||
+  { placeId, title: "", orderBy: "lines", showComingSoon: true, showToGo: false, tvToken: null, publicToken: null };
+const boardUrl = (token) => new URL(`board.html#t=${token}`, location.href).href;
+const embedCode = (token) => `<iframe src="${boardUrl(token)}" title="Menu" style="width:100%;height:900px;border:0"></iframe>`;
+const BOARD_LINKS = [
+  { kind: "tv", label: "TV link", help: "For the taproom's TV: fills the screen, and updates on its own." },
+  { kind: "public", label: "Public link", help: "For your website and social posts: phone-friendly, and leaves off beers marked \"Leave off the public menu\"." },
+];
+
+function renderBoards() {
+  const box = document.getElementById("board-list");
+  if (box.contains(document.activeElement) && document.activeElement.matches("input")) return; // not under someone's cursor
+  const allowed = can("inventory");
+  const taprooms = (data.places || []).filter((p) => p.kind === "taproom" && p.active);
+  if (!taprooms.length) {
+    box.innerHTML = `<p class="muted">No taprooms yet. Add a taproom place in Settings → Equipment; its board is made from its draft lines (Inventory).</p>`;
+    return;
+  }
+  const off = allowed ? "" : "disabled";
+  box.innerHTML = taprooms.map((place) => {
+    const board = boardOf(place.id);
+    const links = BOARD_LINKS.map((link) => {
+      const token = link.kind === "tv" ? board.tvToken : board.publicToken;
+      return `<div class="board-link" data-link="${link.kind}">
+        <div><strong>${link.label}</strong> <span class="muted">${esc(link.help)}</span></div>
+        ${token ? `<div class="board-link-row"><input class="board-url" readonly value="${esc(boardUrl(token))}" aria-label="${link.label}">
+          <button type="button" class="btn small" data-board-copy="url">Copy</button>
+          <a class="btn small" href="${esc(boardUrl(token))}" target="_blank" rel="noopener">Open</a></div>
+          <div class="board-link-row">${link.kind === "public" ? `<button type="button" class="btn small" data-board-copy="embed">Copy embed code</button>` : ""}
+          ${allowed ? `<button type="button" class="btn small" data-board-link="new">New link</button>
+            <button type="button" class="btn small" data-board-link="off">Turn off</button>` : ""}</div>`
+        : allowed ? `<div class="board-link-row"><button type="button" class="btn small" data-board-link="new">Make ${link.label.toLowerCase()}</button></div>`
+        : `<div class="muted">None yet.</div>`}
+      </div>`;
+    }).join("");
+    return `<div class="board-card" data-board="${place.id}">
+      <h3>${esc(place.name)}${data.locations.length > 1 && place.locationId ? ` <span class="muted">· ${esc(findLocation(place.locationId)?.name || "")}</span>` : ""}</h3>
+      <div class="board-settings">
+        <label>Title <input data-board-set="title" maxlength="80" placeholder="${esc(place.name)}" value="${esc(board.title)}" ${off}></label>
+        <label>List the beers <select data-board-set="order_by" ${off}>
+          <option value="lines" ${board.orderBy === "lines" ? "selected" : ""}>In draft line order</option>
+          <option value="sections" ${board.orderBy === "sections" ? "selected" : ""}>By section</option></select></label>
+        <label class="check-label"><input type="checkbox" data-board-set="show_coming_soon" ${board.showComingSoon ? "checked" : ""} ${off}>
+          <span>Coming soon <span class="muted">(beers in kegs in storage that aren't here yet)</span></span></label>
+        <label class="check-label"><input type="checkbox" data-board-set="show_to_go" ${board.showToGo ? "checked" : ""} ${off}>
+          <span>To go <span class="muted">(cases and cans on hand here)</span></span></label>
+      </div>
+      <p class="board-actions"><button type="button" class="btn small" data-board-preview>Preview</button>
+        <button type="button" class="btn small" data-board-print>Print</button></p>
+      ${links}
+    </div>`;
+  }).join("");
+}
+
+// A setting changed: saved right away
+document.getElementById("board-list").addEventListener("change", async (e) => {
+  const key = e.target.dataset.boardSet;
+  if (!key) return;
+  const placeId = e.target.closest("[data-board]").dataset.board;
+  const board = boardOf(placeId);
+  const row = { brewery_id: brewery.id, place_id: placeId, title: board.title, order_by: board.orderBy,
+    show_coming_soon: board.showComingSoon, show_to_go: board.showToGo };
+  row[key] = e.target.type === "checkbox" ? e.target.checked : key === "title" ? e.target.value.trim() : e.target.value;
+  e.target.blur();
+  await save(() => must(db.from("menu_boards").upsert(row, { onConflict: "place_id" })));
+});
+
+document.getElementById("board-list").addEventListener("click", async (e) => {
+  const button = e.target.closest("button");
+  const card = e.target.closest("[data-board]");
+  if (!button || !card) return;
+  const placeId = card.dataset.board;
+  const kind = button.closest("[data-link]")?.dataset.link;
+  const board = boardOf(placeId);
+  const token = kind === "tv" ? board.tvToken : board.publicToken;
+  if (button.dataset.boardCopy) {
+    const text = button.dataset.boardCopy === "embed" ? embedCode(token) : boardUrl(token);
+    try {
+      await navigator.clipboard.writeText(text);
+      notify(button.dataset.boardCopy === "embed" ? "Embed code copied. Paste it into your website's page." : "Link copied.");
+    } catch {
+      warn("Couldn't copy. Select the link and copy it instead.");
+    }
+  } else if (button.dataset.boardLink) {
+    const what = kind === "tv" ? "TV link" : "public link";
+    const on = button.dataset.boardLink === "new";
+    if (token && !(await ask(on
+      ? `Make a new ${what}? The one you have now stops working right away, so anything using it (${kind === "tv" ? "a TV" : "your website"}) needs the new one.`
+      : `Turn off the ${what}? It stops working right away. You can make a new one later.`, { ok: on ? "Make a new link" : "Turn off", danger: !on }))) return;
+    if (await save(() => must(db.rpc("set_menu_board_link", { p_place_id: placeId, p_kind: kind, p_on: on })))) {
+      notify(on ? `The ${what} is ready. Copy it, or open it on the ${kind === "tv" ? "TV" : "page"} where it goes.` : `The ${what} is off.`);
+    }
+  } else if (button.hasAttribute("data-board-preview")) {
+    openBoardPreview(placeId);
+  } else if (button.hasAttribute("data-board-print")) {
+    printBoard(placeId);
+  }
+});
+
+// The board as the database works it out (signed in: menu_board_preview), for the preview and print
+async function boardData(placeId, publicView) {
+  if (offline || !navigator.onLine) throw new Error("The menu board needs signal to show.");
+  return must(db.rpc("menu_board_preview", { p_place_id: placeId, p_public: publicView }));
+}
+
+const boardPreview = document.getElementById("board-preview");
+let previewPlace = null;
+async function showBoardPreview(as) {
+  document.querySelectorAll("[data-preview-as]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.previewAs === as)));
+  const frame = document.getElementById("board-preview-frame");
+  frame.className = `board-frame board-frame-${as}`;
+  try {
+    const board = await boardData(previewPlace, as === "public");
+    frame.innerHTML = BoardView.render(board, as);
+    if (as === "tv") BoardView.fit(frame);
+    document.getElementById("board-preview-note").textContent = as === "tv"
+      ? "On the TV it fills the whole screen; the text gets as big as fits."
+      : "As someone sees it on their phone (beers marked \"Leave off the public menu\" aren't on it).";
+  } catch (e) {
+    frame.innerHTML = "";
+    document.getElementById("board-preview-note").textContent = `Couldn't show the board: ${explain(e)}`;
+  }
+}
+function openBoardPreview(placeId) {
+  previewPlace = placeId;
+  document.getElementById("board-preview-title").textContent = `${placeName(placeId)}: menu board`;
+  boardPreview.showModal();
+  showBoardPreview("tv");
+}
+boardPreview.addEventListener("click", (e) => {
+  const as = e.target.closest("[data-preview-as]")?.dataset.previewAs;
+  if (as) showBoardPreview(as);
+});
+
+async function printBoard(placeId) {
+  try {
+    const board = await boardData(placeId, false);
+    const sheet = document.getElementById("print-sheet");
+    sheet.className = "print-menu";
+    sheet.innerHTML = BoardView.render(board, "print");
+    window.print();
+  } catch (e) {
+    warn(`Couldn't print the board: ${explain(e)}`);
+  }
+}
 
 // ----- Brew sheet: which fields this brewery measures -----
 // Ticks are kept here while someone is choosing (so a background refresh doesn't undo them),

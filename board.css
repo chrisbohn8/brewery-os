@@ -1,0 +1,62 @@
+/* Brewery OS — a menu board's look (drawn by board.js). Used by board.html (TV and public pages),
+   and by the app for its preview and printing. Sizes are in em, so the TV can scale it all at once. */
+
+.mb {
+  --mb-bg: #fbfaf7; --mb-text: #1c1b19; --mb-dim: #5f5b54; --mb-line: #dcd8cf; --mb-accent: #9a4b12; --mb-accent-text: #fff;
+  background: var(--mb-bg); color: var(--mb-text);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; line-height: 1.25;
+  box-sizing: border-box;
+}
+.mb *, .mb *::before, .mb *::after { box-sizing: border-box; }
+.mb h1, .mb h2, .mb p, .mb ol { margin: 0; padding: 0; }
+.mb-head { display: flex; justify-content: space-between; align-items: baseline; gap: 1em; border-bottom: 0.12em solid var(--mb-text); padding-bottom: 0.3em; margin-bottom: 0.6em; }
+.mb-head h1 { font-size: 2em; line-height: 1.1; letter-spacing: -0.01em; }
+.mb-brewery { color: var(--mb-dim); font-size: 0.95em; text-align: right; }
+.mb-group { margin-bottom: 0.6em; }
+.mb-group-head { break-after: avoid; }
+.mb-group-head { display: flex; align-items: flex-end; gap: 0.6em; }
+.mb-group-head h2, .mb-extra h2 { font-size: 1.05em; text-transform: uppercase; letter-spacing: 0.06em; color: var(--mb-accent); }
+.mb-group-head > :first-child { flex: 1; }
+.mb-cols { display: flex; gap: 0.6em; color: var(--mb-dim); font-size: 0.75em; }
+.mb-cols .mb-price { width: calc(4.5em / 0.75); }
+.mb-list { list-style: none; }
+.mb-item { display: flex; align-items: baseline; gap: 0.6em; padding: 0.35em 0; border-bottom: 1px solid var(--mb-line); break-inside: avoid; }
+.mb-item:last-child { border-bottom: 0; }
+.mb-no { flex: none; width: 1.6em; color: var(--mb-dim); font-variant-numeric: tabular-nums; text-align: right; }
+.mb-main { flex: 1; min-width: 0; }
+.mb-name { font-weight: 700; font-size: 1.15em; }
+.mb-swatch { display: inline-block; width: 0.7em; height: 0.7em; border-radius: 50%; margin-right: 0.35em; vertical-align: 0.02em; border: 1px solid rgba(0, 0, 0, 0.25); }
+.mb-tag { display: inline-block; font-size: 0.6em; font-weight: 600; padding: 0.1em 0.5em; margin-left: 0.5em; border-radius: 1em; vertical-align: 0.25em; white-space: nowrap; }
+.mb-badge { background: var(--mb-accent); color: var(--mb-accent-text); }
+.mb-allergen { border: 1px solid var(--mb-dim); color: var(--mb-dim); }
+.mb-facts { color: var(--mb-dim); font-size: 0.85em; }
+.mb-words { font-size: 0.85em; margin-top: 0.1em; }
+.mb-fields { font-size: 0.75em; color: var(--mb-dim); margin-top: 0.15em; display: flex; flex-wrap: wrap; gap: 0 1em; }
+.mb-field-name { font-weight: 600; }
+.mb-price { flex: none; width: 4.5em; text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; }
+.mb-price-list { display: flex; flex-wrap: wrap; gap: 0.2em 1.2em; margin-top: 0.3em; font-size: 0.9em; }
+.mb-dim { color: var(--mb-dim); font-weight: 400; }
+.mb-extras { display: flex; flex-wrap: wrap; gap: 0.4em 2em; border-top: 0.12em solid var(--mb-text); padding-top: 0.4em; margin-top: 0.2em; }
+.mb-extra p { display: flex; flex-wrap: wrap; gap: 0.1em 1.2em; font-size: 0.9em; }
+.mb-empty { color: var(--mb-dim); font-size: 1.2em; padding: 1em 0; }
+
+/* TV: dark and high-contrast, read from across a room; two columns when there are many lines */
+.mb-tv { --mb-bg: #111110; --mb-text: #f6f3ec; --mb-dim: #b4ada1; --mb-line: #34322e; --mb-accent: #f0a050; --mb-accent-text: #111110;
+  min-height: 100%; padding: 1.2em 1.6em; }
+.mb-tv.mb-many .mb-body { column-count: 2; column-gap: 2.4em; column-rule: 1px solid var(--mb-line); }
+.mb-tv .mb-name .mb-facts { font-weight: 400; font-size: 0.75em; margin-left: 0.4em; }
+.mb-tv .mb-item { padding: 0.25em 0; }
+.mb-tv .mb-words { color: var(--mb-dim); margin-top: 0; }
+
+/* Public page: a phone first, light or dark like the phone */
+.mb-public { padding: 16px; max-width: 760px; margin: 0 auto; font-size: 17px; }
+.mb-public .mb-head h1 { font-size: 1.7em; }
+.mb-public .mb-item { padding: 0.7em 0; }
+@media (prefers-color-scheme: dark) {
+  .mb-public { --mb-bg: #161514; --mb-text: #f2efe8; --mb-dim: #aaa398; --mb-line: #33312d; --mb-accent: #f0a050; --mb-accent-text: #161514; }
+}
+
+/* Paper: black on white, two columns when there are many lines */
+.mb-print { --mb-bg: #fff; --mb-text: #000; --mb-dim: #444; --mb-line: #bbb; --mb-accent: #000; --mb-accent-text: #fff; font-size: 10.5pt; }
+.mb-print.mb-many { font-size: 9pt; }
+.mb-print.mb-many .mb-body { column-count: 2; column-gap: 0.3in; }

@@ -1,6 +1,6 @@
 # Menu boards: design (draft for review)
 
-Status: **proposal, not built yet.** Built in three steps, each useful on its own: (1) the menu's data, (2) one good board (TV, print, public link), (3) the board builder. The open questions are at the end.
+Status: **steps 1 and 2 built (2026-10-09); step 3 (the builder) next.** "Almost gone" (step 2) waits until keg levels are tracked. Built in three steps, each useful on its own: (1) the menu's data, (2) one good board (TV, print, public link), (3) the board builder. The open questions are at the end.
 
 ## What it's for
 
