@@ -17,7 +17,7 @@ Like the brew sheet: **a catalog of common fields, tick the ones you use, rename
 
 ### The brewery's lists (admin-made)
 - **Pour sizes:** name and size, in order: *16 oz, 10 oz, Flight (4 × 4 oz), 32 oz crowler, 64 oz growler*... Each size knows its ounces (or mL), so a POS sale later turns into poured volume. A catalog to tick from, plus your own.
-- **Sections:** *IPAs, Lagers, Sours, Dark, Guest taps, Cider & wine, Non-alcoholic*... in your order. A beer picks one, or "by style" fills it in from a rule you set ("anything with IPA in the style → IPAs").
+- **Sections:** *IPAs, Lagers, Sours, Dark, Guest taps, Cider & wine, Non-alcoholic*... in your order. Each beer picks one by hand. (A "fill in from style" rule could come later if picking gets tedious.)
 - **Tags,** two kinds:
   - *Badges:* New, Seasonal, Limited, Award winner, Brewer's pick...
   - *Allergens and dietary:* Contains lactose, Gluten-reduced, Contains nuts, Fruit, Vegan...
@@ -25,14 +25,14 @@ Like the brew sheet: **a catalog of common fields, tick the ones you use, rename
 - **Your own fields:** a name and a kind (text, number, yes/no, or pick from a list): *Hops, Collab with, Pairs with*...
 
 ### Each beer's menu details
-- **Prices per pour size:** each beer ticks the sizes it's poured in (a 12% stout might be 10 oz only) and their prices. Today's free-typed prices move onto the brewery's sizes automatically (matching by name; new sizes made for the rest).
+- **Prices per pour size:** each beer ticks the sizes it's poured in (a 12% stout might be 10 oz only) and their prices. Today's free-typed prices move onto the brewery's sizes automatically (matching by name; new sizes made for the rest). A beer can also have a different price at one taproom; if it doesn't, both taprooms use the same list.
 - **A short line for the TV** (up to 80 characters), besides the longer description (print and the public page).
 - **Color** (SRM), shown as a swatch; filled in from the recipe's color (BeerXML has it) for a person to check.
 - **Section, tags, and your own fields.**
 - **Leave off the public menu** (still on the TV and print): for staff-only or not-ready taps.
 
-### Guest taps and other drinks
-A draft line can already pour "something else", with a label. It becomes a **menu item** with the same details as a beer: who made it (*"Guest: a brewery's name"*), style, ABV, prices, section, tags. Kept in a short list so a returning guest beer or the house wine is picked, not retyped.
+### Guest taps and other drinks (later)
+These are poured rarely, so for now a draft line's "something else" label shows on the menu as it is. Later it could become a **menu item** with the same details as a beer: who made it (*"Guest: a brewery's name"*), style, ABV, prices, section, tags. Kept in a short list so a returning guest beer or the house wine is picked, not retyped.
 
 ## Step 2: one good board
 
@@ -64,14 +64,14 @@ A draft line can already pour "something else", with a label. It becomes a **men
 
 ## Build order
 
-1. **Data:** pour sizes, sections, tags, your own fields, short line, color, "leave off the public menu", prices moved onto the sizes, guest and other menu items. (Settings → Menu; the beer form's "On the menu".)
+1. **Data:** pour sizes, sections, tags, your own fields, short line, color, "leave off the public menu", prices moved onto the sizes, an optional price override per taproom. (Guest and other menu items wait.) (Settings → Menu; the beer form's "On the menu".)
 2. **One good board:** TV, print, and public link per taproom, with Coming soon, To go, and Almost gone (off by default).
 3. **The builder:** layouts, drag to arrange, colors and fonts, logo, several boards.
 
 ## Questions for you
 
-1. **Prices at your two taprooms:** always the same, or sometimes different? (If sometimes, a beer gets one price list with an optional override per taproom.)
-2. **Sections:** would you rather pick one for each beer, or have them filled in from the style by a rule (and override when needed)?
-3. **Guest taps, cider, wine, non-alcoholic:** how often? Enough to keep a short list of them, or is a label on the line fine for now?
-4. **Your TVs:** what shows the menu today: a smart TV's browser, a Fire TV or Chromecast stick, a small computer, or a TV menu service? (The TV view has to run on it.)
+1. **Prices at your two taprooms:** *Answered: sometimes different.* Each beer has one price list, with an optional override per taproom.
+2. **Sections:** *Answered: pick one for each beer.* No style rule for now; "by style" is left out of step 1.
+3. **Guest taps, cider, wine, non-alcoholic:** *Answered: rarely.* A label on the line is enough for now; real menu entries for them wait.
+4. **Your TVs:** *Answered: a small computer plugged into each TV.* The TV view is a full-screen browser page, so it can run there directly.
 5. **Fonts:** is a list of pairings plus "any Google Font by name" enough, or does your brand use a font you'd need to upload?
