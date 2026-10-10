@@ -30,6 +30,11 @@
 //   POST  /plan                        a calendar item
 //   PATCH /beers/{name}                a beer's targets and menu details
 //   PUT   /lines/{taproom}/{line}      what a draft line pours
+//
+// A suggest-only key's writes are tried (so one that couldn't be saved is refused right away), undone,
+// and kept as suggestions for a person to approve in the app. Approving runs the write here, as that
+// person (signed in, not with a key), still marked "via" the key:
+//   POST  /suggestions/{id}/approve    Authorization: Bearer <the person's sign-in token>
 import { Pool } from "jsr:@db/postgres@0.19.5";
 
 const pool = new Pool(Deno.env.get("SUPABASE_DB_URL")!, 3, true);
@@ -79,6 +84,12 @@ async function sha256(text: string) {
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   const header = req.headers.get("Authorization") ?? "";
+  // Approving a suggestion: a signed-in person (from the app), not a key
+  const parts = new URL(req.url).pathname.split("/").filter(Boolean);
+  const after = parts.slice(parts.indexOf("api") + 1);
+  if (req.method === "POST" && after[0] === "suggestions" && after[2] === "approve" && !header.startsWith("Bearer bos_")) {
+    return approve(header.replace(/^Bearer /, ""), after[1]);
+  }
   const key = header.startsWith("Bearer bos_") ? header.slice(7) : req.headers.get("X-Api-Key");
   if (!key?.startsWith("bos_")) return reply(401, { error: "Send an API key: Authorization: Bearer bos_..." });
   const path = new URL(req.url).pathname.split("/").filter(Boolean);
@@ -89,7 +100,7 @@ Deno.serve(async (req) => {
   try {
     const result = await inTransaction(async (tx) => {
       // The key: known, not revoked
-      const [k] = await tx`select id, brewery_id, user_id, permissions, revoked_at, last_used_at
+      const [k] = await tx`select id, brewery_id, user_id, permissions, revoked_at, last_used_at, mode
                              from public.api_keys where key_hash = ${await sha256(key)}`;
       if (!k || k.revoked_at) throw new Problem(401, "That API key isn't valid (or was revoked).");
       if (!k.last_used_at || Date.now() - new Date(k.last_used_at).getTime() > 60_000) {
@@ -109,10 +120,24 @@ Deno.serve(async (req) => {
         throw new Problem(503, "The API couldn't limit this request to the key's permissions, so it did nothing. Try again.");
       }
       const pathText = path.slice(at + 1).join("/");
-      return await route(tx, k.brewery_id, owner?.email, req.method, resource, ref, sub, body, new URL(req.url).searchParams, pathText);
+      const run = (ctx: Ctx) => route(tx, k.brewery_id, owner?.email, req.method, resource, ref, sub, body, new URL(req.url).searchParams, pathText, ctx);
+      if (k.mode !== "suggest" || req.method === "GET") return await run({ mode: "direct" });
+      // A suggest-only key: try the write (its usual checks and answers), undo it, and keep it for review
+      await tx`savepoint suggestion`;
+      const tried = await run({ mode: "suggest" });
+      await tx`rollback to savepoint suggestion`;
+      const [{ id }] = await tx`select public.log_api_suggestion(${req.method}, ${pathText}, ${tried.summary ?? `${req.method} ${pathText}`}, ${JSON.stringify(body ?? {})}::jsonb) as id`;
+      return { status: 202, body: { suggested: true, id, summary: tried.summary,
+        note: "This key suggests changes: nothing is saved until a person approves it in the app (the tank board's To review list)." } };
     });
     return reply(result.status ?? 200, result.body);
   } catch (e) {
+    return failed(e);
+  }
+});
+
+function failed(e: unknown) {
+  {
     if (e instanceof Problem) return reply(e.status, { error: e.message });
     // deno-postgres puts the database's error code and message in e.fields (or, inside a
     // transaction, in the wrapped error: e.cause.fields)
@@ -124,15 +149,48 @@ Deno.serve(async (req) => {
     console.error(e);
     return reply(500, { error: "Something went wrong." });
   }
-});
+}
+
+// Approve a suggestion: the person signed in to the app runs it, under their own permissions, still
+// marked "via" the key that suggested it, dated as of when it was suggested
+async function approve(token: string, id: string) {
+  const who = await fetch(`${Deno.env.get("SUPABASE_URL")}/auth/v1/user`, { headers: { apikey: Deno.env.get("SUPABASE_ANON_KEY")!, Authorization: `Bearer ${token}` } })
+    .then((r) => (r.ok ? r.json() : null)).catch(() => null);
+  if (!who?.id) return reply(401, { error: "Sign in to approve a suggestion." });
+  try {
+    const result = await inTransaction(async (tx) => {
+      const [s] = await tx`select a.id, a.brewery_id, a.key_id, a.status, a.method, a.path, a.request,
+                                  (a.created_at at time zone br.time_zone)::date::text as suggested_on
+                             from public.api_actions a join public.breweries br on br.id = a.brewery_id where a.id::text = ${id}`;
+      if (!s || s.status !== "suggested") throw new Problem(404, "That suggestion isn't waiting for review.");
+      await tx`select set_config('brewery_os.api_key', ${s.key_id}, true)`;
+      await tx`select set_config('request.jwt.claims', ${JSON.stringify({ sub: who.id, role: "authenticated" })}, true)`;
+      await tx`set local role authenticated`;
+      const [me] = await tx`select current_user as role, auth.uid()::text as uid, public.is_member(${s.brewery_id}) as member`;
+      if (me?.role !== "authenticated" || me?.uid !== who.id) throw new Problem(503, "The approval couldn't run as you, so it did nothing. Try again.");
+      if (!me.member) throw new Problem(403, "That suggestion isn't in your brewery.");
+      const [resource, ref, sub] = String(s.path).split("/").map(decodeURIComponent);
+      const done = await route(tx, s.brewery_id, who.email, s.method, resource, ref, sub, s.request, new URLSearchParams(), s.path,
+                               { mode: "approve", today: s.suggested_on });
+      await tx`select public.approve_api_suggestion(${s.id}::uuid, ${JSON.stringify(done.body)}::jsonb)`;
+      return { approved: true, summary: done.summary, result: done.body };
+    });
+    return reply(200, result);
+  } catch (e) {
+    return failed(e);
+  }
+}
 
 // deno-lint-ignore no-explicit-any
 type Tx = any;
+// How a write runs: directly, as a suggestion (tried and undone), or as an approved suggestion
+type Ctx = { mode: "direct" | "suggest" | "approve"; today?: string };
+type Answer = { status?: number; body: unknown; summary?: string };
 async function route(tx: Tx, b: string, email: string, method: string, resource?: string, ref?: string, sub?: string,
-                     body?: Record<string, unknown> | null, query?: URLSearchParams, pathText = ""): Promise<{ status?: number; body: unknown }> {
+                     body?: Record<string, unknown> | null, query?: URLSearchParams, pathText = "", ctx: Ctx = { mode: "direct" }): Promise<Answer> {
   const is = (m: string, r: string, hasRef: boolean, s?: string) => method === m && resource === r && !!ref === hasRef && sub === s;
   if (method !== "GET") {
-    const done = await write(tx, b, method, resource, ref, sub, body ?? {}, pathText);
+    const done = await write(tx, b, method, resource, ref, sub, body ?? {}, pathText, ctx);
     if (done) return done;
   }
 
@@ -169,8 +227,9 @@ async function route(tx: Tx, b: string, email: string, method: string, resource?
     const updated = await tx`update public.tanks set status = ${String(status)}
                               where brewery_id = ${b} and (id::text = ${ref} or lower(name) = lower(${ref})) returning id, name, status`;
     if (!updated.length) throw new Problem(404, `No tank "${ref}" (or it can't be changed with this key).`);
-    await tx`select public.log_api_action(${method}, ${pathText}, ${`${updated[0].name}: ${updated[0].status}`}, ${JSON.stringify(body)}::jsonb, ${JSON.stringify({ id: updated[0].id })}::jsonb)`;
-    return { body: updated[0] };
+    const summary = `${updated[0].name} set to ${updated[0].status}`;
+    if (ctx.mode === "direct") await tx`select public.log_api_action(${method}, ${pathText}, ${summary}, ${JSON.stringify(body)}::jsonb, ${JSON.stringify({ id: updated[0].id })}::jsonb)`;
+    return { body: updated[0], summary };
   }
 
   if (is("GET", "batches", false)) {
@@ -200,9 +259,9 @@ async function route(tx: Tx, b: string, email: string, method: string, resource?
                  coalesce(${(body?.occurred_on as string) ?? null}::date, current_date), ${String(body?.action ?? "")},
                  ${g}::numeric, ${body?.ph != null ? Number(body.ph) : null}::numeric, ${t}::numeric,
                  ${String(body?.cellar_change ?? "")}, ${String(body?.notes ?? "")}, ${(body?.new_stage as string) ?? null})`;
-      await tx`select public.log_api_action(${method}, ${pathText}, ${`Logged ${String(body?.action || "an entry")} on #${batch.batch_number} (${batch.beer})`},
-                 ${JSON.stringify(body)}::jsonb, ${JSON.stringify({ id, batch: batch.batch_number })}::jsonb)`;
-      return { status: 201, body: { id, batch: batch.batch_number, saved: true } };
+      const summary = `Logged ${String(body?.action || "an entry")} on #${batch.batch_number} (${batch.beer})`;
+      if (ctx.mode === "direct") await tx`select public.log_api_action(${method}, ${pathText}, ${summary}, ${JSON.stringify(body)}::jsonb, ${JSON.stringify({ id, batch: batch.batch_number })}::jsonb)`;
+      return { status: 201, body: { id, batch: batch.batch_number, saved: true }, summary };
     }
     if (method === "GET" && (!sub || sub === "log")) {
       const log = await tx`select id, occurred_on::text as occurred_on, action, gravity_sg, ph, temp_c, cellar_change, notes
@@ -290,8 +349,11 @@ const dateOr = (v: unknown) => {
 const idOr = (v: unknown) => (typeof v === "string" && /^[0-9a-f-]{36}$/i.test(v) ? v : crypto.randomUUID());
 const STAGES = ["fermenting", "dry-hopping", "conditioning", "carbonating", "ready", "packaged"];
 
-async function write(tx: Tx, b: string, method: string, resource?: string, ref?: string, sub?: string, body: Body = {}, pathText = "") {
-  const [{ today }] = await tx`select (now() at time zone time_zone)::date::text as today from public.breweries where id = ${b}`;
+async function write(tx: Tx, b: string, method: string, resource?: string, ref?: string, sub?: string, body: Body = {}, pathText = "",
+                     ctx: Ctx = { mode: "direct" }): Promise<Answer | null> {
+  // (an approved suggestion is dated as of when it was suggested)
+  const [{ today }] = ctx.today ? [{ today: ctx.today }]
+    : await tx`select (now() at time zone time_zone)::date::text as today from public.breweries where id = ${b}`;
   const day = (v: unknown) => dateOr(v) ?? today;
   // Find one thing by its id or name; a name that matches none (or several) is a clear 400
   async function one(kind: string, rows: Record<string, unknown>[], what: unknown) {
@@ -315,9 +377,11 @@ async function write(tx: Tx, b: string, method: string, resource?: string, ref?:
     from public.batch_status s join public.beers be on be.id = s.beer_id
     where s.brewery_id = ${b} and (s.id::text = ${r} or lower(s.batch_number) = lower(${r.replace(/^#/, "")}))`, r);
   // List the write in the key's activity, and answer
-  const done = async (summary: string, result: Body, status = 201) => {
-    await tx`select public.log_api_action(${method}, ${pathText}, ${summary}, ${JSON.stringify(body)}::jsonb, ${JSON.stringify(result)}::jsonb)`;
-    return { status, body: { ...result, saved: true } };
+  const done = async (summary: string, result: Body, status = 201): Promise<Answer> => {
+    if (ctx.mode === "direct") {
+      await tx`select public.log_api_action(${method}, ${pathText}, ${summary}, ${JSON.stringify(body)}::jsonb, ${JSON.stringify(result)}::jsonb)`;
+    }
+    return { status, body: { ...result, saved: true }, summary };
   };
 
   // POST /batches: start a batch in a tank

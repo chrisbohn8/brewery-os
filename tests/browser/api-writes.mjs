@@ -26,9 +26,10 @@ const page = await (await browser.newContext({ viewport: { width: 1100, height: 
 const errors = [];
 await onDialog(page, (d) => d.accept());
 page.on("pageerror", (e) => errors.push(e.message));
-async function makeKey(name, only) {
+async function makeKey(name, only, mode = "direct") {
   await settings(page, "api");
   await page.fill('#key-form [name="name"]', name);
+  await page.check(`#key-form [name="mode"][value="${mode}"]`); // (new keys suggest changes unless told otherwise)
   if (only) await page.evaluate((keep) => document.querySelectorAll("#key-permissions input").forEach((i) => { i.checked = keep.includes(i.value); }), only);
   await page.click("#key-form button[type=submit]");
   await page.waitForSelector("#new-key:not([hidden])");

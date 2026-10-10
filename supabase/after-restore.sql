@@ -27,7 +27,6 @@ revoke execute on function public.record_count(uuid, uuid, uuid, date, jsonb, te
 revoke execute on function public.default_stock_place(uuid, uuid) from anon, authenticated;
 revoke execute on function public.take_stock(uuid, uuid, date, text, text, uuid, uuid, uuid, numeric, uuid, uuid, text, text) from anon, authenticated;
 revoke execute on function public.set_place_order(uuid, text, uuid[]) from anon;
-revoke execute on function public.create_api_key(uuid, text, text[]) from anon;
 revoke execute on function public.revoke_api_key(uuid) from anon;
 revoke execute on function public.check_alerts(uuid) from anon;
 revoke execute on function public.acknowledge_alert(uuid) from anon;
@@ -59,6 +58,11 @@ revoke execute on function public.is_anonymous_user(uuid) from anon, authenticat
 -- API writes: listing a key's writes (the API only) and the keys' names (everyone in the brewery)
 revoke execute on function public.log_api_action(text, text, text, jsonb, jsonb) from anon;
 revoke execute on function public.api_key_names(uuid) from anon;
+-- Suggest-only keys
+revoke execute on function public.create_api_key(uuid, text, text[], text) from anon;
+revoke execute on function public.log_api_suggestion(text, text, text, jsonb) from anon;
+revoke execute on function public.approve_api_suggestion(uuid, jsonb) from anon;
+revoke execute on function public.reject_api_suggestion(uuid) from anon;
 -- The daily demo clean-up is a scheduled job (not in backups' tables): schedule it again
 create extension if not exists pg_cron with schema pg_catalog;
 select cron.schedule('brewery-os-demo-cleanup', '23 9 * * *', $job$ select public.cleanup_demos(); $job$);

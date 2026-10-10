@@ -97,6 +97,7 @@
       <li><strong>Tap a full tank</strong> to open the batch's page (see <a href="#batch-page">A batch's page</a>).</li>
       <li><strong>Tap an empty tank</strong> to start a batch in it (if you're allowed to), or to change its status.</li>
       <li><strong>Alerts</strong> (the orange box at the top) list what needs attention; see <a href="#alerts">Alerts</a>.</li>
+      <li><strong>Changes to review</strong> (a dashed box, when there are any): changes an API key suggested, waiting for someone to <span class="ui">Approve</span> or <span class="ui">Reject</span>; see <a href="#settings-api">Settings: API keys</a>.</li>
       <li><strong>Packaged batches</strong> (below the tanks) lists batches that are out of the tanks: packaged, or used in another batch. Tap one to open it.</li>
       <li><span class="ui">Inventory</span> and <span class="ui">Settings</span> are at the top.</li>
     </ul>
@@ -440,7 +441,12 @@
 
   <section id="settings-api">
     <h2>Settings: API keys</h2>
-    <p>A key lets an outside tool or an AI assistant read and write here <strong>as you</strong>, with some or all of your permissions (never more). Make one with a name, untick what it shouldn't do, and copy it: it's shown once. Revoke it any time; it stops working at once. Admins see every key in the brewery and when each was last used. Everything a key writes is marked on the record as <strong>"via"</strong> the key's name (in a batch's cellar log, additions, and history, and in Inventory's recent changes), and listed under <strong>What keys did lately</strong>. What the API can do: <a href="https://github.com/chrisbohn8/brewery-os/blob/master/docs/api.md">the API guide</a>.</p>
+    <p>A key lets an outside tool or an AI assistant read and write here <strong>as you</strong>, with some or all of your permissions (never more). Make one with a name, untick what it shouldn't do, choose how it changes things, and copy it: it's shown once. Revoke it any time; it stops working at once. Admins see every key in the brewery and when each was last used. Everything a key writes is marked on the record as <strong>"via"</strong> the key's name (in a batch's cellar log, additions, and history, and in Inventory's recent changes), and listed under <strong>What keys did lately</strong>. What the API can do: <a href="https://github.com/chrisbohn8/brewery-os/blob/master/docs/api.md">the API guide</a>.</p>
+    <ul>
+      <li><strong>Suggests changes for a person to approve</strong> (the usual choice, and the one for AI assistants): nothing the key sends is saved by itself. It's checked (something that couldn't be saved is refused right away), then waits on the tank board under <strong>changes to review</strong>. <span class="ui">Approve</span> saves it as you, with your permissions, marked "via" the key and dated the day it was suggested; <span class="ui">Reject</span> sets it aside. Anyone who can change something here (not a viewer) can decide.</li>
+      <li><strong>Makes changes directly:</strong> for a tool you trust, like a sensor or a script. Its changes are saved at once (still marked "via" the key).</li>
+      <li>The key list shows which each key does; <strong>What keys did lately</strong> shows each suggestion's fate (waiting, approved by, rejected by).</li>
+    </ul>
   </section>
 
   <section id="settings-account">

@@ -142,6 +142,8 @@
   <div id="floor-view">
   <!-- Alerts from the records (Settings → Alerts): what needs attention, with "I've got it" -->
   <section id="alerts-box" class="list-section alerts-box" hidden></section>
+  <!-- Changes suggested by suggest-only API keys, waiting for a person (docs/api-writes-design.md) -->
+  <section id="review-box" class="list-section review-box" hidden></section>
   <!-- A brand-new brewery has nothing in it yet: offer ways to get started -->
   <section id="empty-state" class="list-section" hidden>
     <h2>Nothing here yet</h2>
@@ -486,6 +488,11 @@
     <form id="key-form" data-not-in-demo>
       <label>Name <input name="name" required maxlength="60" placeholder="Like: My AI assistant"></label>
       <fieldset class="group"><legend>What it can do</legend><div id="key-permissions" class="check-grid"></div></fieldset>
+      <fieldset class="group"><legend>How it changes things</legend>
+        <label class="choice"><input type="radio" name="mode" value="suggest" checked> <span>Suggests changes for a person to approve
+          <span class="muted">(recommended for AI assistants: nothing is saved until someone taps Approve on the tank board)</span></span></label>
+        <label class="choice"><input type="radio" name="mode" value="direct"> <span>Makes changes directly <span class="muted">(for a tool you trust, like a sensor or a script)</span></span></label>
+      </fieldset>
       <button type="submit" class="btn primary">Make a key</button>
     </form>
     <div id="new-key" class="new-key" hidden>

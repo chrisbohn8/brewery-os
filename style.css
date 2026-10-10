@@ -841,3 +841,9 @@ body.in-demo .demo-note { display: block; }
 
 /* A record an API key wrote ("via My AI assistant") */
 .tag.via-key { border-style: dashed; }
+
+/* Suggested changes waiting for review (suggest-only API keys) */
+.review-box { border: 2px dashed var(--text); border-radius: 12px; padding: 10px 14px; }
+.review-row { display: flex; gap: 10px; align-items: center; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--border); }
+.review-row:last-child { border-bottom: 0; }
+.review-row .actions { display: flex; gap: 6px; flex: none; }

@@ -463,7 +463,7 @@ async function loadAll() {
   // Bring the alerts up to date first, so the list below is current (a gravity just logged clears
   // its alert right away). A failed check never stops the data loading; the server checks too.
   await db.rpc("check_alerts", { p_brewery_id: b }).then(() => {}, () => {});
-  const [locations, beers, tanks, batches, events, cleanings, settings, members, invites, permissions, memberRows, levels, cellar, additions, readings, movements, packageTypes, packageCounts, places, stockMoves, pars, rawItems, rawReceipts, rawAdjustments, lines, inventoryViews, recipes, recipeIngredientRows, alertRules, alerts, planItems, schedules, shifts, rawOrders, shortfalls, needs, gravityDue, boards, brewFiles, keyNames] = await Promise.all([
+  const [locations, beers, tanks, batches, events, cleanings, settings, members, invites, permissions, memberRows, levels, cellar, additions, readings, movements, packageTypes, packageCounts, places, stockMoves, pars, rawItems, rawReceipts, rawAdjustments, lines, inventoryViews, recipes, recipeIngredientRows, alertRules, alerts, planItems, schedules, shifts, rawOrders, shortfalls, needs, gravityDue, boards, brewFiles, keyNames, suggestions] = await Promise.all([
     allRows(() => db.from("locations").select("*").eq("brewery_id", b).order("created_at").order("id")),
     allRows(() => db.from("beers").select("*").eq("brewery_id", b).order("id")),
     allRows(() => db.from("tanks").select("*").eq("brewery_id", b).order("created_at").order("id")),
@@ -509,6 +509,8 @@ async function loadAll() {
     allRows(() => db.from("brewery_files").select("id, kind, name, mime, bytes, created_at").eq("brewery_id", b).order("created_at").order("id")),
     // The brewery's API keys' names, for "via My AI assistant" on what a key wrote
     must(db.rpc("api_key_names", { p_brewery_id: b })),
+    // Changes suggested by suggest-only keys, waiting for a person
+    allRows(() => db.from("api_actions").select("id, key_id, method, path, summary, request, created_at").eq("brewery_id", b).eq("status", "suggested").order("created_at").order("id")),
   ]);
   // Each member: email and level (from brewery_members) plus their personal adjustments
   const adjustments = Object.fromEntries(memberRows.map((r) => [r.user_id, r]));
@@ -558,6 +560,7 @@ async function loadAll() {
       theme: x.theme || { scheme: "auto" }, showOnTap: x.show_on_tap !== false })),
     files: brewFiles.map((f) => ({ id: f.id, kind: f.kind, name: f.name, mime: f.mime, bytes: f.bytes })),
     keyNames: Object.fromEntries(keyNames.map((k) => [k.id, k.name])),
+    suggestions: suggestions.map((x) => ({ id: x.id, keyId: x.key_id, summary: x.summary || `${x.method} ${x.path}`, request: x.request, createdAt: x.created_at })),
     menu: { sizes: settings.menu_sizes || [], sections: settings.menu_sections || [], tags: settings.menu_tags || [], fields: settings.menu_fields || [] },
     sheetFields: settings.sheet_fields,
     sheetCustomFields: settings.sheet_custom_fields,
@@ -1374,6 +1377,7 @@ function tankGroups() {
 function render() {
   document.getElementById("brewery-name").textContent = brewery.name;
   renderDemoBar();
+  renderReview();
   applyUnitLabels();
   applyPermissions();
   renderSettings();
@@ -2776,6 +2780,48 @@ document.getElementById("check-invites").addEventListener("click", async () => {
   if (!document.getElementById("setup-screen").hidden) {
     joinMessage(`No invite for ${signedInEmail} yet. Ask your admin to invite this email, or type the join code from your invite.`);
   }
+});
+
+// ----- Suggested changes, waiting for review (suggest-only API keys; docs/api-writes-design.md) -----
+// A suggest-only key's write was tried and undone; it waits here. Approve runs it in the API as
+// the person approving (their permissions), still marked "via" the key; Reject sets it aside.
+const memberEmail = (userId) => (data.members || []).find((m) => m.userId === userId)?.email || "someone";
+function renderReview() {
+  const list = data.suggestions || [];
+  const box = document.getElementById("review-box");
+  box.hidden = !list.length;
+  if (!list.length) return;
+  const canDecide = brewery.role === "admin" || (brewery.permissions || []).length > 0;
+  const when = (t) => new Date(t).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  box.innerHTML = `<h2>${count(list.length, "change", "changes")} to review</h2>
+    <p class="muted">Suggested through API keys that wait for a person. Nothing is saved until it's approved.</p>
+    ${list.map((x) => `<div class="review-row" data-suggestion="${x.id}"><div><strong>${esc(x.summary)}</strong>
+      <div class="muted">${esc(data.keyNames?.[x.keyId] || "A key")} · ${esc(when(x.createdAt))}</div></div>
+      ${canDecide ? `<span class="actions"><button type="button" class="btn small primary" data-approve>Approve</button>
+        <button type="button" class="btn small" data-reject>Reject</button></span>` : ""}</div>`).join("")}`;
+}
+document.getElementById("review-box").addEventListener("click", async (e) => {
+  const row = e.target.closest("[data-suggestion]");
+  if (!row || !e.target.closest("button")) return;
+  const id = row.dataset.suggestion;
+  const x = (data.suggestions || []).find((s) => s.id === id);
+  row.querySelectorAll("button").forEach((b) => { b.disabled = true; });
+  if (e.target.closest("[data-reject]")) {
+    if (await save(() => must(db.rpc("reject_api_suggestion", { p_id: id })))) notify(`Rejected: ${x?.summary || "the suggestion"}.`);
+    return;
+  }
+  // Approving runs the change in the API, as you (so your permissions apply)
+  try {
+    const { data: { session } } = await db.auth.getSession();
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/api/suggestions/${id}/approve`, {
+      method: "POST", headers: { Authorization: `Bearer ${session?.access_token}`, apikey: SUPABASE_KEY } });
+    const answer = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(answer.error || `The approval didn't go through (${res.status}).`);
+    notify(`Approved: ${answer.summary || x?.summary || "the change"}.`);
+  } catch (err) {
+    warn(`Couldn't approve it: ${explain(err)}`);
+  }
+  await refresh();
 });
 
 // ----- The demo (docs/demo-design.md) -----
@@ -5657,13 +5703,13 @@ let apiKeys = [];
 let keyActivity = [];
 async function loadApiKeys() {
   try {
-    apiKeys = await must(db.from("api_keys").select("id, user_id, name, prefix, permissions, created_at, last_used_at, revoked_at")
+    apiKeys = await must(db.from("api_keys").select("id, user_id, name, prefix, permissions, created_at, last_used_at, revoked_at, mode")
       .eq("brewery_id", brewery.id).order("created_at", { ascending: false }));
   } catch { apiKeys = []; }
   renderApiKeys(); // (the keys first; what they did lately follows)
   // What keys wrote lately (everyone in the brewery can see this)
   try {
-    keyActivity = await must(db.from("api_actions").select("id, key_id, status, method, path, summary, created_at")
+    keyActivity = await must(db.from("api_actions").select("id, key_id, status, method, path, summary, created_at, decided_by")
       .eq("brewery_id", brewery.id).order("created_at", { ascending: false }).limit(50));
   } catch { keyActivity = []; }
   renderApiKeys();
@@ -5678,14 +5724,16 @@ function renderApiKeys() {
   const who = (id) => (data.members || []).find((m) => m.userId === id)?.email || "someone";
   const when = (t) => (t ? new Date(t).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "never");
   document.getElementById("key-list").innerHTML = apiKeys.map((k) => `
-    <li class="item"><div><strong>${esc(k.name)}</strong> <span class="muted">${esc(k.prefix)}… · ${esc(who(k.user_id))}</span>
+    <li class="item"><div><strong>${esc(k.name)}</strong> <span class="tag">${k.mode === "suggest" ? "suggests changes" : "changes directly"}</span>
+      <span class="muted">${esc(k.prefix)}… · ${esc(who(k.user_id))}</span>
       <div class="muted">${k.revoked_at ? `revoked ${when(k.revoked_at)}` : `made ${when(k.created_at)} · last used ${when(k.last_used_at)}`} ·
         ${k.permissions.length} ${k.permissions.length === 1 ? "permission" : "permissions"}</div></div>
       ${k.revoked_at ? "" : `<button type="button" class="btn small" data-revoke-key="${k.id}">Revoke</button>`}</li>`).join("")
     || `<li class="item muted">No keys yet. A key lets an outside tool or AI assistant work here as you.</li>`;
   const at = (t) => new Date(t).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
   document.getElementById("key-activity").innerHTML = keyActivity.map((a) => `
-    <li class="item"><span class="when">${esc(at(a.created_at))}</span> · <strong>${esc(data.keyNames?.[a.key_id] || "A key")}</strong>: ${esc(a.summary || `${a.method} ${a.path}`)}</li>`).join("")
+    <li class="item"><span class="when">${esc(at(a.created_at))}</span> · <strong>${esc(data.keyNames?.[a.key_id] || "A key")}</strong>: ${esc(a.summary || `${a.method} ${a.path}`)}${
+      a.status === "done" ? "" : ` <span class="tag">${{ suggested: "waiting for review", approved: `approved by ${memberEmail(a.decided_by)}`, rejected: `rejected by ${memberEmail(a.decided_by)}`, undone: "undone" }[a.status] || a.status}</span>`}</li>`).join("")
     || `<li class="item muted">Nothing yet. Every change a key makes is listed here, and marked "via" its key where it shows.</li>`;
 }
 document.getElementById("key-form").addEventListener("submit", async (e) => {
@@ -5693,7 +5741,8 @@ document.getElementById("key-form").addEventListener("submit", async (e) => {
   const permissions = [...document.querySelectorAll("#key-permissions input:checked")].map((i) => i.value);
   let key = null;
   const ok = await save(async () => {
-    const { data: made, error } = await db.rpc("create_api_key", { p_brewery_id: brewery.id, p_name: e.target.name.value.trim(), p_permissions: permissions });
+    const { data: made, error } = await db.rpc("create_api_key", { p_brewery_id: brewery.id, p_name: e.target.name.value.trim(), p_permissions: permissions,
+      p_mode: e.target.querySelector("[name=mode]:checked")?.value || "suggest" });
     if (error) throw error;
     key = made;
   });

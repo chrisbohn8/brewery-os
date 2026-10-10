@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "setup": "node setup-local.mjs",
-    "test": "node batches.mjs && node acid.mjs && node offline.mjs && node offline-recording.mjs && node team.mjs && node preferences.mjs && node brew-log.mjs && node brew-day.mjs && node update.mjs && node volumes.mjs && node packaging.mjs && node blends.mjs && node inventory.mjs && node api.mjs && node api-writes.mjs && node export.mjs && node import.mjs && node recipes.mjs && node alerts.mjs && node taproom.mjs && node menu.mjs && node boards.mjs && node builder.mjs && node board-files.mjs && node demo.mjs && node demo-visit.mjs && node docs.mjs && node backup-restore.mjs && node errors.mjs && node undo.mjs && node calendar.mjs"
+    "test": "node batches.mjs && node acid.mjs && node offline.mjs && node offline-recording.mjs && node team.mjs && node preferences.mjs && node brew-log.mjs && node brew-day.mjs && node update.mjs && node volumes.mjs && node packaging.mjs && node blends.mjs && node inventory.mjs && node api.mjs && node api-writes.mjs && node suggest.mjs && node export.mjs && node import.mjs && node recipes.mjs && node alerts.mjs && node taproom.mjs && node menu.mjs && node boards.mjs && node builder.mjs && node board-files.mjs && node demo.mjs && node demo-visit.mjs && node docs.mjs && node backup-restore.mjs && node errors.mjs && node undo.mjs && node calendar.mjs"
   },
   "dependencies": {
     "playwright-core": "^1.63.0"

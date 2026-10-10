@@ -49,6 +49,17 @@ Everything is optional. Gravity can be `gravity_plato` or `gravity_sg`; temperat
 
 Readings come back in both units: `"gravity": { "sg": 1.0165, "plato": 4.2 }`, `"temperature": { "c": 17.78, "f": 64 }`.
 
+## Suggest-only keys
+
+A key either **suggests changes** (the usual choice, and the one for AI assistants) or **makes them directly**; it's chosen when the key is made. A suggest-only key's write is checked the same way (an error comes back right away), then answered with `202` and waits for a person:
+
+```json
+{ "suggested": true, "id": "…", "summary": "Logged Check on #142 (House Hazy)",
+  "note": "This key suggests changes: nothing is saved until a person approves it in the app (the tank board's To review list)." }
+```
+
+Someone in the brewery approves it on the tank board (it's saved as them, under their permissions, marked "via" the key, dated the day it was suggested) or rejects it. A key can't approve its own suggestions. `GET` requests work the same for both kinds.
+
 ## Writing (doing what the app does)
 
 Every write is **the app's own action**, run as you and limited by the key: the API can't do anything the app wouldn't let you do, and the same rules hold (one batch per tank, volumes, oldest stock first). Things are named by **id or name**: a tank `"FV3"`, a beer `"House Hazy"`, a package `"½ bbl keg"`, a place `"Taproom"` (or `"Riverside Taproom"` when two locations have one). Dates are `"2026-10-07"`; left out, they're today (in the brewery's time zone). Volumes are in barrels.
@@ -76,4 +87,4 @@ A mistake gets a clear answer: `404` for a name that isn't here (`No beer "Hazy 
 
 ## What's next
 
-Suggest-only keys (their writes wait for a person to approve), undo from the activity list, more writes (recipes, the brew-day sheet's values, raw counts and orders), and later a sensor inbox for tank probes. Rate limits come when someone outside the brewery holds a key.
+Undo from the activity list, more writes (recipes, the brew-day sheet's values, raw counts and orders), and later a sensor inbox for tank probes. Rate limits come when someone outside the brewery holds a key.
