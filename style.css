@@ -838,3 +838,6 @@ a.btn { text-decoration: none; display: inline-block; }
 body.in-demo [data-not-in-demo] { display: none !important; }
 .demo-note { display: none; }
 body.in-demo .demo-note { display: block; }
+
+/* A record an API key wrote ("via My AI assistant") */
+.tag.via-key { border-style: dashed; }

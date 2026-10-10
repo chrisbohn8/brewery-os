@@ -49,6 +49,31 @@ Everything is optional. Gravity can be `gravity_plato` or `gravity_sg`; temperat
 
 Readings come back in both units: `"gravity": { "sg": 1.0165, "plato": 4.2 }`, `"temperature": { "c": 17.78, "f": 64 }`.
 
+## Writing (doing what the app does)
+
+Every write is **the app's own action**, run as you and limited by the key: the API can't do anything the app wouldn't let you do, and the same rules hold (one batch per tank, volumes, oldest stock first). Things are named by **id or name**: a tank `"FV3"`, a beer `"House Hazy"`, a package `"½ bbl keg"`, a place `"Taproom"` (or `"Riverside Taproom"` when two locations have one). Dates are `"2026-10-07"`; left out, they're today (in the brewery's time zone). Volumes are in barrels.
+
+**Every write is stamped with the key** (the app shows it as "via My AI assistant" on the records) and **listed** in Settings → API keys → *What keys did lately*. Send your own `"id"` (a UUID) to make a retry safe.
+
+| Address | Body (example) |
+| --- | --- |
+| `POST /batches` | `{ "number": "142", "beer": "House Hazy", "tank": "FV3", "brew_date": "2026-10-07", "size_bbl": 15, "volume_bbl": 14.5 }` |
+| `POST /batches/142/stage` | `{ "stage": "conditioning" }`, or a transfer: `{ "stage": "carbonating", "tank": "BT1", "volume_bbl": 14 }` |
+| `POST /batches/142/package` | `{ "counts": [{ "package": "½ bbl keg", "count": 20 }], "spent": true, "place": "Storage" }` |
+| `POST /batches/142/level` | `{ "volume_bbl": 12.5, "reason": "served" }` (`"served"`, `"loss"`, or `"correction"`) |
+| `POST /batches/142/additions` | `{ "name": "Citra", "amount": 22, "unit": "lb", "timing": "Dry hop", "lot": "CIT-104" }` |
+| `POST /batches/142/log` | cellar work (see above) |
+| `POST /tanks/FV3/acid` | `{ "note": "..." }` |
+| `PATCH /tanks/FV3` | `{ "status": "cleaning" }` |
+| `POST /stock/moves` | `{ "from": "Storage", "to": "Taproom", "lines": [{ "beer": "House Hazy", "package": "½ bbl keg", "count": 2 }] }`, or a removal: `"removal": "sold"` (`"taproom"`, `"transferred"`, `"donated"`, `"dumped"`) with `"account"` |
+| `POST /stock/counts` | `{ "place": "Taproom", "counts": [{ "beer": "House Hazy", "package": "½ bbl keg", "count": 3 }], "shortfall": "taproom" }` |
+| `POST /raw/receipts` | `{ "item": "Citra", "lot": "CIT-210", "amount": 44, "supplier": "...", "cost": 616 }` (in the item's unit) |
+| `POST /plan` | `{ "kind": "brew", "date": "2026-10-14", "tank": "FV3", "beer": "House Hazy" }` |
+| `PATCH /beers/House Hazy` | `{ "style": "Hazy IPA", "menu": { "short": "...", "abv": 6.5, "section": "IPAs", "tags": ["New"], "prices": [{ "size": "16 oz", "price": 7 }] } }` (prices replace the beer's list) |
+| `PUT /lines/Taproom/4` | `{ "beer": "House Hazy" }`, `{ "label": "Guest cider" }`, or `{ "status": "empty" }` |
+
+A mistake gets a clear answer: `404` for a name that isn't here (`No beer "Hazy House".`), `400` for something that can't be done (`The stage is one of: ...`), `403` for something the key (or you) may not do.
+
 ## What's next
 
-Exports (CSV and JSON), spreadsheet imports, recipe import (BeerXML), and later a sensor inbox for tank probes. Rate limits and public documentation come when someone outside the brewery holds a key.
+Suggest-only keys (their writes wait for a person to approve), undo from the activity list, more writes (recipes, the brew-day sheet's values, raw counts and orders), and later a sensor inbox for tank probes. Rate limits come when someone outside the brewery holds a key.

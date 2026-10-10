@@ -56,6 +56,9 @@ revoke execute on function public.menu_board_files(public.menu_boards) from anon
 revoke execute on function public.create_demo_brewery() from anon;
 revoke execute on function public.cleanup_demos() from anon, authenticated;
 revoke execute on function public.is_anonymous_user(uuid) from anon, authenticated;
+-- API writes: listing a key's writes (the API only) and the keys' names (everyone in the brewery)
+revoke execute on function public.log_api_action(text, text, text, jsonb, jsonb) from anon;
+revoke execute on function public.api_key_names(uuid) from anon;
 -- The daily demo clean-up is a scheduled job (not in backups' tables): schedule it again
 create extension if not exists pg_cron with schema pg_catalog;
 select cron.schedule('brewery-os-demo-cleanup', '23 9 * * *', $job$ select public.cleanup_demos(); $job$);

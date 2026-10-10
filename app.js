@@ -463,7 +463,7 @@ async function loadAll() {
   // Bring the alerts up to date first, so the list below is current (a gravity just logged clears
   // its alert right away). A failed check never stops the data loading; the server checks too.
   await db.rpc("check_alerts", { p_brewery_id: b }).then(() => {}, () => {});
-  const [locations, beers, tanks, batches, events, cleanings, settings, members, invites, permissions, memberRows, levels, cellar, additions, readings, movements, packageTypes, packageCounts, places, stockMoves, pars, rawItems, rawReceipts, rawAdjustments, lines, inventoryViews, recipes, recipeIngredientRows, alertRules, alerts, planItems, schedules, shifts, rawOrders, shortfalls, needs, gravityDue, boards, brewFiles] = await Promise.all([
+  const [locations, beers, tanks, batches, events, cleanings, settings, members, invites, permissions, memberRows, levels, cellar, additions, readings, movements, packageTypes, packageCounts, places, stockMoves, pars, rawItems, rawReceipts, rawAdjustments, lines, inventoryViews, recipes, recipeIngredientRows, alertRules, alerts, planItems, schedules, shifts, rawOrders, shortfalls, needs, gravityDue, boards, brewFiles, keyNames] = await Promise.all([
     allRows(() => db.from("locations").select("*").eq("brewery_id", b).order("created_at").order("id")),
     allRows(() => db.from("beers").select("*").eq("brewery_id", b).order("id")),
     allRows(() => db.from("tanks").select("*").eq("brewery_id", b).order("created_at").order("id")),
@@ -507,6 +507,8 @@ async function loadAll() {
     allRows(() => db.from("menu_boards").select("*").eq("brewery_id", b).order("id")),
     // The brewery's own fonts and logos: names and sizes only (each file is fetched when it's used)
     allRows(() => db.from("brewery_files").select("id, kind, name, mime, bytes, created_at").eq("brewery_id", b).order("created_at").order("id")),
+    // The brewery's API keys' names, for "via My AI assistant" on what a key wrote
+    must(db.rpc("api_key_names", { p_brewery_id: b })),
   ]);
   // Each member: email and level (from brewery_members) plus their personal adjustments
   const adjustments = Object.fromEntries(memberRows.map((r) => [r.user_id, r]));
@@ -540,9 +542,9 @@ async function loadAll() {
       stage: x.stage, tankId: x.tank_id, stageStartDate: x.stage_started_on,
     })),
     events: events.map((e) => ({
-      id: e.id, batchId: e.batch_id, effectiveDate: e.effective_date, stage: e.stage, tankId: e.tank_id, recordedAt: e.recorded_at,
+      id: e.id, batchId: e.batch_id, effectiveDate: e.effective_date, stage: e.stage, tankId: e.tank_id, recordedAt: e.recorded_at, viaKey: e.via_key,
     })),
-    cleanings: cleanings.map((c) => ({ id: c.id, tankId: c.tank_id, cleanedOn: c.cleaned_on, note: c.note })),
+    cleanings: cleanings.map((c) => ({ id: c.id, tankId: c.tank_id, cleanedOn: c.cleaned_on, note: c.note, viaKey: c.via_key })),
     acidAfterStyles: settings.acid_after_styles,
     // A demo brewery (docs/demo-design.md), and the day it's deleted (a week after it was made)
     isDemo: !!settings.is_demo, demoEnds: settings.is_demo ? addDays(settings.created_at.slice(0, 10), 7) : null,
@@ -555,6 +557,7 @@ async function loadAll() {
       name: x.name || "", layout: x.layout || "list", parts: x.parts || BoardView.DEFAULT_PARTS, sectionOrder: x.section_order || [],
       theme: x.theme || { scheme: "auto" }, showOnTap: x.show_on_tap !== false })),
     files: brewFiles.map((f) => ({ id: f.id, kind: f.kind, name: f.name, mime: f.mime, bytes: f.bytes })),
+    keyNames: Object.fromEntries(keyNames.map((k) => [k.id, k.name])),
     menu: { sizes: settings.menu_sizes || [], sections: settings.menu_sections || [], tags: settings.menu_tags || [], fields: settings.menu_fields || [] },
     sheetFields: settings.sheet_fields,
     sheetCustomFields: settings.sheet_custom_fields,
@@ -573,7 +576,7 @@ async function loadAll() {
     cellar: cellar.map((c) => ({
       id: c.id, batchId: c.batch_id, occurredOn: c.occurred_on, action: c.action,
       gravitySg: num(c.gravity_sg), ph: num(c.ph), tempC: num(c.temp_c),
-      cellarChange: c.cellar_change, notes: c.notes, edited: !!c.updated_at, recordedAt: c.recorded_at,
+      cellarChange: c.cellar_change, notes: c.notes, edited: !!c.updated_at, recordedAt: c.recorded_at, viaKey: c.via_key,
     })),
     readings: readings.map((r) => ({
       id: r.id, batchId: r.batch_id, turn: r.turn, fieldKey: r.field_key, value: num(r.value),
@@ -582,21 +585,21 @@ async function loadAll() {
     movements: movements.map((m) => ({
       id: m.id, batchId: m.batch_id, occurredOn: m.occurred_on, kind: m.kind, fromTankId: m.from_tank_id,
       toTankId: m.to_tank_id, volumeBbl: num(m.volume_bbl), notes: m.notes, recordedAt: m.recorded_at,
-      sourceBatchId: m.source_batch_id,
+      sourceBatchId: m.source_batch_id, viaKey: m.via_key,
     })),
     rawItems: rawItems.map((i) => ({ id: i.id, name: i.name, kind: i.kind, unit: i.unit, packName: i.pack_name,
       packSize: num(i.pack_size), reorderLevel: num(i.reorder_level), active: i.active, leadDays: i.lead_days })),
     rawReceipts: rawReceipts.map((r) => ({ id: r.id, itemId: r.item_id, receivedOn: r.received_on, lot: r.lot, amount: num(r.amount),
-      supplier: r.supplier, cost: num(r.cost), notes: r.notes, recordedAt: r.recorded_at })),
+      supplier: r.supplier, cost: num(r.cost), notes: r.notes, recordedAt: r.recorded_at, viaKey: r.via_key })),
     rawAdjustments: rawAdjustments.map((a) => ({ id: a.id, itemId: a.item_id, lot: a.lot, adjustedOn: a.adjusted_on, change: num(a.change),
-      reason: a.reason, recordedAt: a.recorded_at })),
+      reason: a.reason, recordedAt: a.recorded_at, viaKey: a.via_key })),
     pars: pars.map((p) => ({ id: p.id, placeId: p.place_id, beerId: p.beer_id, parBbl: num(p.par_bbl), parCases: num(p.par_cases) })),
     places: places.map((p) => ({ id: p.id, locationId: p.location_id, name: p.name, kind: p.kind, active: p.active,
       sortMode: p.sort_mode, beerOrder: p.beer_order || [] })),
     alertRules: alertRules.map((r) => ({ kind: r.kind, enabled: r.enabled, params: r.params || {}, recipients: r.recipients || [] })),
     alerts: alerts.map(mapAlert),
     planItems: planItems.map((i) => ({ id: i.id, kind: i.kind, title: i.title, plannedOn: i.planned_on, someday: i.someday,
-      tankId: i.tank_id, beerId: i.beer_id, batchId: i.batch_id, notes: i.notes, doneAt: i.done_at, assignedTo: i.assigned_to })),
+      tankId: i.tank_id, beerId: i.beer_id, batchId: i.batch_id, notes: i.notes, doneAt: i.done_at, assignedTo: i.assigned_to, viaKey: i.via_key })),
     schedules: Object.fromEntries(schedules.map((s) => [s.beer_id, s.steps || []])),
     shifts: Object.fromEntries(shifts.map((s) => [s.batch_id, s.days])), // days a batch's schedule was pushed back
     rawOrders: rawOrders.map((o) => ({ id: o.id, itemId: o.item_id, amount: num(o.amount), expectedOn: o.expected_on, supplier: o.supplier, notes: o.notes })),
@@ -619,6 +622,7 @@ async function loadAll() {
       id: m.id, groupId: m.group_id, occurredOn: m.occurred_on, kind: m.kind, removalKind: m.removal_kind, beerId: m.beer_id,
       batchId: m.batch_id, packageTypeId: m.package_type_id, count: num(m.count), fromPlaceId: m.from_place_id,
       toPlaceId: m.to_place_id, sourceMovementId: m.source_movement_id, account: m.account, notes: m.notes, recordedAt: m.recorded_at,
+      viaKey: m.via_key,
     })),
     packageTypes: packageTypes.map((t) => ({
       id: t.id, name: t.name, volumeBbl: num(t.volume_bbl), kind: t.kind, catalogKey: t.catalog_key, active: t.active,
@@ -629,7 +633,7 @@ async function loadAll() {
     additions: additions.map((a) => ({
       id: a.id, batchId: a.batch_id, addedOn: a.added_on, kind: a.kind, name: a.name,
       amount: num(a.amount), unit: a.unit, timing: a.timing, lot: a.lot, notes: a.notes, recordedAt: a.recorded_at,
-      brewDay: a.brew_day, turn: a.turn,
+      brewDay: a.brew_day, turn: a.turn, viaKey: a.via_key,
     })),
     permissions,
     invites: invites.map((i) => ({ id: i.id, email: i.email, role: i.role, emailedAt: i.emailed_at, createdAt: i.created_at, code: i.code })),
@@ -650,6 +654,12 @@ async function loadAll() {
 }
 
 // A number from the database (which sends some numbers as text), or null
+// "via My AI assistant": a record an API key wrote (docs/api-writes-design.md)
+function viaTag(record) {
+  if (!record?.viaKey) return "";
+  return ` <span class="tag via-key" title="Written through an API key">via ${esc(data.keyNames?.[record.viaKey] || "an API key")}</span>`;
+}
+
 function num(v) {
   return v === null || v === undefined ? null : Number(v);
 }
@@ -4843,7 +4853,7 @@ function renderRecent() {
       removed: `${REMOVAL_KINDS[m.removalKind] || "Removed"} from ${placeName(m.fromPlaceId)}`, returned: `Returned to ${placeName(m.toPlaceId)}`,
       counted: `Count found more in ${placeName(m.toPlaceId)}` }[m.kind];
     const why = [m.notes && m.notes !== "count" ? m.notes : "", m.account].filter(Boolean).join(" · ");
-    return `<li class="item"><span class="when">${formatDate(m.occurredOn)}</span> · ${esc(verb)}: ${what}${why ? ` <span class="muted">(${esc(why)})</span>` : ""}</li>`;
+    return `<li class="item"><span class="when">${formatDate(m.occurredOn)}</span> · ${esc(verb)}: ${what}${why ? ` <span class="muted">(${esc(why)})</span>` : ""}${viaTag(m)}</li>`;
   }).join("") || `<li class="item muted">Nothing yet. Packaging, counts, moves, and removals show here.</li>`;
 }
 // "12 × ½ bbl keg Lager, 3 × ⅙ bbl keg Lager"
@@ -5644,11 +5654,18 @@ lineForm.addEventListener("submit", async (e) => {
 // permissions. It's shown once; only a scrambled copy is kept. Admins see (and can revoke) every
 // key in the brewery.
 let apiKeys = [];
+let keyActivity = [];
 async function loadApiKeys() {
   try {
     apiKeys = await must(db.from("api_keys").select("id, user_id, name, prefix, permissions, created_at, last_used_at, revoked_at")
       .eq("brewery_id", brewery.id).order("created_at", { ascending: false }));
   } catch { apiKeys = []; }
+  renderApiKeys(); // (the keys first; what they did lately follows)
+  // What keys wrote lately (everyone in the brewery can see this)
+  try {
+    keyActivity = await must(db.from("api_actions").select("id, key_id, status, method, path, summary, created_at")
+      .eq("brewery_id", brewery.id).order("created_at", { ascending: false }).limit(50));
+  } catch { keyActivity = []; }
   renderApiKeys();
 }
 // The permission boxes are drawn once, when the page opens (redrawing them would undo someone's ticks)
@@ -5666,6 +5683,10 @@ function renderApiKeys() {
         ${k.permissions.length} ${k.permissions.length === 1 ? "permission" : "permissions"}</div></div>
       ${k.revoked_at ? "" : `<button type="button" class="btn small" data-revoke-key="${k.id}">Revoke</button>`}</li>`).join("")
     || `<li class="item muted">No keys yet. A key lets an outside tool or AI assistant work here as you.</li>`;
+  const at = (t) => new Date(t).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  document.getElementById("key-activity").innerHTML = keyActivity.map((a) => `
+    <li class="item"><span class="when">${esc(at(a.created_at))}</span> · <strong>${esc(data.keyNames?.[a.key_id] || "A key")}</strong>: ${esc(a.summary || `${a.method} ${a.path}`)}</li>`).join("")
+    || `<li class="item muted">Nothing yet. Every change a key makes is listed here, and marked "via" its key where it shows.</li>`;
 }
 document.getElementById("key-form").addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -6564,7 +6585,7 @@ function renderBatchView() {
   document.getElementById("bv-cellar").innerHTML = entries.map((c) => `
     <li class="item"><button class="entry ${canLog ? "" : "static"}" data-cellar="${c.id}">
       <span class="when">${formatDate(c.occurredOn)}${c.action ? " · " + esc(c.action) : ""}</span>
-      ${c.edited ? `<span class="tag">edited</span>` : ""}
+      ${c.edited ? `<span class="tag">edited</span>` : ""}${viaTag(c)}
       <div class="readings">${esc(readingsText(c.gravitySg, c.ph, c.tempC))}</div>
       ${c.cellarChange ? `<div>${esc(c.cellarChange)}</div>` : ""}
       ${c.notes ? `<div class="muted">${esc(c.notes)}</div>` : ""}
@@ -6575,7 +6596,7 @@ function renderBatchView() {
     .sort((x, y) => y.addedOn.localeCompare(x.addedOn) || (y.recordedAt || "").localeCompare(x.recordedAt || ""));
   document.getElementById("bv-additions").innerHTML = adds.map((a) => `
     <li class="item"><button class="entry ${canLog ? "" : "static"}" data-addition="${a.id}">
-      <span class="when">${formatDate(a.addedOn)} · ${esc(a.name)}</span>${a.brewDay ? ` <span class="tag">brew day${a.turn && b.turns > 1 ? `, turn ${a.turn}` : ""}</span>` : ""}
+      <span class="when">${formatDate(a.addedOn)} · ${esc(a.name)}</span>${a.brewDay ? ` <span class="tag">brew day${a.turn && b.turns > 1 ? `, turn ${a.turn}` : ""}</span>` : ""}${viaTag(a)}
       <div class="readings">${[a.amount != null ? `${a.amount} ${a.unit}` : "", a.timing, a.lot ? "lot " + a.lot : ""].filter(Boolean).map(esc).join(" · ")}</div>
       ${a.notes ? `<div class="muted">${esc(a.notes)}</div>` : ""}
     </button></li>`).join("") || `<li class="item muted">Nothing added yet.${canLog ? " Dry hops, fruit, and the like go in with “+ Addition”, with lot numbers." : ""}</li>`;
@@ -6585,8 +6606,8 @@ function renderBatchView() {
   // History: stage changes and transfers, and the volumes that moved, oldest first
   const history = [
     ...data.events.filter((e) => e.batchId === b.id)
-      .map((e) => ({ date: e.effectiveDate, at: e.recordedAt || "", text: `${stageLabel(e.stage)}${e.tankId ? " in " + esc(tankName(e.tankId)) : ""}` })),
-    ...data.movements.filter((m) => m.batchId === b.id).map((m) => ({ date: m.occurredOn, at: m.recordedAt || "~", text: movementText(m), volume: true })),
+      .map((e) => ({ date: e.effectiveDate, at: e.recordedAt || "", text: `${stageLabel(e.stage)}${e.tankId ? " in " + esc(tankName(e.tankId)) : ""}${viaTag(e)}` })),
+    ...data.movements.filter((m) => m.batchId === b.id).map((m) => ({ date: m.occurredOn, at: m.recordedAt || "~", text: movementText(m) + viaTag(m), volume: true })),
   ].sort((x, y) => x.date.localeCompare(y.date) || x.at.localeCompare(y.at)); // same day: in the order recorded
   document.getElementById("bv-history").innerHTML = history.map((h) => `
     <li class="item${h.volume ? " volume" : ""}"><span class="when">${formatDate(h.date)}</span> · ${h.text}</li>`).join("");

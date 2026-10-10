@@ -15,6 +15,21 @@
 //   POST  /batches/{id or number}/log   a cellar log entry (gravity, pH, temperature, notes...)
 //   GET   /beers                   beers with targets, menu details, their recipes, and the latest batch's ingredients
 //   GET   /inventory               finished goods on hand, by beer, place, and package
+//
+// Writes (docs/api-writes-design.md): each one is the app's own action, run as the key's owner, and
+// is stamped with the key (via_key) and listed in the key's activity (api_actions).
+//   POST  /batches                     start a batch in a tank
+//   POST  /batches/{n}/stage           change its stage, or transfer it to another tank
+//   POST  /batches/{n}/package         a packaging run
+//   POST  /batches/{n}/level           a level check
+//   POST  /batches/{n}/additions       an ingredient or addition
+//   POST  /tanks/{name}/acid           an acid cycle
+//   POST  /stock/moves                 move or remove finished goods
+//   POST  /stock/counts                a count of a place
+//   POST  /raw/receipts                a delivery of a raw material
+//   POST  /plan                        a calendar item
+//   PATCH /beers/{name}                a beer's targets and menu details
+//   PUT   /lines/{taproom}/{line}      what a draft line pours
 import { Pool } from "jsr:@db/postgres@0.19.5";
 
 const pool = new Pool(Deno.env.get("SUPABASE_DB_URL")!, 3, true);
@@ -40,7 +55,7 @@ async function inTransaction<T>(work: (tx: (s: TemplateStringsArray, ...v: unkno
 const CORS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-api-key, content-type",
-  "Access-Control-Allow-Methods": "GET, POST, PATCH, OPTIONS",
+  "Access-Control-Allow-Methods": "GET, POST, PATCH, PUT, OPTIONS",
 };
 class Problem extends Error {
   constructor(public status: number, message: string) { super(message); }
@@ -69,7 +84,7 @@ Deno.serve(async (req) => {
   const path = new URL(req.url).pathname.split("/").filter(Boolean);
   const at = path.indexOf("api");
   const [resource, ref, sub] = path.slice(at + 1).map(decodeURIComponent);
-  const body = ["POST", "PATCH"].includes(req.method) ? await req.json().catch(() => null) : null;
+  const body = ["POST", "PATCH", "PUT"].includes(req.method) ? await req.json().catch(() => null) : null;
 
   try {
     const result = await inTransaction(async (tx) => {
@@ -81,6 +96,8 @@ Deno.serve(async (req) => {
         await tx`update public.api_keys set last_used_at = now() where id = ${k.id}`;
       }
       const [owner] = await tx`select email from auth.users where id = ${k.user_id}`; // (before switching: people can't read the user list)
+      // Everything this request writes is stamped with the key (via_key), by the database
+      await tx`select set_config('brewery_os.api_key', ${k.id}, true)`;
       // From here on, everything runs as the key's owner, limited by the key
       await tx`select set_config('request.jwt.claims', ${JSON.stringify({ sub: k.user_id, role: "authenticated", api_permissions: k.permissions })}, true)`;
       await tx`set local role authenticated`;
@@ -91,7 +108,8 @@ Deno.serve(async (req) => {
         console.error("API: the request wasn't limited to the key's permissions", who);
         throw new Problem(503, "The API couldn't limit this request to the key's permissions, so it did nothing. Try again.");
       }
-      return await route(tx, k.brewery_id, owner?.email, req.method, resource, ref, sub, body, new URL(req.url).searchParams);
+      const pathText = path.slice(at + 1).join("/");
+      return await route(tx, k.brewery_id, owner?.email, req.method, resource, ref, sub, body, new URL(req.url).searchParams, pathText);
     });
     return reply(result.status ?? 200, result.body);
   } catch (e) {
@@ -111,8 +129,12 @@ Deno.serve(async (req) => {
 // deno-lint-ignore no-explicit-any
 type Tx = any;
 async function route(tx: Tx, b: string, email: string, method: string, resource?: string, ref?: string, sub?: string,
-                     body?: Record<string, unknown> | null, query?: URLSearchParams): Promise<{ status?: number; body: unknown }> {
+                     body?: Record<string, unknown> | null, query?: URLSearchParams, pathText = ""): Promise<{ status?: number; body: unknown }> {
   const is = (m: string, r: string, hasRef: boolean, s?: string) => method === m && resource === r && !!ref === hasRef && sub === s;
+  if (method !== "GET") {
+    const done = await write(tx, b, method, resource, ref, sub, body ?? {}, pathText);
+    if (done) return done;
+  }
 
   if (is("GET", "me", false)) {
     const [me] = await tx`select br.name as brewery, br.temperature_unit, br.gravity_unit, br.volume_unit, br.time_zone,
@@ -147,6 +169,7 @@ async function route(tx: Tx, b: string, email: string, method: string, resource?
     const updated = await tx`update public.tanks set status = ${String(status)}
                               where brewery_id = ${b} and (id::text = ${ref} or lower(name) = lower(${ref})) returning id, name, status`;
     if (!updated.length) throw new Problem(404, `No tank "${ref}" (or it can't be changed with this key).`);
+    await tx`select public.log_api_action(${method}, ${pathText}, ${`${updated[0].name}: ${updated[0].status}`}, ${JSON.stringify(body)}::jsonb, ${JSON.stringify({ id: updated[0].id })}::jsonb)`;
     return { body: updated[0] };
   }
 
@@ -177,6 +200,8 @@ async function route(tx: Tx, b: string, email: string, method: string, resource?
                  coalesce(${(body?.occurred_on as string) ?? null}::date, current_date), ${String(body?.action ?? "")},
                  ${g}::numeric, ${body?.ph != null ? Number(body.ph) : null}::numeric, ${t}::numeric,
                  ${String(body?.cellar_change ?? "")}, ${String(body?.notes ?? "")}, ${(body?.new_stage as string) ?? null})`;
+      await tx`select public.log_api_action(${method}, ${pathText}, ${`Logged ${String(body?.action || "an entry")} on #${batch.batch_number} (${batch.beer})`},
+                 ${JSON.stringify(body)}::jsonb, ${JSON.stringify({ id, batch: batch.batch_number })}::jsonb)`;
       return { status: 201, body: { id, batch: batch.batch_number, saved: true } };
     }
     if (method === "GET" && (!sub || sub === "log")) {
@@ -243,4 +268,246 @@ async function route(tx: Tx, b: string, email: string, method: string, resource?
   }
 
   throw new Problem(404, "Not an API address. See docs/api.md for what's available.");
+}
+
+// ---------- Writes ----------
+// Each finds what it's about by id or by name, runs the app's own action for it, and lists itself
+// in the key's activity. Anything the key's owner (or the key) may not do is refused by the
+// database, as in the app. Dates are "YYYY-MM-DD" (today, in the brewery's time zone, if left out).
+type Body = Record<string, unknown>;
+const text = (v: unknown) => (v == null ? "" : String(v).trim());
+const numberOr = (v: unknown, name: string) => {
+  if (v == null || v === "") return null;
+  const n = Number(v);
+  if (!Number.isFinite(n)) throw new Problem(400, `${name} should be a number.`);
+  return n;
+};
+const dateOr = (v: unknown) => {
+  if (v == null || v === "") return null;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(v))) throw new Problem(400, `Dates are written like 2026-10-07 (not "${v}").`);
+  return String(v);
+};
+const idOr = (v: unknown) => (typeof v === "string" && /^[0-9a-f-]{36}$/i.test(v) ? v : crypto.randomUUID());
+const STAGES = ["fermenting", "dry-hopping", "conditioning", "carbonating", "ready", "packaged"];
+
+async function write(tx: Tx, b: string, method: string, resource?: string, ref?: string, sub?: string, body: Body = {}, pathText = "") {
+  const [{ today }] = await tx`select (now() at time zone time_zone)::date::text as today from public.breweries where id = ${b}`;
+  const day = (v: unknown) => dateOr(v) ?? today;
+  // Find one thing by its id or name; a name that matches none (or several) is a clear 400
+  async function one(kind: string, rows: Record<string, unknown>[], what: unknown) {
+    if (!rows.length) throw new Problem(404, `No ${kind} "${what}".`);
+    if (rows.length > 1) throw new Problem(400, `More than one ${kind} is called "${what}": use its id.`);
+    return rows[0];
+  }
+  const tank = async (r: unknown) => one("tank", await tx`select id, name, type, location_id from public.tanks
+    where brewery_id = ${b} and (id::text = ${text(r)} or lower(name) = lower(${text(r)}))`, r);
+  const beer = async (r: unknown) => one("beer", await tx`select id, name from public.beers
+    where brewery_id = ${b} and (id::text = ${text(r)} or lower(name) = lower(${text(r)}))`, r);
+  // A place: its id, its name if only one place has it, or "Location Name" ("Riverside Taproom")
+  const place = async (r: unknown) => one("place", await tx`select p.id, p.name, l.name as location from public.stock_places p
+    left join public.locations l on l.id = p.location_id
+    where p.brewery_id = ${b} and p.active and (p.id::text = ${text(r)} or lower(p.name) = lower(${text(r)})
+      or lower(coalesce(l.name, '') || ' ' || p.name) = lower(${text(r)}) or lower(coalesce(l.name, '') || ' / ' || p.name) = lower(${text(r)}))`, r);
+  const packageType = async (r: unknown) => one("package type", await tx`select id, name from public.package_types
+    where brewery_id = ${b} and (id::text = ${text(r)} or lower(name) = lower(${text(r)}))`, r);
+  const batchRow = async (r: string) => one("batch", await tx`select s.id, s.batch_number, s.beer_id, s.brew_date::text as brew_date, s.size_bbl,
+      s.stage, s.stage_started_on::text as stage_started_on, s.tank_id, be.name as beer
+    from public.batch_status s join public.beers be on be.id = s.beer_id
+    where s.brewery_id = ${b} and (s.id::text = ${r} or lower(s.batch_number) = lower(${r.replace(/^#/, "")}))`, r);
+  // List the write in the key's activity, and answer
+  const done = async (summary: string, result: Body, status = 201) => {
+    await tx`select public.log_api_action(${method}, ${pathText}, ${summary}, ${JSON.stringify(body)}::jsonb, ${JSON.stringify(result)}::jsonb)`;
+    return { status, body: { ...result, saved: true } };
+  };
+
+  // POST /batches: start a batch in a tank
+  if (method === "POST" && resource === "batches" && !ref) {
+    const number = text(body.number);
+    if (!number) throw new Problem(400, 'Send the batch number: { "number": "142", "beer": "House Hazy", "tank": "FV3" }.');
+    const t = await tank(body.tank), be = await beer(body.beer);
+    const stage = text(body.stage) || "fermenting";
+    if (!STAGES.includes(stage) || stage === "packaged") throw new Problem(400, `A new batch's stage is one of: ${STAGES.slice(0, 5).join(", ")}.`);
+    const id = idOr(body.id), brewed = day(body.brew_date);
+    await tx`select public.save_batch(${id}::uuid, ${b}::uuid, ${number}, ${be.id}::uuid, ${brewed}::date, ${numberOr(body.size_bbl, "size_bbl")}::numeric,
+               ${stage}, ${brewed}::date, ${t.id}::uuid, ${today}::date, ${numberOr(body.volume_bbl, "volume_bbl")}::numeric)`;
+    return done(`Started #${number} (${be.name}) in ${t.name}`, { id, batch: number, beer: be.name, tank: t.name, stage });
+  }
+
+  if (resource === "batches" && ref && method === "POST" && ["stage", "package", "level", "additions"].includes(String(sub))) {
+    const x = await batchRow(ref);
+    // POST /batches/{n}/stage: a new stage, and/or a transfer to another tank (with the volume moved)
+    if (sub === "stage") {
+      const stage = text(body.stage) || x.stage;
+      if (!STAGES.includes(String(stage))) throw new Problem(400, `The stage is one of: ${STAGES.join(", ")}.`);
+      if (stage === "packaged") throw new Problem(400, "To package a batch, use POST /batches/{n}/package (it counts the kegs and cases).");
+      const to = body.tank ? await tank(body.tank) : null;
+      const tankId = to?.id ?? x.tank_id;
+      if (!tankId) throw new Problem(400, "This batch isn't in a tank.");
+      const on = day(body.date);
+      await tx`select public.save_batch(${x.id}::uuid, ${b}::uuid, ${x.batch_number}, ${x.beer_id}::uuid, ${x.brew_date}::date, ${x.size_bbl}::numeric,
+                 ${stage}, ${stage !== x.stage ? on : x.stage_started_on}::date, ${tankId}::uuid, ${on}::date, ${numberOr(body.volume_bbl, "volume_bbl")}::numeric)`;
+      const [now] = await tx`select s.stage, t.name as tank from public.batch_status s left join public.tanks t on t.id = s.tank_id where s.id = ${x.id}`;
+      return done(`#${x.batch_number} (${x.beer}): ${now.stage}${to ? `, moved to ${now.tank}` : ""}`, { id: x.id, batch: x.batch_number, stage: now.stage, tank: now.tank });
+    }
+    if (!x.tank_id || ["packaged", "used"].includes(String(x.stage))) throw new Problem(400, `#${x.batch_number} isn't in a tank.`);
+    // POST /batches/{n}/package: { "counts": [{ "package": "½ bbl keg", "count": 20 }], "spent": true, "place": "Riverside Storage" }
+    if (sub === "package") {
+      if (!Array.isArray(body.counts)) throw new Problem(400, 'Send { "counts": [{ "package": "½ bbl keg", "count": 20 }], "spent": true }.');
+      const counts = [];
+      for (const c of body.counts as Body[]) counts.push({ type: (await packageType(c.package)).id, count: numberOr(c.count, "count") });
+      const where = body.place ? await place(body.place) : null;
+      const id = idOr(body.id);
+      await tx`select public.record_packaging(${id}::uuid, ${b}::uuid, ${x.id}::uuid, ${x.tank_id}::uuid, ${day(body.date)}::date,
+                 ${JSON.stringify(counts)}::jsonb, ${body.spent === true}, ${text(body.notes)}, ${where?.id ?? null}::uuid)`;
+      const total = (body.counts as Body[]).map((c) => `${c.count} × ${c.package}`).join(", ");
+      return done(`Packaged #${x.batch_number} (${x.beer}): ${total}${body.spent === true ? ", tank spent" : ""}`, { id, batch: x.batch_number });
+    }
+    // POST /batches/{n}/level: { "volume_bbl": 12.5, "reason": "served" | "loss" | "correction" }
+    if (sub === "level") {
+      const reading = numberOr(body.volume_bbl, "volume_bbl");
+      if (reading == null) throw new Problem(400, 'Send what the sight glass shows: { "volume_bbl": 12.5 }.');
+      const [t] = await tx`select type from public.tanks where id = ${x.tank_id}`;
+      const reason = text(body.reason) || (t.type === "serving" ? "served" : "loss");
+      if (!["served", "loss", "correction"].includes(reason)) throw new Problem(400, 'The reason for a drop is "served", "loss", or "correction".');
+      const id = idOr(body.id);
+      await tx`select public.record_level_check(${id}::uuid, ${b}::uuid, ${x.id}::uuid, ${x.tank_id}::uuid, ${day(body.date)}::date,
+                 ${reading}::numeric, ${reason}, ${text(body.notes)})`;
+      return done(`Level check on #${x.batch_number} (${x.beer}): ${reading} bbl`, { id, batch: x.batch_number, volume_bbl: reading });
+    }
+    // POST /batches/{n}/additions: { "name": "Citra", "amount": 22, "unit": "lb", "lot": "CIT-104", "timing": "Dry hop" }
+    if (sub === "additions") {
+      const name = text(body.name);
+      if (!name) throw new Problem(400, 'Send at least the name: { "name": "Citra", "amount": 22, "unit": "lb" }.');
+      const id = idOr(body.id);
+      const [made] = await tx`insert into public.batch_additions (id, brewery_id, batch_id, added_on, kind, name, amount, unit, timing, lot, notes, brew_day, turn)
+        values (${id}::uuid, ${b}::uuid, ${x.id}::uuid, ${day(body.date)}::date, ${text(body.kind) || "other"}, ${name}, ${numberOr(body.amount, "amount")}::numeric,
+                ${text(body.unit) || "lb"}, ${text(body.timing)}, ${text(body.lot)}, ${text(body.notes)}, ${body.brew_day === true},
+                ${numberOr(body.turn, "turn")}::int)
+        on conflict (id) do nothing returning id`;
+      return done(`Added ${body.amount ?? ""} ${text(body.unit) || ""} ${name} to #${x.batch_number}`.replace(/\s+/g, " "), { id, batch: x.batch_number, saved_now: !!made });
+    }
+  }
+
+  // POST /tanks/{name}/acid: an acid cycle
+  if (method === "POST" && resource === "tanks" && ref && sub === "acid") {
+    const t = await tank(ref);
+    const id = idOr(body.id);
+    await tx`insert into public.tank_cleanings (id, brewery_id, tank_id, kind, cleaned_on, note)
+             values (${id}::uuid, ${b}::uuid, ${t.id}::uuid, 'acid', ${day(body.date)}::date, ${text(body.note)}) on conflict (id) do nothing`;
+    return done(`Acid cycle on ${t.name}`, { id, tank: t.name });
+  }
+
+  // POST /stock/moves: { "from": "Riverside Storage", "to": "Riverside Taproom", "lines": [{ "beer": "House Hazy", "package": "½ bbl keg", "count": 2 }] }
+  //   or a removal: { "from": ..., "removal": "sold", "account": "Corner Tavern", "lines": [...] }
+  if (method === "POST" && resource === "stock" && ref === "moves") {
+    if (!Array.isArray(body.lines) || !body.lines.length) throw new Problem(400, 'Send the lines: [{ "beer": "House Hazy", "package": "½ bbl keg", "count": 2 }].');
+    const from = body.from ? await place(body.from) : null, to = body.to ? await place(body.to) : null;
+    const removal = text(body.removal) || null;
+    if (removal && !["sold", "taproom", "transferred", "donated", "dumped"].includes(removal)) {
+      throw new Problem(400, 'A removal is "sold", "taproom", "transferred", "donated", or "dumped".');
+    }
+    const lines = [];
+    for (const l of body.lines as Body[]) lines.push({ beer: (await beer(l.beer)).id, type: (await packageType(l.package)).id, count: numberOr(l.count, "count") });
+    const id = idOr(body.id);
+    await tx`select public.record_stock(${id}::uuid, ${b}::uuid, ${day(body.date)}::date, ${from?.id ?? null}::uuid, ${to?.id ?? null}::uuid,
+               ${removal}, ${JSON.stringify(lines)}::jsonb, ${text(body.account)}, ${text(body.notes)})`;
+    const what = (body.lines as Body[]).map((l) => `${l.count} × ${l.package} ${l.beer}`).join(", ");
+    return done(to && from ? `Moved ${what}: ${from.name} → ${to.name}` : from ? `Removed (${removal}) ${what} from ${from.name}` : `Returned ${what} to ${to?.name}`, { id });
+  }
+
+  // POST /stock/counts: { "place": "Riverside Taproom", "counts": [{ "beer": "House Hazy", "package": "½ bbl keg", "count": 3 }], "shortfall": "taproom" }
+  if (method === "POST" && resource === "stock" && ref === "counts") {
+    if (!Array.isArray(body.counts)) throw new Problem(400, 'Send the counts: [{ "beer": "House Hazy", "package": "½ bbl keg", "count": 3 }].');
+    const where = await place(body.place);
+    const lines = [];
+    for (const l of body.counts as Body[]) lines.push({ beer: (await beer(l.beer)).id, type: (await packageType(l.package)).id, counted: numberOr(l.count, "count") });
+    const shortfall = text(body.shortfall) || null;
+    const id = idOr(body.id);
+    await tx`select public.record_count(${id}::uuid, ${b}::uuid, ${where.id}::uuid, ${day(body.date)}::date, ${JSON.stringify(lines)}::jsonb,
+               ${shortfall}, ${text(body.notes) || null})`;
+    return done(`Counted ${where.name} (${lines.length} ${lines.length === 1 ? "line" : "lines"})`, { id, place: where.name });
+  }
+
+  // POST /raw/receipts: { "item": "Citra", "lot": "CIT-210", "amount": 44, "supplier": "...", "cost": 616 }
+  if (method === "POST" && resource === "raw" && ref === "receipts") {
+    const [item] = await tx`select id, name, unit from public.raw_items where brewery_id = ${b} and (id::text = ${text(body.item)} or lower(name) = lower(${text(body.item)}))`;
+    if (!item) throw new Problem(404, `No raw material "${body.item}" (add it in Inventory → Raw materials → Items first).`);
+    const amount = numberOr(body.amount, "amount");
+    if (!amount || amount <= 0) throw new Problem(400, `Send the amount received, in the item's unit (${item.unit}).`);
+    const id = idOr(body.id);
+    await tx`insert into public.raw_receipts (id, brewery_id, item_id, received_on, lot, amount, supplier, cost, notes)
+             values (${id}::uuid, ${b}::uuid, ${item.id}::uuid, ${day(body.date)}::date, ${text(body.lot)}, ${amount}::numeric, ${text(body.supplier)},
+                     ${numberOr(body.cost, "cost")}::numeric, ${text(body.notes)}) on conflict (id) do nothing`;
+    return done(`Received ${amount} ${item.unit} ${item.name}${body.lot ? ` (lot ${body.lot})` : ""}`, { id, item: item.name });
+  }
+
+  // POST /plan: { "kind": "brew", "date": "2026-10-14", "tank": "FV3", "beer": "House Hazy", "notes": "..." }
+  if (method === "POST" && resource === "plan" && !ref) {
+    const kind = text(body.kind) || "other";
+    const t = body.tank ? await tank(body.tank) : null, be = body.beer ? await beer(body.beer) : null;
+    const id = idOr(body.id);
+    await tx`insert into public.plan_items (id, brewery_id, kind, title, planned_on, someday, tank_id, beer_id, notes)
+             values (${id}::uuid, ${b}::uuid, ${kind}, ${text(body.title)}, ${dateOr(body.date)}::date, ${text(body.someday)}, ${t?.id ?? null}::uuid,
+                     ${be?.id ?? null}::uuid, ${text(body.notes)}) on conflict (id) do nothing`;
+    return done(`Planned ${kind.replace("_", " ")}${be ? ` of ${be.name}` : ""}${t ? ` in ${t.name}` : ""} ${body.date ?? body.someday ?? ""}`.trim(), { id });
+  }
+
+  // PATCH /beers/{name}: targets and menu details (sizes, sections, and tags by name)
+  if (method === "PATCH" && resource === "beers" && ref) {
+    const be = await beer(ref);
+    const [setup] = await tx`select menu_sizes, menu_sections, menu_tags from public.breweries where id = ${b}`;
+    type Item = { id: string; name: string };
+    const byName = (list: Item[], name: unknown, what: string) => {
+      const found = list.find((i) => i.name.toLowerCase() === text(name).toLowerCase());
+      if (!found) throw new Problem(400, `No ${what} called "${name}" (Settings → Menu).`);
+      return found.id;
+    };
+    const m = (body.menu ?? {}) as Body;
+    const set: Record<string, unknown> = {};
+    if ("style" in body) set.style = text(body.style);
+    if ("target_og" in body) set.target_og = numberOr(body.target_og, "target_og");
+    if ("target_fg" in body) set.target_fg = numberOr(body.target_fg, "target_fg");
+    if ("short" in m) set.menu_short = text(m.short);
+    if ("description" in m) set.menu_description = text(m.description);
+    if ("abv" in m) set.menu_abv = numberOr(m.abv, "abv");
+    if ("ibu" in m) set.menu_ibu = numberOr(m.ibu, "ibu");
+    if ("color_srm" in m) set.menu_srm = numberOr(m.color_srm, "color_srm");
+    if ("on_public_menu" in m) set.menu_public = m.on_public_menu !== false;
+    if ("section" in m) set.menu_section = m.section ? byName(setup.menu_sections, m.section, "section") : null;
+    if ("tags" in m) set.menu_tags = ((m.tags ?? []) as unknown[]).map((t) => byName(setup.menu_tags, t, "tag"));
+    if ("prices" in m) set.menu_prices = ((m.prices ?? []) as Body[]).map((p) => ({ size: byName(setup.menu_sizes, p.size, "pour size"), price: numberOr(p.price, "price") }));
+    if (!Object.keys(set).length) throw new Problem(400, 'Send what to change: { "style": ..., "menu": { "short": ..., "abv": ..., "prices": [{ "size": "16 oz", "price": 7 }] } }.');
+    // (only what was sent changes; the database's rules check it, as for the app's form. Prices replace the beer's price list.)
+    const [updated] = await tx`update public.beers set
+        style = case when ${"style" in set} then ${set.style ?? null}::text else style end,
+        target_og = case when ${"target_og" in set} then ${set.target_og ?? null}::numeric else target_og end,
+        target_fg = case when ${"target_fg" in set} then ${set.target_fg ?? null}::numeric else target_fg end,
+        menu_short = case when ${"menu_short" in set} then ${set.menu_short ?? null}::text else menu_short end,
+        menu_description = case when ${"menu_description" in set} then ${set.menu_description ?? null}::text else menu_description end,
+        menu_abv = case when ${"menu_abv" in set} then ${set.menu_abv ?? null}::numeric else menu_abv end,
+        menu_ibu = case when ${"menu_ibu" in set} then ${set.menu_ibu ?? null}::numeric else menu_ibu end,
+        menu_srm = case when ${"menu_srm" in set} then ${set.menu_srm ?? null}::numeric else menu_srm end,
+        menu_public = case when ${"menu_public" in set} then ${set.menu_public ?? true}::boolean else menu_public end,
+        menu_section = case when ${"menu_section" in set} then ${set.menu_section ?? null}::text else menu_section end,
+        menu_tags = case when ${"menu_tags" in set} then array(select jsonb_array_elements_text(${JSON.stringify(set.menu_tags ?? [])}::jsonb)) else menu_tags end,
+        menu_prices = case when ${"menu_prices" in set} then ${JSON.stringify(set.menu_prices ?? [])}::jsonb else menu_prices end
+      where id = ${be.id} returning id`;
+    if (!updated) throw new Problem(403, "This key can't change that beer.");
+    return done(`Changed ${be.name}: ${Object.keys(set).map((k) => k.replace("menu_", "menu ")).join(", ")}`, { id: be.id, beer: be.name }, 200);
+  }
+
+  // PUT /lines/{taproom}/{line}: { "beer": "House Hazy" } | { "label": "Guest cider" } | { "status": "empty" | "out" }
+  if (method === "PUT" && resource === "lines" && ref && sub) {
+    const where = await place(ref);
+    const lineNo = Number(sub);
+    if (!Number.isInteger(lineNo) || lineNo < 1 || lineNo > 200) throw new Problem(400, "Lines are numbered 1 to 200.");
+    const be = body.beer ? await beer(body.beer) : null;
+    const status = be ? "beer" : body.label ? "other" : text(body.status) || "empty";
+    if (!["beer", "other", "empty", "out"].includes(status)) throw new Problem(400, 'Send { "beer": ... }, { "label": ... }, or { "status": "empty" | "out" }.');
+    await tx`insert into public.draft_lines (brewery_id, place_id, line_no, status, beer_id, label)
+             values (${b}::uuid, ${where.id}::uuid, ${lineNo}, ${status}, ${be?.id ?? null}::uuid, ${status === "other" ? text(body.label) : ""})
+             on conflict (place_id, line_no) do update set status = excluded.status, beer_id = excluded.beer_id, label = excluded.label`;
+    return done(`${where.name} line ${lineNo}: ${be ? be.name : status === "other" ? text(body.label) : status}`, { place: where.name, line: lineNo, pours: be?.name ?? (text(body.label) || status) }, 200);
+  }
+  return null;
 }
