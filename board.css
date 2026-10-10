@@ -89,3 +89,8 @@
 
 /* A board that's only "Coming soon" / "To go": those are the board */
 .mb-extras-only { border-top: 0; flex-direction: column; font-size: 1.3em; }
+
+/* The board's logo, beside its title */
+.mb-title { display: flex; align-items: center; gap: 0.5em; min-width: 0; }
+.mb-logo { height: 2.4em; width: auto; max-width: 12em; object-fit: contain; flex: none; }
+.mb-print .mb-logo { height: 1.8em; }

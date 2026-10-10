@@ -812,3 +812,9 @@ button.cal-cell { cursor: pointer; }
   #print-sheet.print-menu .mb { background: #fff; }
 }
 a.btn { text-decoration: none; display: inline-block; }
+
+/* Settings → Menu → Fonts and logos */
+.file-row { display: flex; align-items: center; gap: 10px; }
+.file-row > div { flex: 1; min-width: 0; }
+.file-thumb { height: 40px; width: 64px; object-fit: contain; background: repeating-conic-gradient(#ddd 0 25%, #fff 0 50%) 0 0 / 12px 12px; border-radius: 4px; }
+.font-sample { font-size: 1.15rem; }

@@ -52,9 +52,22 @@
         document.body.style.background = drawn && drawn.classList.contains("mb-themed") ? getComputedStyle(drawn).backgroundColor : "";
       }
       if (!board.public) BoardView.fit(box);
-      // Fonts from Google arrive a moment later: size the text again once they're in
-      BoardView.loadFonts(board).then(() => { if (!board.public && shown === html) BoardView.fit(box); });
+      // Fonts and the logo arrive a moment later: size the text again once they're in
+      BoardView.loadExtras(board, box).then(() => { if (!board.public && shown === html) BoardView.fit(box); });
     }
+    // The brewery's own files this board uses (its fonts, its logo), through the board's link. A file
+    // never changes, so each is kept on this device for the next time (and for no signal).
+    BoardView.setFileSource(async (id) => {
+      const key = `brewery-os.board-file.${id}`;
+      try { const kept = JSON.parse(localStorage.getItem(key) || "null"); if (kept) return kept; } catch {}
+      const response = await fetch(`${SUPABASE_URL}/rest/v1/rpc/menu_board_file`, {
+        method: "POST", headers: { apikey: SUPABASE_KEY, "Content-Type": "application/json" },
+        body: JSON.stringify({ p_token: token, p_file_id: id }),
+      });
+      const file = response.ok ? await response.json() : null;
+      if (file) try { localStorage.setItem(key, JSON.stringify(file)); } catch {} // (a full device just fetches it again)
+      return file;
+    });
     function note(text) {
       shown = "";
       box.className = "";

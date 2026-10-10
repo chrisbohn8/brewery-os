@@ -42,7 +42,8 @@ revoke execute on function public.gravity_due(uuid) from anon;
 revoke execute on function public.create_calendar_feed(uuid, boolean) from anon;
 revoke execute on function public.revoke_calendar_feed(uuid) from anon;
 revoke execute on function public.calendar_feed(text) from anon, authenticated;
--- Menu boards (menu_board_data stays open to signed-out visitors on purpose: TVs and the public page use it)
+-- Menu boards (menu_board_data and menu_board_file stay open to signed-out visitors on purpose: TVs and
+-- the public page use them)
 revoke execute on function public.set_menu_board_link(uuid, text, boolean) from anon;
 revoke execute on function public.set_menu_board_link_for(uuid, text, boolean) from anon;
 revoke execute on function public.menu_board_preview(uuid, boolean) from anon;
@@ -50,6 +51,7 @@ revoke execute on function public.menu_board_preview_content(uuid, boolean) from
 revoke execute on function public.menu_board_json(uuid, boolean) from anon, authenticated;
 revoke execute on function public.menu_board_content(uuid, boolean, boolean, boolean) from anon, authenticated;
 revoke execute on function public.menu_board_settings(public.menu_boards) from anon, authenticated;
+revoke execute on function public.menu_board_files(public.menu_boards) from anon, authenticated;
 
 -- Alerts: the 15-minute check is a scheduled job in the database (not in backups' tables). In a new
 -- project, set the alerts function's ALERTS_SECRET and run supabase/schedule-alerts.sql with it.

@@ -447,7 +447,7 @@ async function loadAll() {
   // Bring the alerts up to date first, so the list below is current (a gravity just logged clears
   // its alert right away). A failed check never stops the data loading; the server checks too.
   await db.rpc("check_alerts", { p_brewery_id: b }).then(() => {}, () => {});
-  const [locations, beers, tanks, batches, events, cleanings, settings, members, invites, permissions, memberRows, levels, cellar, additions, readings, movements, packageTypes, packageCounts, places, stockMoves, pars, rawItems, rawReceipts, rawAdjustments, lines, inventoryViews, recipes, recipeIngredientRows, alertRules, alerts, planItems, schedules, shifts, rawOrders, shortfalls, needs, gravityDue, boards] = await Promise.all([
+  const [locations, beers, tanks, batches, events, cleanings, settings, members, invites, permissions, memberRows, levels, cellar, additions, readings, movements, packageTypes, packageCounts, places, stockMoves, pars, rawItems, rawReceipts, rawAdjustments, lines, inventoryViews, recipes, recipeIngredientRows, alertRules, alerts, planItems, schedules, shifts, rawOrders, shortfalls, needs, gravityDue, boards, brewFiles] = await Promise.all([
     must(db.from("locations").select("*").eq("brewery_id", b).order("created_at")),
     must(db.from("beers").select("*").eq("brewery_id", b)),
     must(db.from("tanks").select("*").eq("brewery_id", b).order("created_at")),
@@ -489,6 +489,8 @@ async function loadAll() {
     // Schedule steps a logged gravity has reached ("dry hop at 4 °P"): gravity_due in the database
     must(db.rpc("gravity_due", { p_brewery_id: b })),
     must(db.from("menu_boards").select("*").eq("brewery_id", b)),
+    // The brewery's own fonts and logos: names and sizes only (each file is fetched when it's used)
+    must(db.from("brewery_files").select("id, kind, name, mime, bytes, created_at").eq("brewery_id", b).order("created_at")),
   ]);
   // Each member: email and level (from brewery_members) plus their personal adjustments
   const adjustments = Object.fromEntries(memberRows.map((r) => [r.user_id, r]));
@@ -534,6 +536,7 @@ async function loadAll() {
       showToGo: x.show_to_go, tvToken: x.tv_token, publicToken: x.public_token,
       name: x.name || "", layout: x.layout || "list", parts: x.parts || BoardView.DEFAULT_PARTS, sectionOrder: x.section_order || [],
       theme: x.theme || { scheme: "auto" }, showOnTap: x.show_on_tap !== false })),
+    files: brewFiles.map((f) => ({ id: f.id, kind: f.kind, name: f.name, mime: f.mime, bytes: f.bytes })),
     menu: { sizes: settings.menu_sizes || [], sections: settings.menu_sections || [], tags: settings.menu_tags || [], fields: settings.menu_fields || [] },
     sheetFields: settings.sheet_fields,
     sheetCustomFields: settings.sheet_custom_fields,
@@ -1346,6 +1349,7 @@ function render() {
   renderSheetPicker();
   renderMenuSetup();
   renderBoards();
+  renderBoardFiles();
   renderPackageTypes();
   renderPlaces();
   renderReasons();
@@ -2143,11 +2147,21 @@ document.getElementById("delete-location").addEventListener("click", async () =>
 //   format 2 — made by the database version (includes the full history)
 const BACKUP_FORMAT = 2;
 
-function downloadBackup() {
+async function downloadBackup() {
+  // The brewery's own fonts and logos go in too, with their contents (the app only keeps their names)
+  let files = [];
+  if ((data.files || []).length) {
+    try {
+      files = await must(db.from("brewery_files").select("id, kind, name, mime, bytes, data").eq("brewery_id", brewery.id).order("created_at"));
+    } catch (e) {
+      if (!(await ask(`Your fonts and logos couldn't be added to the backup (${explain(e)}). Download the backup without them?`, { ok: "Download without them" }))) return;
+      files = [];
+    }
+  }
   const backup = {
     app: "brewery-os", format: BACKUP_FORMAT, exportedAt: new Date().toISOString(), brewery: brewery.name,
     // (menu boards' links aren't kept in a backup: they're made again after loading one)
-    data: { ...data, boards: (data.boards || []).map(({ tvToken, publicToken, ...board }) => board) },
+    data: { ...data, boards: (data.boards || []).map(({ tvToken, publicToken, ...board }) => board), files },
   };
   const file = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
   const link = document.createElement("a");
@@ -2432,13 +2446,16 @@ async function loadIntoBrewery(source, description) {
     });
   }
 
+  // The brewery's own fonts (Admins) and logos (board runners), before the boards that use them
+  insert("brewery_files", (d.files || []).filter((f) => f.data && (f.kind === "font" ? brewery.role === "admin" : can("inventory")))
+    .map((f) => ({ id: idFor(f.id), kind: f.kind, name: f.name, mime: f.mime, data: f.data, bytes: f.bytes })));
   // Menu boards' settings (their links are made again), once the taprooms are in
   if (can("inventory") && d.batches.length) { // (places load with the batches, above)
     insert("menu_boards", (d.boards || []).filter((x) => (d.places || []).some((p) => p.id === x.placeId)).map((x) => ({
       place_id: idFor(x.placeId), title: x.title || "", order_by: x.orderBy || "lines",
       show_coming_soon: x.showComingSoon !== false, show_to_go: !!x.showToGo,
       name: x.name || "", layout: x.layout || "list", parts: x.parts || BoardView.DEFAULT_PARTS, section_order: x.sectionOrder || [],
-      theme: x.theme || { scheme: "auto" }, show_on_tap: x.showOnTap !== false })));
+      theme: x.theme?.logo ? { ...x.theme, logo: idFor(x.theme.logo) } : x.theme || { scheme: "auto" }, show_on_tap: x.showOnTap !== false })));
   }
   // Beers' prices at one taproom, last: the taprooms are in by now (and matched to the brewery's own)
   for (const x of can("menu") ? d.beers.filter((b) => b.menuPrices.some((p) => p.at)) : []) {
@@ -3148,7 +3165,10 @@ async function boardContent(placeId, publicView) {
   return must(db.rpc("menu_board_preview_content", { p_place_id: placeId, p_public: publicView }));
 }
 // What board.js draws: the menu plus this board's settings
-const boardToDraw = (content, b) => ({ ...content, title: b.title || placeName(b.placeId), order: b.orderBy, board: boardSettings(b) });
+// The brewery's own files a board uses: its fonts (by name) and its logo
+const boardFiles = (b) => (data.files || []).filter((f) => (f.kind === "logo" ? b.theme?.logo === f.id
+  : [b.theme?.head, b.theme?.body].some((n) => n && n.toLowerCase() === f.name.toLowerCase())));
+const boardToDraw = (content, b) => ({ ...content, title: b.title || placeName(b.placeId), order: b.orderBy, board: boardSettings(b), files: boardFiles(b) });
 
 // Draw a board into a box on this page: the TV's text sized to fit (again once its fonts are in)
 function drawBoard(frame, drawn, as) {
@@ -3156,7 +3176,7 @@ function drawBoard(frame, drawn, as) {
   frame.style.fontSize = "";
   frame.innerHTML = BoardView.render(drawn, as);
   if (as === "tv") BoardView.fit(frame);
-  return BoardView.loadFonts(drawn).then(() => { if (as === "tv" && frame.isConnected) BoardView.fit(frame); });
+  return BoardView.loadExtras(drawn, frame).then(() => { if (as === "tv" && frame.isConnected) BoardView.fit(frame); });
 }
 
 const boardPreview = document.getElementById("board-preview");
@@ -3191,12 +3211,95 @@ async function printBoard(board) {
     const sheet = document.getElementById("print-sheet");
     sheet.className = "print-menu";
     sheet.innerHTML = BoardView.render(drawn, "print");
-    await BoardView.loadFonts(drawn);
+    await BoardView.loadExtras(drawn, sheet);
     window.print();
   } catch (e) {
     warn(`Couldn't print the board: ${explain(e)}`);
   }
 }
+
+// ----- Settings → Menu → Fonts and logos: the brewery's own files for its boards -----
+// Kept in the database (base64), so they're in every backup. Only an Admin uploads a font (its
+// license is the brewery's responsibility); whoever runs the boards uploads a logo. A file can't
+// be changed, only removed and uploaded again, so a copy kept on a TV is never out of date.
+const FILE_KINDS = {
+  font: { max: 512000, types: { woff2: "font/woff2", woff: "font/woff", ttf: "font/ttf", otf: "font/otf" }, list: "WOFF2, WOFF, TTF, or OTF", size: "500 KB" },
+  logo: { max: 307200, types: { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp", svg: "image/svg+xml" }, list: "PNG, JPEG, WebP, or SVG", size: "300 KB" },
+};
+const filesOf = (kind) => (data.files || []).filter((f) => f.kind === kind);
+const canUpload = (kind) => (kind === "font" ? brewery.role === "admin" : can("inventory"));
+const fileSize = (n) => `${Math.max(1, Math.round(n / 1024))} KB`;
+const boardsUsing = (f) => (data.boards || []).filter((b) => boardFiles(b).some((x) => x.id === f.id));
+// A board's own files, fetched when they're used (signed in)
+BoardView.setFileSource(async (id) => must(db.from("brewery_files").select("mime, data").eq("id", id).single()));
+
+function renderBoardFiles() {
+  const row = (f) => {
+    const used = boardsUsing(f).map(boardName);
+    return `<li class="item file-row">${f.kind === "logo" ? `<img class="file-thumb" data-thumb="${f.id}" alt="">` : ""}
+      <div><strong${f.kind === "font" ? ` class="font-sample" data-font="${esc(f.name)}"` : ""}>${esc(f.name)}</strong>
+        <div class="muted">${fileSize(f.bytes)}${used.length ? ` · on ${esc(used.join(", "))}` : ""}</div></div>
+      ${canUpload(f.kind) ? `<button type="button" class="btn small" data-remove-file="${f.id}">Remove</button>` : ""}</li>`;
+  };
+  for (const kind of ["font", "logo"]) {
+    const list = document.getElementById(`${kind}-files`);
+    list.innerHTML = filesOf(kind).map(row).join("") || `<li class="item muted">None yet.${canUpload(kind) ? "" : kind === "font" ? " An Admin can upload one." : ""}</li>`;
+    document.getElementById(`${kind}-upload-btn`).hidden = !canUpload(kind);
+  }
+  // Show each logo, and each font in itself
+  for (const img of document.querySelectorAll("#logo-files [data-thumb]")) BoardView.fileUrl(img.dataset.thumb).then((u) => { img.src = u; }).catch(() => {});
+  const fonts = filesOf("font");
+  if (fonts.length) BoardView.loadExtras({ files: fonts, board: { theme: { head: fonts[0].name } } }, null)
+    .then(() => Promise.all(fonts.slice(1).map((f) => BoardView.loadExtras({ files: [f], board: { theme: { head: f.name } } }, null))))
+    .then(() => document.querySelectorAll("#font-files [data-font]").forEach((el) => { el.style.fontFamily = `"${el.dataset.font}", inherit`; }));
+}
+
+// Upload a font or a logo: checks its type and size, asks for its name, and saves it. Resolves to its id.
+function uploadBoardFile(kind) {
+  const input = document.getElementById(`${kind}-upload`);
+  input.value = "";
+  return new Promise((resolve) => {
+    input.onchange = async () => {
+      const file = input.files[0];
+      resolve(file ? await saveBoardFile(kind, file) : null);
+    };
+    input.click();
+  });
+}
+async function saveBoardFile(kind, file) {
+  const rules = FILE_KINDS[kind];
+  const mime = rules.types[file.name.split(".").pop().toLowerCase()];
+  if (!mime) { warn(`That isn't a file a board can use. A ${kind} can be ${rules.list}.`); return null; }
+  if (file.size > rules.max) { warn(`That file is ${fileSize(file.size)}; a ${kind} can be up to ${rules.size}.`); return null; }
+  if (filesOf(kind).length >= 10) { warn(`You can keep up to 10 ${kind}s. Remove one first.`); return null; }
+  const suggested = file.name.replace(/\.[^.]+$/, "").replace(/[^A-Za-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 40);
+  let name = await ask(kind === "font"
+    ? "What's this font called? Boards use it by this name (letters, numbers, and spaces)."
+    : "A name for this logo (letters, numbers, and spaces):", { ok: "Upload", input: { value: suggested || (kind === "font" ? "My font" : "Logo") } });
+  if (name == null) return null;
+  name = String(name).trim();
+  if (!/^[A-Za-z0-9 ]{1,40}$/.test(name)) { warn("Use letters, numbers, and spaces (up to 40)."); return null; }
+  if (kind === "font" && filesOf("font").some((f) => f.name.toLowerCase() === name.toLowerCase())) { warn(`There's already a font called ${name}.`); return null; }
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  let text = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) text += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  const id = newId();
+  const ok = await save(() => must(db.from("brewery_files").insert({ id, brewery_id: brewery.id, kind, name, mime, data: btoa(text), bytes: bytes.length })));
+  if (!ok) return null;
+  notify(`${kind === "font" ? "Font" : "Logo"} uploaded: ${name}.`);
+  return id;
+}
+document.getElementById("font-upload-btn").addEventListener("click", () => uploadBoardFile("font"));
+document.getElementById("logo-upload-btn").addEventListener("click", () => uploadBoardFile("logo"));
+document.getElementById("menu-files").addEventListener("click", async (e) => {
+  const id = e.target.closest("[data-remove-file]")?.dataset.removeFile;
+  const f = id && (data.files || []).find((x) => x.id === id);
+  if (!f) return;
+  const used = boardsUsing(f).map(boardName);
+  if (!(await ask(`Remove the ${f.kind} "${f.name}"?${used.length ? ` It's on ${used.join(", ")}, which will show ${f.kind === "font" ? "the usual font" : "no logo"} instead.` : ""}`,
+    { ok: "Remove", danger: true }))) return;
+  await save(() => must(db.from("brewery_files").delete().eq("id", id)));
+});
 
 // ----- Menu boards: the builder -----
 // One board's settings beside a live preview. Every choice comes from a fixed list (layouts, parts,
@@ -3319,7 +3422,9 @@ function fillBuilderForm() {
   f.head.value = draft.theme.head || "";
   f.body.value = draft.theme.body || "";
   const names = [...new Set(BoardView.FONT_PAIRS.flatMap((p) => [p.head, p.body]).filter(Boolean))].sort();
-  document.getElementById("builder-font-names").innerHTML = names.map((n) => `<option value="${esc(n)}">`).join("");
+  document.getElementById("builder-font-names").innerHTML = [...filesOf("font").map((f) => `<option value="${esc(f.name)}" label="${esc(f.name)} (yours)">`),
+    ...names.map((n) => `<option value="${esc(n)}">`)].join("");
+  fillLogoChoice();
   renderBuilderLayouts();
   renderBuilderParts();
   renderBuilderSections();
@@ -3350,10 +3455,26 @@ function readBuilderForm() {
   draft.sectionOrder = [...document.querySelectorAll("#builder-sections li")].map((li) => li.dataset.section);
   const scheme = document.getElementById("builder-scheme").value;
   draft.theme = { scheme, ...(scheme === "custom" ? { bg: f.bg.value, text: f.text.value, accent: f.accent.value } : {}),
-    head: f.head.value.trim(), body: f.body.value.trim() };
+    head: f.head.value.trim(), body: f.body.value.trim(), logo: document.getElementById("builder-logo").value };
+  if (!draft.theme.logo) delete draft.theme.logo;
   if (!draft.theme.head) delete draft.theme.head;
   if (!draft.theme.body) delete draft.theme.body;
 }
+
+// The logo choice: none, or one of the brewery's logos
+function fillLogoChoice() {
+  const chosen = filesOf("logo").some((f) => f.id === draft.theme.logo) ? draft.theme.logo : "";
+  document.getElementById("builder-logo").innerHTML = `<option value="">None</option>` +
+    filesOf("logo").map((f) => `<option value="${f.id}" ${f.id === chosen ? "selected" : ""}>${esc(f.name)}</option>`).join("");
+  document.getElementById("builder-logo-upload").hidden = !can("inventory");
+}
+document.getElementById("builder-logo-upload").addEventListener("click", async () => {
+  const id = await uploadBoardFile("logo");
+  if (!id) return;
+  draft.theme.logo = id;
+  fillLogoChoice();
+  builderChanged();
+});
 
 let builderTimer = null;
 function builderChanged() {

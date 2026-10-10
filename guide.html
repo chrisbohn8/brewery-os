@@ -341,6 +341,13 @@
       <li>Changes wait until <span class="ui">Save menu</span>; <span class="ui">Undo changes</span> goes back to what's saved.</li>
       <li>Typed prices from before the lists existed became pour sizes, named as they were typed.</li>
     </ul>
+    <h3>Fonts and logos</h3>
+    <p>Your own files for the menu boards, kept with the rest of the brewery's records (so they're in every backup).</p>
+    <ul>
+      <li><strong>Fonts:</strong> only an Admin uploads one (<span class="ui">Upload a font…</span>): a WOFF2, WOFF, TTF, or OTF file up to 500 KB, with a name boards use it by. Upload only a font your brewery has the right to use on screens and on the web; check its license. Each font's name is shown in the font itself.</li>
+      <li><strong>Logos:</strong> anyone who runs the boards uploads one (<span class="ui">Upload a logo…</span>, here or in the board builder): a PNG, JPEG, WebP, or SVG file up to 300 KB, with a name.</li>
+      <li>Up to 10 of each. Each shows which boards use it. A file can't be changed: <strong>Remove</strong> it (the app asks first, and says which boards will show the usual font, or no logo, instead) and upload the new one.</li>
+    </ul>
     <h3>Menu boards</h3>
     <p>A taproom's menu boards are made from its draft lines (Inventory) and each beer's menu details. A change to a line or a beer shows on the TV within about 15 seconds, so a board is never out of date. Anyone with "Count and move finished goods" (like the Taproom level) designs and runs the boards; everyone in the brewery can preview and print them.</p>
     <ul>
@@ -356,7 +363,8 @@
       <li><strong>What each beer shows:</strong> line number, color dot, name, tags, style, ABV, IBU, the short line (on a TV) or the description, your own fields, and prices. Untick any to hide it (the name always shows). Put them in order by dragging the <span aria-hidden="true">⠿</span> handle, or with the ↑ ↓ arrows. The number, color dot, name, and tags share the beer's first line; style, ABV, and IBU share the next (on a TV, the first). Line numbers aren't on the public page, and your own fields aren't on the TV.</li>
       <li><strong>Sections, in order:</strong> this board's order for the sections, when the beers are listed by section (otherwise the order in Settings → Menu).</li>
       <li><strong>Colors:</strong> <span data-board-list="themes"><em>Usual (dark TV, the phone's light or dark)</em>, <em>Dark</em>, <em>Light</em>, <em>Chalkboard</em>, <em>Kraft paper</em>, <em>Midnight</em>, <em>High contrast</em>, or <em>My own colors</em></span> (a background, text, and accent color). The builder checks how readable the colors are: <em>easy to read across a room</em>, <em>readable up close</em>, or <em>hard to read</em>, and asks before saving colors that are hard to read.</li>
-      <li><strong>Fonts:</strong> a font pairing (a headline font for the title, sections, and beer names, and a text font): <span data-board-list="fonts"><em>Usual</em>, <em>Classic</em>, <em>Taproom</em>, <em>Sign painter</em>, <em>Friendly</em>, <em>Chalk</em>, <em>Typewriter</em>, <em>Modern</em>, or <em>Old west</em></span>; or type the name of any font from Google Fonts. If Google Fonts doesn't have a font by that name, the builder says so, and the board uses the usual font.</li>
+      <li><strong>Fonts:</strong> a font pairing (a headline font for the title, sections, and beer names, and a text font): <span data-board-list="fonts"><em>Usual</em>, <em>Classic</em>, <em>Taproom</em>, <em>Sign painter</em>, <em>Friendly</em>, <em>Chalk</em>, <em>Typewriter</em>, <em>Modern</em>, or <em>Old west</em></span>; or type the name of any font from Google Fonts, or of one of your own fonts (above). If neither has a font by that name, the builder says so, and the board uses the usual font.</li>
+      <li><strong>Logo:</strong> one of your logos beside the title, or none.</li>
       <li><span class="ui">Remove board</span> deletes a board; its links stop working right away.</li>
     </ul>
     <h3>A board's links</h3>
@@ -364,7 +372,7 @@
       <li><strong>TV link:</strong> for the taproom's TV. It shows the short line, fills the screen with the biggest text that fits, and works without signing in. If the TV loses signal, the menu stays on screen and a small "Updated" time appears in the corner after two minutes. To set up a TV: on the computer or stick plugged into it, open the link in its web browser and make the browser full screen.</li>
       <li><strong>Public link:</strong> a phone-friendly page for your website and social posts, with each beer's description and your own fields, in the board's colors (or, with the usual colors, the phone's own light or dark). It leaves off beers marked "Leave off the public menu". <span class="ui">Copy embed code</span> gives the code to put the menu inside a page of your website.</li>
       <li><span class="ui">Copy</span> copies a link; <span class="ui">Open</span> opens it. <span class="ui">New link</span> replaces a link: the old one stops working right away (it then says so), so whatever used it needs the new one. <span class="ui">Turn off</span> stops it; you can make a new one later.</li>
-      <li>The links only ever show the menu, never volumes, batches, or people. A backup keeps each board's design but not its links: after loading one, make the links again.</li>
+      <li>The links only ever show the menu, never volumes, batches, or people, and only the fonts and logo that board uses. A TV keeps the menu, fonts, and logo for when the signal drops. A backup keeps each board's design, and your fonts and logos, but not its links: after loading one, make the links again.</li>
     </ul>
   </section>
 

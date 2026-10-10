@@ -1,6 +1,6 @@
 # Menu boards: design (draft for review)
 
-Status: **steps 1 and 2 built (2026-10-09); step 3a, the builder, built (2026-10-10); step 3b (uploaded fonts and a logo) next.** "Almost gone" (step 2) waits until keg levels are tracked. Built in three steps, each useful on its own: (1) the menu's data, (2) one good board (TV, print, public link), (3) the board builder. The open questions are at the end.
+Status: **steps 1 and 2 built (2026-10-09); step 3, the builder (3a) with uploaded fonts and logos (3b), built (2026-10-10).** Fonts and logos are kept in the database (not a separate file store), so they're in every backup. "Almost gone" (step 2) waits until keg levels are tracked. Built in three steps, each useful on its own: (1) the menu's data, (2) one good board (TV, print, public link), (3) the board builder. The open questions are at the end.
 
 ## What it's for
 

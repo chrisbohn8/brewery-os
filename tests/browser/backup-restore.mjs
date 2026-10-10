@@ -37,7 +37,7 @@ async function signIn(email) {
 // Empty a brewery (the test's own cleanup; deleting batches takes their history with them)
 const empty = (page) => page.evaluate(async () => {
   const b = brewery.id;
-  for (const table of ["plan_items", "stock_moves", "batches", "tanks", "beers", "stock_places", "raw_items", "locations"]) {
+  for (const table of ["plan_items", "stock_moves", "batches", "tanks", "beers", "stock_places", "raw_items", "brewery_files", "locations"]) {
     await must(db.from(table).delete().eq("brewery_id", b));
   }
   await must(db.from("breweries").update({ menu_sizes: [], menu_sections: [], menu_tags: [], menu_fields: [] }).eq("id", b));
@@ -71,7 +71,21 @@ try {
     await refresh();
     return was;
   }, TEST_MENU);
-  const backup = await first.evaluate(() => structuredClone(data));
+  // A font, a logo, and (at a taproom) a board that uses both: the backup carries the files themselves
+  firstBefore.files = await first.evaluate(async () => {
+    const tiny = { data: "YWJjZGVm", bytes: 6 }; // (the database checks the size against the contents)
+    const font = newId(), logo = newId();
+    await must(db.from("brewery_files").insert([{ id: font, brewery_id: brewery.id, kind: "font", name: "Backup font", mime: "font/woff2", ...tiny },
+      { id: logo, brewery_id: brewery.id, kind: "logo", name: "Backup logo", mime: "image/png", ...tiny }]));
+    const taproom = data.places.find((p) => p.kind === "taproom");
+    const board = taproom ? newId() : null;
+    if (board) await must(db.from("menu_boards").insert({ id: board, brewery_id: brewery.id, place_id: taproom.id, name: "Backup board",
+      theme: { scheme: "auto", head: "Backup font", logo } }));
+    await refresh();
+    return { ids: [font, logo], board, taproom: taproom?.name };
+  });
+  const backup = await first.evaluate(async () => ({ ...structuredClone(data),
+    files: await must(db.from("brewery_files").select("id, kind, name, mime, bytes, data").eq("brewery_id", brewery.id)) })); // (as "Download" makes it)
   const source = await counts(first);
   check(source.movements > 0 && source.cellar > 0 && source.additions > 0 && source.readings > 0,
     `the backup has volumes and a brew log: ${JSON.stringify(source)}`);
@@ -117,6 +131,16 @@ try {
   const tidy = (x) => JSON.stringify(x, (k, v) => (v && typeof v === "object" && !Array.isArray(v) ? Object.fromEntries(Object.entries(v).sort()) : v));
   const [menuA, menuB] = [await menuOf(first, beerName), await menuOf(second, beerName)];
   check(tidy(menuA) === tidy(menuB) && menuB.prices[0].at[0][1] === 8, `the menu's lists and the beer's menu came back, with its price at one place (${tidy(menuB.prices)})`);
+  const filesBack = await second.evaluate(async () => (await must(db.from("brewery_files").select("id, kind, name, bytes, data").eq("brewery_id", brewery.id)))
+    .map((f) => `${f.kind}:${f.name}:${f.bytes}:${f.data}`).sort());
+  check(filesBack.join() === "font:Backup font:6:YWJjZGVm,logo:Backup logo:6:YWJjZGVm", `the fonts and logos came back, contents and all (${filesBack.join(", ")})`);
+  if (firstBefore.files.board) {
+    const logoOk = await second.evaluate((place) => {
+      const board = data.boards.find((b) => b.name === "Backup board" && data.places.find((p) => p.id === b.placeId)?.name === place);
+      return !!board && board.theme.logo === data.files.find((f) => f.name === "Backup logo")?.id && board.theme.head === "Backup font";
+    }, firstBefore.files.taproom);
+    check(logoOk, "and the board still shows its logo (the new copy) and font");
+  } else console.log("  (no taproom in the first brewery: skipped the board's logo)");
   const diff = a.filter((x, i) => x !== b2[i]).slice(0, 5);
   check(!diff.length, `every tank holds the same volume${diff.length ? ` (first differences: ${diff.join(" ")} vs ${b2.filter((x) => !a.includes(x)).slice(0, 5).join(" ")})` : ""}`);
 
@@ -131,6 +155,8 @@ try {
   if (firstBefore) await firstPage?.evaluate(async (w) => {
     await db.from("breweries").update({ menu_sizes: w.menu.sizes, menu_sections: w.menu.sections, menu_tags: w.menu.tags, menu_fields: w.menu.fields }).eq("id", brewery.id);
     await db.from("beers").update(w.beer).eq("id", w.beerId);
+    if (w.files?.board) await db.from("menu_boards").delete().eq("id", w.files.board);
+    if (w.files) await db.from("brewery_files").delete().in("id", w.files.ids);
   }, firstBefore).catch((e) => console.log("tidy-up failed:", e.message));
   await browser.close();
 }

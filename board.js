@@ -11,7 +11,10 @@
 //
 //   BoardView.render(board, mode)  the board's HTML; mode is "tv", "public", or "print"
 //   BoardView.fit(element)         TV only: the biggest text that fits the screen with no scrolling
-//   BoardView.loadFonts(board)     adds the board's fonts to the page; resolves when they're ready
+//   BoardView.loadExtras(board, el) adds the board's fonts to the page and its logo to the drawn board
+//                                   in el; resolves when they're ready
+//   BoardView.setFileSource(fn)    where the brewery's own files come from: fn(id) resolves to
+//                                   { mime, data } (board.html: the board's link; the app: signed in)
 (function () {
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
@@ -98,14 +101,56 @@
 
   // ---------- Fonts ----------
   const fontStack = (name) => (name && FONT_NAME.test(name) ? `"${name}", ${SYSTEM_FONT}` : "");
+  // The brewery's own files (uploaded fonts, logos), each fetched once: a file never changes
+  let fileSource = null;
+  const files = new Map(); // id -> Promise of { mime, data }
+  const setFileSource = (fn) => { fileSource = fn; };
+  function getFile(id) {
+    if (!files.has(id)) {
+      const p = Promise.resolve(fileSource ? fileSource(id) : null).then((f) => { if (!f) throw new Error("no file"); return f; });
+      p.catch(() => files.delete(id)); // (try again next time)
+      files.set(id, p);
+    }
+    return files.get(id);
+  }
+  const dataUrl = (f) => `data:${f.mime};base64,${f.data}`;
+  const uploadedFont = (board, name) => (board.files || []).find((f) => f.kind === "font" && name && f.name.toLowerCase() === name.toLowerCase());
+
   // Adds the board's Google Fonts to the page (once each) and resolves when they're loaded, or after
   // a few seconds (no signal, or a name Google doesn't have: the usual font is used instead).
   const asked = new Set();
+  const added = new Set(); // uploaded fonts already on this page
   const missing = new Set(); // names Google Fonts didn't have
   const fontMissing = (name) => missing.has(name);
+  // The brewery's own fonts: from their files, added to the page under their names
+  function loadUploadedFonts(board, doc) {
+    const theme = board?.board?.theme || {};
+    const fonts = [theme.head, theme.body].map((n) => uploadedFont(board, n)).filter(Boolean);
+    return Promise.all(fonts.filter((f) => !added.has(f.id)).map((f) => getFile(f.id).then(async (file) => {
+      const face = new FontFace(f.name, `url(${dataUrl(file)})`);
+      await face.load();
+      doc.fonts.add(face);
+      added.add(f.id);
+    }).catch(() => null)));
+  }
+  // The board's logo, in a board drawn into el
+  function loadLogo(el) {
+    const img = el?.querySelector("img.mb-logo[data-file]");
+    if (!img || img.getAttribute("src")) return Promise.resolve();
+    return getFile(img.dataset.file).then((file) => new Promise((r) => {
+      img.addEventListener("load", r, { once: true });
+      img.addEventListener("error", r, { once: true });
+      img.src = dataUrl(file);
+    })).catch(() => { img.remove(); });
+  }
+  function loadExtras(board, el, doc = document) {
+    const done = Promise.all([loadFonts(board, doc), doc.fonts ? loadUploadedFonts(board, doc) : null, loadLogo(el)]);
+    return Promise.race([done, new Promise((r) => setTimeout(r, 6000))]);
+  }
+
   function loadFonts(board, doc = document) {
     const theme = board?.board?.theme || {};
-    const names = [theme.head, theme.body].filter((n) => n && FONT_NAME.test(n) && !(board.files || []).some((f) => f.name === n));
+    const names = [theme.head, theme.body].filter((n) => n && FONT_NAME.test(n) && !uploadedFont(board, n));
     for (const name of names) {
       if (asked.has(name)) continue;
       asked.add(name);
@@ -233,12 +278,15 @@
     const fonts = [fontStack(set.theme.head) && `--mb-head-font:${fontStack(set.theme.head)};`,
       fontStack(set.theme.body) && `--mb-body-font:${fontStack(set.theme.body)};`].filter(Boolean).join("");
     const style = `${colorVars(colors)}${fonts}`.replace(/"/g, "&quot;");
+    // The logo (filled in by loadExtras once its file is in)
+    const logoFile = (board.files || []).find((f) => f.kind === "logo" && f.id === set.theme.logo);
+    const logo = logoFile ? `<img class="mb-logo" data-file="${esc(logoFile.id)}" alt="${esc(board.brewery)}">` : "";
     const classes = ["mb", `mb-${mode}`, `mb-layout-${set.layout}`, many ? "mb-many" : "", colors ? "mb-themed" : ""].filter(Boolean).join(" ");
     const body = lines.length ? `<div class="mb-body">${list}</div>`
       : set.showOnTap ? `<p class="mb-empty">Nothing on tap right now.</p>`
       : extra ? "" : `<p class="mb-empty">Nothing to show right now.</p>`;
     return `<div class="${classes}"${style ? ` style="${style}"` : ""}>
-      <header class="mb-head"><h1>${esc(board.title)}</h1><div class="mb-brewery">${esc(board.brewery)}</div></header>
+      <header class="mb-head"><div class="mb-title">${logo}<h1>${esc(board.title)}</h1></div><div class="mb-brewery">${esc(board.brewery)}</div></header>
       ${body}
       ${extra ? `<div class="mb-extras${lines.length ? "" : " mb-extras-only"}">${extra}</div>` : ""}
     </div>`;
@@ -258,6 +306,6 @@
     element.style.fontSize = `${low}px`;
   }
 
-  window.BoardView = { render, fit, loadFonts, fontMissing, srmColor, money, contrast, colorsOf, settingsOf,
+  window.BoardView = { render, fit, loadFonts, loadExtras, setFileSource, fileUrl: (id) => getFile(id).then(dataUrl), fontMissing, srmColor, money, contrast, colorsOf, settingsOf,
     LAYOUTS, PARTS, DEFAULT_PARTS, THEMES, FONT_PAIRS, FONT_NAME };
 })();

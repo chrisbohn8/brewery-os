@@ -567,6 +567,21 @@
       <button type="button" id="menu-setup-save" class="btn primary">Save menu</button>
     </div>
   </section>
+  <!-- The brewery's own fonts and logos for its menu boards (kept in the database, so they're in backups) -->
+  <section id="menu-files" class="list-section">
+    <h2>Fonts and logos</h2>
+    <p class="muted">Your own files for the menu boards. A board uses a font by its name (in the board builder's Fonts) and a logo from the builder's Logo.</p>
+    <h3>Fonts</h3>
+    <p class="muted" id="font-files-note">Only an Admin uploads fonts. Upload only a font your brewery has the right to use on screens and on the web: check its license.</p>
+    <ul id="font-files" class="plain log-list"></ul>
+    <p><button type="button" id="font-upload-btn" class="btn small">Upload a font…</button>
+      <input type="file" id="font-upload" accept=".woff2,.woff,.ttf,.otf" hidden></p>
+    <h3>Logos</h3>
+    <ul id="logo-files" class="plain log-list"></ul>
+    <p><button type="button" id="logo-upload-btn" class="btn small" data-needs="inventory">Upload a logo…</button>
+      <input type="file" id="logo-upload" accept="image/png,image/jpeg,image/webp,image/svg+xml" hidden></p>
+    <p class="muted">Fonts: WOFF2, WOFF, TTF, or OTF, up to 500 KB. Logos: PNG, JPEG, WebP, or SVG, up to 300 KB. Up to 10 of each.</p>
+  </section>
   <!-- Each taproom's menu board: on a TV, on a public page, or printed (board.html and board.js) -->
   <section id="menu-boards" class="list-section">
     <h2>Menu boards</h2>
@@ -1009,6 +1024,11 @@
             <p id="builder-contrast" class="builder-contrast" role="status"></p>
           </fieldset>
           <fieldset class="group">
+            <legend>Logo</legend>
+            <label>Beside the title <select name="logo" id="builder-logo"></select></label>
+            <p><button type="button" id="builder-logo-upload" class="btn small">Upload a logo…</button></p>
+          </fieldset>
+          <fieldset class="group">
             <legend>Fonts</legend>
             <label>Font pairing <select id="builder-pairs"></select></label>
             <div class="two-col">
@@ -1016,7 +1036,7 @@
               <label>Text <input name="body" list="builder-font-names" maxlength="40" placeholder="The usual"></label>
             </div>
             <datalist id="builder-font-names"></datalist>
-            <p class="muted">Any font from <a href="https://fonts.google.com" target="_blank" rel="noopener">Google Fonts</a>, by its name.</p>
+            <p class="muted">Any font from <a href="https://fonts.google.com" target="_blank" rel="noopener">Google Fonts</a>, by its name, or one of your own (Settings → Menu → Fonts and logos).</p>
             <p id="builder-font-note" class="muted" role="status"></p>
           </fieldset>
         </div>
