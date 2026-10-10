@@ -52,6 +52,13 @@ revoke execute on function public.menu_board_json(uuid, boolean) from anon, auth
 revoke execute on function public.menu_board_content(uuid, boolean, boolean, boolean) from anon, authenticated;
 revoke execute on function public.menu_board_settings(public.menu_boards) from anon, authenticated;
 revoke execute on function public.menu_board_files(public.menu_boards) from anon, authenticated;
+-- The demo (create_demo_brewery is for signed-in visitors; the rest run only inside the database)
+revoke execute on function public.create_demo_brewery() from anon;
+revoke execute on function public.cleanup_demos() from anon, authenticated;
+revoke execute on function public.is_anonymous_user(uuid) from anon, authenticated;
+-- The daily demo clean-up is a scheduled job (not in backups' tables): schedule it again
+create extension if not exists pg_cron with schema pg_catalog;
+select cron.schedule('brewery-os-demo-cleanup', '23 9 * * *', $job$ select public.cleanup_demos(); $job$);
 
 -- Alerts: the 15-minute check is a scheduled job in the database (not in backups' tables). In a new
 -- project, set the alerts function's ALERTS_SECRET and run supabase/schedule-alerts.sql with it.

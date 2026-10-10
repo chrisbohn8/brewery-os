@@ -467,7 +467,7 @@ async function loadAll() {
     allRows(() => db.from("batch_status").select("*").eq("brewery_id", b).order("id")),
     allRows(() => db.from("batch_events").select("*").eq("brewery_id", b).order("effective_date").order("recorded_at").order("id")),
     allRows(() => db.from("tank_cleanings").select("*").eq("brewery_id", b).order("cleaned_on").order("recorded_at").order("id")),
-    must(db.from("breweries").select("acid_after_styles, temperature_unit, gravity_unit, volume_unit, time_zone, target_limits, sheet_fields, sheet_custom_fields, sheet_field_settings, stock_reasons, require_stock_reason, alert_quiet_start, alert_quiet_end, plan_lookahead_days, recipes_per, gravity_trigger_readings, menu_sizes, menu_sections, menu_tags, menu_fields").eq("id", b).single()),
+    must(db.from("breweries").select("acid_after_styles, temperature_unit, gravity_unit, volume_unit, time_zone, target_limits, sheet_fields, sheet_custom_fields, sheet_field_settings, stock_reasons, require_stock_reason, alert_quiet_start, alert_quiet_end, plan_lookahead_days, recipes_per, gravity_trigger_readings, menu_sizes, menu_sections, menu_tags, menu_fields, is_demo, created_at").eq("id", b).single()),
     must(db.rpc("brewery_members", { p_brewery_id: b })),
     allRows(() => db.from("invites").select("*").eq("brewery_id", b).order("created_at").order("id")), // admins only; others get none
     must(db.rpc("my_permissions", { b })),
@@ -541,6 +541,8 @@ async function loadAll() {
     })),
     cleanings: cleanings.map((c) => ({ id: c.id, tankId: c.tank_id, cleanedOn: c.cleaned_on, note: c.note })),
     acidAfterStyles: settings.acid_after_styles,
+    // A demo brewery (docs/demo-design.md), and the day it's deleted (a week after it was made)
+    isDemo: !!settings.is_demo, demoEnds: settings.is_demo ? addDays(settings.created_at.slice(0, 10), 7) : null,
     // The menu's lists (Settings → Menu): pour sizes, sections, tags, and the brewery's own fields
     // Each taproom's menu board: its settings and links (Settings → Menu → Menu boards)
     // (oldest first: a taproom's first board is the one step 2 made)
@@ -639,6 +641,8 @@ async function loadAll() {
   brewery.alertQuietStart = serverData.alertQuietStart;
   brewery.alertQuietEnd = serverData.alertQuietEnd;
   brewery.permissions = serverData.permissions;
+  brewery.isDemo = serverData.isDemo;
+  brewery.demoEnds = serverData.demoEnds;
   brewery.role = (serverData.members.find((m) => m.email === signedInEmail) || {}).role || brewery.role;
 }
 
@@ -1356,6 +1360,7 @@ function tankGroups() {
 
 function render() {
   document.getElementById("brewery-name").textContent = brewery.name;
+  renderDemoBar();
   applyUnitLabels();
   applyPermissions();
   renderSettings();
@@ -2279,7 +2284,7 @@ function upgradeData(d) {
 
 // Put a whole set of data (backup, sample, or old browser data) into this brewery.
 // Only into an EMPTY brewery, so nothing gets mixed up or duplicated.
-async function loadIntoBrewery(source, description) {
+async function loadIntoBrewery(source, description, { quiet = false } = {}) {
   if (!isEmptyBrewery()) {
     warn("Data can only be loaded into an empty brewery, so nothing gets mixed up or duplicated.");
     return;
@@ -2290,7 +2295,7 @@ async function loadIntoBrewery(source, description) {
     count(d.batches.length, "batch", "batches"),
     count(d.beers.length, "beer", "beers"),
   ].join(", ");
-  if (!(await ask(`Load ${description} (${summary}) into ${brewery.name}?`, { ok: "Load" }))) return;
+  if (!quiet && !(await ask(`Load ${description} (${summary}) into ${brewery.name}?`, { ok: "Load" }))) return;
 
   // Every record gets a fresh database ID. These maps turn old IDs into new ones
   // so links between records (batch → beer, tank → location...) stay connected.
@@ -2489,7 +2494,8 @@ async function loadIntoBrewery(source, description) {
       throw Object.assign(new Error(`${why} Nothing was loaded.`), { expected: !!e.code && EXPECTED_CODES.includes(e.code), details: e.details });
     }
   });
-  if (ok) notify(`Loaded ${summary}.`);
+  if (ok && !quiet) notify(`Loaded ${summary}.`);
+  return ok;
 }
 
 function count(n, one, many) {
@@ -2590,16 +2596,22 @@ document.getElementById("code-back").addEventListener("click", () => {
 
 // Signing out deletes this device's offline copy, and works even with no signal
 // ("local" = sign out on this device only)
+async function signOutHere() {
+  outbox = [];
+  storeList(OUTBOX_KEY, outbox);
+  deleteOfflineCopy();
+  await db.auth.signOut({ scope: "local" });
+  document.body.classList.remove("in-demo");
+  document.getElementById("demo-bar").hidden = true;
+  showOnline();
+  showScreen("signin-screen");
+}
 document.querySelectorAll(".sign-out").forEach((btn) =>
   btn.addEventListener("click", async () => {
+    if (brewery?.isDemo && !(await ask("Signing out of the demo is for good: with no email, you can't come back to it. Sign out?", { ok: "Sign out", danger: true }))) return;
     if (outbox.length && !(await ask(`${count(outbox.length, "change hasn't", "changes haven't")} been sent yet. ` +
       `Signing out now deletes ${outbox.length === 1 ? "it" : "them"}. Sign out anyway?`, { ok: "Sign out", danger: true }))) return;
-    outbox = [];
-    storeList(OUTBOX_KEY, outbox);
-    deleteOfflineCopy();
-    await db.auth.signOut({ scope: "local" });
-    showOnline();
-    showScreen("signin-screen");
+    await signOutHere();
   })
 );
 
@@ -2635,14 +2647,21 @@ async function start() {
       showScreen("signin-screen");
       return;
     }
-    signedInEmail = session.user.email;
-    document.getElementById("signed-in-as").textContent = `Signed in as ${session.user.email}`;
+    // (a demo visitor is signed in with no email: see "The demo" below)
+    const visitor = !!session.user.is_anonymous;
+    signedInEmail = session.user.email || null;
+    document.getElementById("signed-in-as").textContent = visitor ? "Trying the demo (no email)" : `Signed in as ${session.user.email}`;
 
     // Join any brewery that invited this email
-    await must(db.rpc("accept_invites"));
+    if (!visitor) await must(db.rpc("accept_invites"));
 
     // Which breweries are you in? Use the one you picked last time, or the first.
-    const memberships = await must(db.from("memberships").select("role, breweries(id, name)").eq("user_id", session.user.id));
+    let memberships = await must(db.from("memberships").select("role, breweries(id, name)").eq("user_id", session.user.id));
+    // A demo visitor's own demo brewery (made now, the first time)
+    if (visitor && !memberships.length) {
+      await must(db.rpc("create_demo_brewery"));
+      memberships = await must(db.from("memberships").select("role, breweries(id, name)").eq("user_id", session.user.id));
+    }
     if (!memberships.length) {
       brewery = null; // (removed from it, or deleted it): nothing to refresh in the background
       document.querySelectorAll(".setup-email").forEach((el) => { el.textContent = session.user.email; });
@@ -2658,6 +2677,7 @@ async function start() {
     brewery = { ...known, id: m.breweries.id, name: m.breweries.name, role: m.role };
     showBrewerySwitch(memberships);
     await refresh();
+    if (brewery.isDemo && isEmptyBrewery()) await fillDemo();
     showScreen("app-screen");
     openFromLink(); // opened from a printed sheet's QR code
   } catch (e) {
@@ -2743,6 +2763,55 @@ document.getElementById("check-invites").addEventListener("click", async () => {
   if (!document.getElementById("setup-screen").hidden) {
     joinMessage(`No invite for ${signedInEmail} yet. Ask your admin to invite this email, or type the join code from your invite.`);
   }
+});
+
+// ----- The demo (docs/demo-design.md) -----
+// "Try the demo" signs a visitor in with no email (Supabase's anonymous sign-in); start() then gets
+// them their own demo brewery (create_demo_brewery) and fills it here with demo.js's records, loaded
+// in one step like a backup. The database keeps the demo's rules (no real breweries for a visitor;
+// no API keys, calendar links, invites, or fonts in a demo), and deletes demos after a week.
+async function fillDemo() {
+  showScreen("app-screen");
+  const stop = notify("Setting up your demo brewery…", { stay: true });
+  try {
+    if (await loadIntoBrewery(DemoBrewery.make(today()), "the demo", { quiet: true })) {
+      await refresh();
+      notify("Your demo brewery is ready. Look around and change anything: it's yours alone.");
+    }
+  } finally {
+    stop();
+  }
+}
+
+document.getElementById("demo-offer").hidden = !DEMO_OPEN;
+document.getElementById("try-demo").addEventListener("click", async (e) => {
+  const button = e.currentTarget;
+  button.disabled = true;
+  signinMessage("");
+  const { error } = await db.auth.signInAnonymously();
+  button.disabled = false;
+  if (error) signinMessage(`The demo couldn't start: ${explain(error)}`);
+  // (signing in runs start(), which makes the demo brewery)
+});
+// A link to the demo (…/#demo) points the way to it
+if (location.hash === "#demo") {
+  const offer = document.getElementById("demo-offer");
+  offer.classList.add("highlight");
+  setTimeout(() => offer.scrollIntoView({ block: "center" }), 300);
+}
+
+function renderDemoBar() {
+  const demo = !!brewery?.isDemo;
+  document.body.classList.toggle("in-demo", demo);
+  document.getElementById("demo-bar").hidden = !demo;
+  if (demo && brewery.demoEnds) document.getElementById("demo-ends").textContent = `on ${formatDate(brewery.demoEnds)}`;
+}
+// A real brewery starts with an email: leaving the demo signs out of it (for good: it has no email to come back with)
+document.getElementById("leave-demo").addEventListener("click", async () => {
+  if (!(await ask("To set up your own brewery, sign in with your email. Leaving signs you out of the demo, and you won't be able to come back to it. Leave the demo?",
+    { ok: "Leave the demo" }))) return;
+  await signOutHere();
+  document.querySelector('#signin-form [name="email"]').focus();
 });
 
 // Signing in or out (in this tab, or from the emailed link) re-runs start()

@@ -818,3 +818,16 @@ a.btn { text-decoration: none; display: inline-block; }
 .file-row > div { flex: 1; min-width: 0; }
 .file-thumb { height: 40px; width: 64px; object-fit: contain; background: repeating-conic-gradient(#ddd 0 25%, #fff 0 50%) 0 0 / 12px 12px; border-radius: 4px; }
 .font-sample { font-size: 1.15rem; }
+
+/* The demo: the offer on the sign-in screen, and the bar inside a demo brewery */
+.demo-offer { margin-top: 28px; padding-top: 16px; border-top: 1px solid var(--border); }
+.demo-offer h2 { font-size: 1.1rem; margin: 0 0 6px; }
+.demo-offer.highlight { border: 2px solid var(--text); border-radius: 12px; padding: 16px; }
+.demo-bar { max-width: 1100px; margin: 0 auto 12px; padding: 10px 16px; display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center;
+  justify-content: space-between; background: #fef3c7; color: #422006; border-radius: 10px; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .demo-bar { background: #3b2f12; color: #fde68a; } }
+/* In a demo, what's switched off is hidden and a note says so (a class on <body>, so each control's own
+   show/hide rules are left alone) */
+body.in-demo [data-not-in-demo] { display: none !important; }
+.demo-note { display: none; }
+body.in-demo .demo-note { display: block; }

@@ -11,3 +11,7 @@ const SUPABASE_URL = ON_THIS_COMPUTER ? "http://127.0.0.1:54321" : "https://itxs
 const SUPABASE_KEY = ON_THIS_COMPUTER
   ? "sb_publishable_ACJWlzQHlZjBrEguHvfOxg_3BJgxAaH" // the standard key every local Supabase copy uses
   : "sb_publishable_hcERCBatEZUWfy9iret5sw_x2cTAXb5";
+
+// "Try the demo" (docs/demo-design.md) needs anonymous sign-ins switched on in the database's
+// settings. On for the private test copy; for the real site, it's turned on here once they're on there.
+const DEMO_OPEN = ON_THIS_COMPUTER;

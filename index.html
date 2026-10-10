@@ -38,6 +38,12 @@
         <button type="submit" class="btn primary">Sign in</button>
       </div>
     </form>
+    <!-- The demo: a made-up brewery of your own, no email needed (docs/demo-design.md) -->
+    <div id="demo-offer" class="demo-offer">
+      <h2>Just looking?</h2>
+      <p class="muted">Try the app on a demo brewery with three months of made-up brewing: tanks, brew sheets, inventory, the calendar, and menu boards. No email needed. It's yours alone to change, and it's deleted after a week.</p>
+      <button type="button" id="try-demo" class="btn">Try the demo</button>
+    </div>
   </section>
 
   <!-- First sign-in: you don't belong to a brewery yet. Ask first: joining your team, or
@@ -114,6 +120,12 @@
       <button id="open-help" class="btn help-btn" aria-label="Help for this screen" title="Help">?</button>
     </span>
   </header>
+
+  <!-- In a demo brewery: what it is, and the way to a real one -->
+  <div id="demo-bar" class="demo-bar" role="note" hidden>
+    <span><strong>Demo brewery:</strong> made-up records, yours alone. Change anything; it's deleted <span id="demo-ends">after a week</span>.</span>
+    <button type="button" id="leave-demo" class="btn small">Start your own brewery</button>
+  </div>
 
   <!-- Shown when there's no signal: how old the data on screen is -->
   <p id="offline-banner" class="offline-banner" role="status" hidden></p>
@@ -470,7 +482,8 @@
     <p class="muted">A key lets an outside tool or an AI assistant read and write here as you, through the API
       (<a href="https://github.com/chrisbohn8/brewery-os/blob/master/docs/api.md" target="_blank" rel="noopener">what it can do</a>).
       It can have some or all of your permissions, never more. Treat it like a password: it's shown once, and you can revoke it any time.</p>
-    <form id="key-form">
+    <p class="muted demo-note">API keys are off in the demo.</p>
+    <form id="key-form" data-not-in-demo>
       <label>Name <input name="name" required maxlength="60" placeholder="Like: My AI assistant"></label>
       <fieldset class="group"><legend>What it can do</legend><div id="key-permissions" class="check-grid"></div></fieldset>
       <button type="submit" class="btn primary">Make a key</button>
@@ -574,7 +587,8 @@
     <h3>Fonts</h3>
     <p class="muted" id="font-files-note">Only an Admin uploads fonts. Upload only a font your brewery has the right to use on screens and on the web: check its license.</p>
     <ul id="font-files" class="plain log-list"></ul>
-    <p><button type="button" id="font-upload-btn" class="btn small">Upload a font…</button>
+    <p class="muted demo-note">Uploading fonts is off in the demo (logos work).</p>
+    <p data-not-in-demo><button type="button" id="font-upload-btn" class="btn small">Upload a font…</button>
       <input type="file" id="font-upload" accept=".woff2,.woff,.ttf,.otf" hidden></p>
     <h3>Logos</h3>
     <ul id="logo-files" class="plain log-list"></ul>
@@ -615,7 +629,8 @@
     <div id="invite-area" hidden>
       <p id="invite-heading" class="muted" hidden>Invited, not signed in yet:</p>
       <ul id="invite-list" class="plain"></ul>
-      <form id="invite-form" class="inline-add">
+      <p class="muted demo-note">Invites are off in the demo (it doesn't send emails).</p>
+      <form id="invite-form" class="inline-add" data-not-in-demo>
         <input name="email" type="email" required placeholder="coworker@email.com" aria-label="Email to invite">
         <select name="role" aria-label="Level"></select>
         <button type="submit" class="btn">Invite</button>
@@ -674,8 +689,9 @@
       plans are changed in Brewery OS. Anyone with the link can see the plan, so keep it to yourself; turn it off any
       time and it stops working at once. Google Calendar refreshes subscribed calendars only every several hours, so the
       app stays the live view.</p>
-    <label class="choice"><input type="checkbox" id="feed-mine"> Only what I'm on</label>
-    <button type="button" class="btn" id="make-feed">Make a calendar link</button>
+    <p class="muted demo-note">Calendar links are off in the demo.</p>
+    <div data-not-in-demo><label class="choice"><input type="checkbox" id="feed-mine"> Only what I'm on</label>
+    <button type="button" class="btn" id="make-feed">Make a calendar link</button></div>
     <div id="new-feed" class="new-key" hidden>
       <p><strong>Your link</strong> (shown once; make a new one if you lose it):</p>
       <input id="new-feed-url" readonly aria-label="Calendar link">

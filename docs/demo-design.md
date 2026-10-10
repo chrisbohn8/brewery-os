@@ -1,6 +1,6 @@
 # The demo: design (draft for review)
 
-Status: **proposal, not built yet.** The user's decisions (2026-10-10) are below; the build order is at the end.
+Status: **built and tested on the private test copy (2026-10-10): the demo brewery (step 1, live) and "Try the demo" with the weekly clean-up (steps 2 and 3).** "Try the demo" opens on the real site once anonymous sign-ins are switched on there (the user's yes). The user's decisions (2026-10-10) are below; the build order is at the end.
 
 ## What it's for
 
@@ -22,7 +22,7 @@ One tap shows a prospective brewer (and the user, testing) everything the app ca
 
 ## What's switched off in a demo
 
-- **Emails** (invites, alerts, problem reports): a demo can invite made-up people, but nothing is sent.
+- **Emails:** invites are off (no emails from a demo), and a visitor has no email for alerts. (Problem reports still reach the developer: a crash in a demo is a real bug.)
 - **API keys** and **calendar links** (they'd outlive the demo). **Menu board TV and public links work**, so a TV can be shown on a sales call.
 - **Uploading fonts** (license) and large files; logos work.
 

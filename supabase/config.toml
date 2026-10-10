@@ -176,7 +176,7 @@ refresh_token_reuse_interval = 10
 # Allow/disallow new user signups to your project.
 enable_signup = true
 # Allow/disallow anonymous sign-ins to your project.
-enable_anonymous_sign_ins = false
+enable_anonymous_sign_ins = true  # "Try the demo" (docs/demo-design.md); on for the real project only once the user says so
 # Allow/disallow testing manual linking of accounts
 enable_manual_linking = false
 # Passwords shorter than this value will be rejected as weak. Minimum 6, recommended 8 or more.
@@ -436,6 +436,7 @@ project_id = "itxshxihltidwgwtzdcj"
 
 [remotes.production.auth]
 site_url = "https://brew.chrisbohn.org/"
+enable_anonymous_sign_ins = false  # "Try the demo": off on the real project until the user says yes
 additional_redirect_urls = ["https://brew.chrisbohn.org/**"]
 
 [remotes.production.auth.rate_limit]
