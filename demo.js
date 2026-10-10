@@ -149,6 +149,9 @@
 
   function make(todayString) {
     const random = rng(20261010);
+    // pH has its own sequence, so adding it didn't change how the rest of the three months play out
+    const phRandom = rng(4321);
+    const phJitter = (n) => (phRandom() - 0.5) * 2 * n;
     const pick = (list) => list[Math.floor(random() * list.length)];
     const jitter = (n) => (random() - 0.5) * 2 * n;
     const base = new Date(`${todayString}T12:00:00`);
@@ -246,6 +249,9 @@
     const balance = (batch, tankId) => d.movements.filter((m) => m.batchId === batch.id && (m.toTankId === tankId || m.fromTankId === tankId))
       .reduce((sum, m) => (m.kind === "level" ? m.volumeBbl : sum + (m.toTankId === tankId ? 1 : -1) * m.volumeBbl), 0);
     const gravityOn = (batch, day) => round(batch.fg + (batch.og - batch.fg) * Math.exp(-batch.profile.k * day) + jitter(0.0004), 4);
+    // pH: from knockout (about 4.85) it drops fast in the first couple of days of fermentation, then levels
+    // off (ales lower than lagers; dark beers a little higher). A kettle sour starts low and barely moves.
+    const phOn = (batch, day) => { jitter(0.1); return round(batch.endPh + (batch.koPh - batch.endPh) * Math.exp(-1.1 * day) + phJitter(0.02), 2); }; // (main draw kept in step)
 
     // A brew day: a batch into an empty fermenter, its brew-day sheet turn by turn, and its ingredients
     function brew(n, location) {
@@ -262,6 +268,9 @@
       const batch = { id: id("batch"), batchNumber: String(++batchNo), beerId: beer.id, brewDate: dayString(n), sizeBbl: t.capacityBbl, turns,
         beer, profile, og: round(beer.og + jitter(0.0015), 4), fg: round(beer.fg + jitter(0.001), 4), tankId: t.id, start: n, delay: 0, location,
         wait: Math.floor(random() * 5) }; // (ready beer waits a few days in its brite, as it does)
+      batch.koPh = beer.profile === "sour" ? round(3.4 + phJitter(0.04), 2) : round(4.85 + phJitter(0.04), 2);
+      batch.endPh = beer.profile === "sour" ? round(3.3 + phJitter(0.03), 2)
+        : round((profile === PROFILES.lager || profile === PROFILES.kolsch ? 4.45 : profile === PROFILES.dark ? 4.5 : 4.3) + phJitter(0.04), 2);
       d.batches.push({ id: batch.id, batchNumber: batch.batchNumber, beerId: beer.id, brewDate: batch.brewDate, sizeBbl: batch.sizeBbl, turns });
       occupant[t.id] = batch;
       turnsSinceAcid[t.id] = (turnsSinceAcid[t.id] || 0) + 1;
@@ -300,7 +309,8 @@
         reading(turn, "ko_gravity", round(batch.og + jitter(0.001), 4));
         reading(turn, "first_runnings_ph", round(5.3 + jitter(0.05), 2));
         reading(turn, "kettle_full_ph", round(5.25 + jitter(0.04), 2));
-        reading(turn, "ko_ph", round(4.85 + jitter(0.05), 2));
+        jitter(0.05); // (keeps the main sequence in step: this used to draw the knockout pH)
+        reading(turn, "ko_ph", round(batch.koPh + phJitter(0.03), 2));
         reading(turn, "ko_temp", F((beer.profile === "lager" || beer.profile === "kolsch" ? 50 : 66) + jitter(1)));
         // Ingredients, with their lots
         for (const [name, lb] of Object.entries(beer.grain)) {
@@ -341,7 +351,7 @@
       if (batch.stage === "fermenting" || batch.stage === "dry-hopping" || (batch.stage === "conditioning" && age % 3 === 0)) {
         if (n - batch.start <= 6 || (n - batch.start) % 2 === 0) {
           const temp = batch.stage === "conditioning" ? F(34 + jitter(1)) : p.fermC + jitter(0.4);
-          addCellar(batch, n, { action: "Check", gravitySg: gravityOn(batch, n - batch.start), tempC: round(temp, 2), ph: round(4.4 + jitter(0.1), 2) });
+          addCellar(batch, n, { action: "Check", gravitySg: gravityOn(batch, n - batch.start), tempC: round(temp, 2), ph: phOn(batch, n - batch.start) });
         }
       }
       for (const [stage, day] of p.steps) {
@@ -478,6 +488,8 @@
       const nb = { id: id("batch"), batchNumber: number, beerId, brewDate: dayString(n), sizeBbl: t.capacityBbl, turns: 1, beer,
         profile: PROFILES[beer.profile === "hazy" ? "ale" : beer.profile], og: beer.og, fg: beer.fg, tankId: t.id, delay: 0, location: sources[0].batch.location, wait: 2 };
       nb.start = n - nb.profile.transfer; // (as if it had just been transferred)
+      nb.koPh = sources[0].batch.koPh;
+      nb.endPh = sources[0].batch.endPh;
       d.batches.push({ id: nb.id, batchNumber: number, beerId, brewDate: dayString(n), sizeBbl: t.capacityBbl, turns: 1 });
       for (const s of sources) {
         addMovement({ day: n, batchId: s.batch.id, kind: "to_batch", fromTankId: s.batch.tankId, volumeBbl: s.volume, sourceBatchId: nb.id, notes: `into #${number}` });

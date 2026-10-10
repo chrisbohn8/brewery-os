@@ -6547,7 +6547,8 @@ function renderNumbers(b) {
   document.getElementById("bv-numbers").innerHTML = chips.join("");
 }
 
-// Gravity and temperature over the days since brewing, drawn as a small chart (no library needed)
+// Gravity and temperature over the days since brewing, drawn as a small chart (no library needed), and
+// under it a slim pH strip on the same days, when the batch has a couple of pH readings
 function renderChart(b) {
   const beer = findBeer(b.beerId);
   const og = batchOg(b);
@@ -6557,13 +6558,17 @@ function renderChart(b) {
   const gravity = [...(og ? [{ x: 0, y: toShown("gravity", og) }] : []),
     ...log.filter((c) => c.gravitySg != null).map((c) => ({ x: day(c.occurredOn), y: toShown("gravity", c.gravitySg) }))];
   const temp = log.filter((c) => c.tempC != null).map((c) => ({ x: day(c.occurredOn), y: toShown("temperature", c.tempC) }));
+  // (the brew-day sheet's knockout pH is the first point, as the OG is for gravity: the average of the turns)
+  const koPh = data.readings.filter((r) => r.batchId === b.id && r.fieldKey === "ko_ph" && r.value != null).map((r) => r.value);
+  const ph = [...(koPh.length ? [{ x: 0, y: koPh.reduce((sum, v) => sum + v, 0) / koPh.length }] : []),
+    ...log.filter((c) => c.ph != null).map((c) => ({ x: day(c.occurredOn), y: c.ph }))];
   const box = document.getElementById("bv-chart");
-  if (gravity.length < 2 && temp.length < 2) {
+  if (gravity.length < 2 && temp.length < 2 && ph.length < 2) {
     box.innerHTML = `<p class="muted">The chart appears once there are a couple of gravity or temperature readings (the OG counts as the first).</p>`;
     return;
   }
   const W = 420, H = 210, L = 40, R = 34, T = 14, B = 26;
-  const days = Math.max(7, ...gravity.map((p) => p.x), ...temp.map((p) => p.x));
+  const days = Math.max(7, ...gravity.map((p) => p.x), ...temp.map((p) => p.x), ...ph.map((p) => p.x));
   const fg = beer?.targetFg ? toShown("gravity", beer.targetFg) : null;
   const range = (values, pad) => {
     const lo = Math.min(...values), hi = Math.max(...values);
@@ -6589,8 +6594,27 @@ function renderChart(b) {
     ${gravity.length > 1 ? `<polyline class="gravity" points="${line(gravity, yG)}"/>` : ""}${dots(gravity, yG, "gravity")}
     ${temp.length > 1 ? `<polyline class="temp" points="${line(temp, yT)}"/>` : ""}${dots(temp, yT, "temp")}
   </svg>
+  ${ph.length >= 2 ? phStrip(ph, x, W, L, R, ticks) : ""}
   <p class="muted legend"><span class="key gravity"></span> gravity (${UNIT_INFO.gravity[prefs().gravityUnit].label})
-    ${temp.length ? `<span class="key temp"></span> temperature (${UNIT_INFO.temperature[prefs().temperatureUnit].label})` : ""}</p>`;
+    ${temp.length ? `<span class="key temp"></span> temperature (${UNIT_INFO.temperature[prefs().temperatureUnit].label})` : ""}
+    ${ph.length >= 2 ? `<span class="key ph"></span> pH` : ""}</p>`;
+}
+
+// The pH strip: the same days as the chart above it (so a check's pH sits under its gravity), its own scale
+function phStrip(points, x, W, L, R, ticks) {
+  const H = 64, T = 8, B = 8;
+  const values = points.map((p) => p.y);
+  let lo = Math.min(...values), hi = Math.max(...values);
+  if (hi - lo < 0.4) { const mid = (hi + lo) / 2; lo = mid - 0.2; hi = mid + 0.2; }
+  const y = (v) => T + (1 - (v - lo) / (hi - lo)) * (H - T - B);
+  const at = points.map((p) => `${x(p.x).toFixed(1)},${y(p.y).toFixed(1)}`).join(" ");
+  return `<svg viewBox="0 0 ${W} ${H}" class="chart ph-strip" role="img" aria-label="pH by day, from ${lo.toFixed(2)} to ${hi.toFixed(2)}">
+    ${ticks.map((d) => `<line class="grid" x1="${x(d)}" x2="${x(d)}" y1="${T}" y2="${H - B}"/>`).join("")}
+    <text class="axis ph" x="${L - 6}" y="${T + 6}" text-anchor="end">${hi.toFixed(1)}</text>
+    <text class="axis ph" x="${L - 6}" y="${H - B}" text-anchor="end">${lo.toFixed(1)}</text>
+    <text class="axis ph" x="${W - R + 6}" y="${(H + 4) / 2}">pH</text>
+    <polyline class="ph" points="${at}"/>${points.map((p) => `<circle class="ph" cx="${x(p.x).toFixed(1)}" cy="${y(p.y).toFixed(1)}" r="3"/>`).join("")}
+  </svg>`;
 }
 
 // One movement, for the batch history: "29.5 bbl FV-1 → BT-1"

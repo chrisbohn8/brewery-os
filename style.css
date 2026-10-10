@@ -545,7 +545,11 @@ dialog fieldset.acid p { margin: 0 0 8px; }
 /* A batch's numbers (OG, gravity now, ABV...) and fermentation chart */
 .numbers { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 4px 0 12px; font-size: 0.95rem; }
 .numbers .muted { font-size: 0.8rem; }
-.chart { width: 100%; height: auto; display: block; }
+.chart { width: 100%; max-width: 760px; height: auto; display: block; } /* (a wide screen doesn't blow the labels up) */
+.chart.ph-strip { margin-top: 2px; }
+.chart polyline.ph { stroke: var(--carbonating); stroke-width: 2; }
+.chart circle.ph { fill: var(--carbonating); }
+.legend .key.ph { background: var(--carbonating); margin-left: 10px; }
 .chart .grid { stroke: var(--border); stroke-width: 1; }
 .chart .target { stroke: var(--muted); stroke-dasharray: 5 4; stroke-width: 1; }
 .chart .axis { fill: var(--muted); font-size: 12.5px; }
