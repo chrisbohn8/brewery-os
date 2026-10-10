@@ -4,7 +4,7 @@
 .mb {
   --mb-bg: #fbfaf7; --mb-text: #1c1b19; --mb-dim: #5f5b54; --mb-line: #dcd8cf; --mb-accent: #9a4b12; --mb-accent-text: #fff;
   background: var(--mb-bg); color: var(--mb-text);
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; line-height: 1.25;
+  font-family: var(--mb-body-font, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif); line-height: 1.25;
   box-sizing: border-box;
 }
 .mb *, .mb *::before, .mb *::after { box-sizing: border-box; }
@@ -60,3 +60,32 @@
 .mb-print { --mb-bg: #fff; --mb-text: #000; --mb-dim: #444; --mb-line: #bbb; --mb-accent: #000; --mb-accent-text: #fff; font-size: 10.5pt; }
 .mb-print.mb-many { font-size: 9pt; }
 .mb-print.mb-many .mb-body { column-count: 2; column-gap: 0.3in; }
+
+/* ---- The board builder's choices (board.js: layouts, fonts) ---- */
+/* Headline font: the board's title, section headings, and beer names */
+.mb-head h1, .mb-group-head h2, .mb-extra h2, .mb-beer { font-family: var(--mb-head-font, inherit); }
+.mb-beer { font-weight: 700; }
+.mb-name { font-weight: 400; }
+.mb-name .mb-swatch + .mb-beer, .mb-name .mb-beer { margin-right: 0.1em; }
+
+/* Two columns: always, on a TV and on paper */
+.mb-tv.mb-layout-columns .mb-body, .mb-print.mb-layout-columns .mb-body { column-count: 2; column-gap: 2.4em; column-rule: 1px solid var(--mb-line); }
+
+/* Cards: each beer in a box, prices underneath */
+.mb-layout-cards .mb-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(15em, 1fr)); gap: 0.6em; } /* (a few cards stretch to fill the row) */
+.mb-layout-cards .mb-item { display: flex; border: 1px solid var(--mb-line); border-radius: 0.5em; padding: 0.6em 0.7em; background: color-mix(in srgb, var(--mb-text) 4%, transparent); }
+.mb-layout-cards .mb-item:last-child { border-bottom: 1px solid var(--mb-line); }
+.mb-layout-cards.mb-many .mb-body { column-count: 1; }
+.mb-layout-cards .mb-price-list { margin-top: 0.4em; }
+
+/* Compact: name, dotted line, prices; the details small and on the same line */
+.mb-layout-compact .mb-item { padding: 0.15em 0; border-bottom: 0; }
+.mb-layout-compact .mb-main { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 0.5em; }
+.mb-layout-compact .mb-name { flex: 0 1 auto; }
+.mb-layout-compact .mb-main::after { content: ""; flex: 1 1 2em; order: 5; border-bottom: 0.12em dotted var(--mb-dim); transform: translateY(-0.3em); }
+.mb-layout-compact .mb-words, .mb-layout-compact .mb-fields { order: 10; flex-basis: 100%; font-size: 0.75em; color: var(--mb-dim); margin: 0; }
+.mb-layout-compact .mb-price-list { order: 6; margin: 0; }
+.mb-layout-compact .mb-name .mb-facts { font-size: 0.75em; }
+
+/* A board that's only "Coming soon" / "To go": those are the board */
+.mb-extras-only { border-top: 0; flex-direction: column; font-size: 1.3em; }

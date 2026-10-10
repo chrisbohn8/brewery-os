@@ -966,6 +966,79 @@
     </form>
   </dialog>
 
+  <!-- The board builder: one board's settings on one side, a live preview on the other.
+       Nothing is saved until "Save board". (app.js: "Menu boards: the builder") -->
+  <dialog id="board-builder" class="board-builder-dialog">
+    <form id="board-form">
+      <h2 id="board-builder-title" tabindex="-1" autofocus>Board</h2>
+      <div class="builder">
+        <div class="builder-controls">
+          <fieldset class="group">
+            <legend>The board</legend>
+            <label>Name <span class="muted">(for you, like "TV 1: drafts")</span> <input name="name" maxlength="60" placeholder="Menu board"></label>
+            <label>Title on the board <input name="title" maxlength="80"></label>
+            <div class="builder-checks">
+              <label class="check-label"><input type="checkbox" name="showOnTap"> <span>On tap <span class="muted">(the draft lines)</span></span></label>
+              <label class="check-label"><input type="checkbox" name="showComingSoon"> <span>Coming soon <span class="muted">(kegs in storage that aren't here yet)</span></span></label>
+              <label class="check-label"><input type="checkbox" name="showToGo"> <span>To go <span class="muted">(cases and cans on hand here)</span></span></label>
+            </div>
+            <label>List the beers <select name="orderBy">
+              <option value="lines">In draft line order</option><option value="sections">By section</option></select></label>
+          </fieldset>
+          <fieldset class="group">
+            <legend>Layout</legend>
+            <div id="builder-layouts" class="builder-choices" role="radiogroup" aria-label="Layout"></div>
+          </fieldset>
+          <fieldset class="group">
+            <legend>What each beer shows</legend>
+            <p class="muted">Untick to hide. Drag <span aria-hidden="true">⠿</span> or use the arrows to change the order.</p>
+            <ol id="builder-parts" class="sortable"></ol>
+          </fieldset>
+          <fieldset class="group" id="builder-sections-box">
+            <legend>Sections, in order</legend>
+            <ol id="builder-sections" class="sortable"></ol>
+          </fieldset>
+          <fieldset class="group">
+            <legend>Colors</legend>
+            <label>Color scheme <select name="scheme" id="builder-scheme"></select></label>
+            <div id="builder-custom-colors" class="builder-colors">
+              <label>Background <input type="color" name="bg"></label>
+              <label>Text <input type="color" name="text"></label>
+              <label>Accent <input type="color" name="accent"></label>
+            </div>
+            <p id="builder-contrast" class="builder-contrast" role="status"></p>
+          </fieldset>
+          <fieldset class="group">
+            <legend>Fonts</legend>
+            <label>Font pairing <select id="builder-pairs"></select></label>
+            <div class="two-col">
+              <label>Headlines <input name="head" list="builder-font-names" maxlength="40" placeholder="The usual"></label>
+              <label>Text <input name="body" list="builder-font-names" maxlength="40" placeholder="The usual"></label>
+            </div>
+            <datalist id="builder-font-names"></datalist>
+            <p class="muted">Any font from <a href="https://fonts.google.com" target="_blank" rel="noopener">Google Fonts</a>, by its name.</p>
+            <p id="builder-font-note" class="muted" role="status"></p>
+          </fieldset>
+        </div>
+        <div class="builder-preview">
+          <div class="place-chips" role="group" aria-label="Preview as">
+            <button type="button" data-builder-as="tv" aria-pressed="true">TV</button>
+            <button type="button" data-builder-as="public" aria-pressed="false">Phone</button>
+            <button type="button" data-builder-as="print" aria-pressed="false">Paper</button>
+          </div>
+          <div id="builder-frame" class="board-frame board-frame-tv"></div>
+          <p class="muted" id="builder-note"></p>
+        </div>
+      </div>
+      <div class="actions">
+        <button type="button" id="delete-board" class="btn danger">Remove board</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn cancel">Cancel</button>
+        <button type="submit" class="btn primary">Save board</button>
+      </div>
+    </form>
+  </dialog>
+
   <!-- A menu board's preview: as the TV shows it (16:9), or as the public page does (a phone) -->
   <dialog id="board-preview" class="board-preview-dialog">
     <form method="dialog">

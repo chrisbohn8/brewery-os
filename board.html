@@ -47,8 +47,13 @@
         shown = html;
         box.className = board.public ? "public" : "tv";
         box.innerHTML = html;
+        // The page around the board takes the board's own background (its color scheme)
+        const drawn = box.querySelector(".mb");
+        document.body.style.background = drawn && drawn.classList.contains("mb-themed") ? getComputedStyle(drawn).backgroundColor : "";
       }
       if (!board.public) BoardView.fit(box);
+      // Fonts from Google arrive a moment later: size the text again once they're in
+      BoardView.loadFonts(board).then(() => { if (!board.public && shown === html) BoardView.fit(box); });
     }
     function note(text) {
       shown = "";

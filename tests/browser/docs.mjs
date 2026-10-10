@@ -95,6 +95,13 @@ try {
       tankTypes: TANK_TYPES.filter((t) => !text("settings-equipment").includes(t.label)).map((t) => t.label),
       removals: Object.entries(REMOVAL_KINDS).filter(([k]) => k !== "unknown")
         .filter(([, label]) => !text("inventory").toLowerCase().includes(label.toLowerCase())).map(([, l]) => l),
+      // The board builder's choices: the guide names exactly the app's, no more and no fewer
+      boardLists: [["layouts", BoardView.LAYOUTS], ["themes", BoardView.THEMES], ["fonts", BoardView.FONT_PAIRS]].map(([key, list]) => {
+        const named = [...(guide.querySelector(`[data-board-list="${key}"]`)?.querySelectorAll("em") || [])].map((em) => em.textContent);
+        const wrong = [...list.map((x) => x.label).filter((l) => !named.includes(l)).map((l) => `missing ${l}`),
+          ...named.filter((n) => !list.some((x) => x.label === n)).map((n) => `not in the app: ${n}`)];
+        return wrong.length ? `${key}: ${wrong.join(", ")}` : "";
+      }).filter(Boolean),
     };
   });
   check(report.brokenLinks.length === 0, `every link inside the guide goes to a part of it (broken: ${report.brokenLinks.join(", ") || "none"})`);
@@ -107,6 +114,7 @@ try {
   check(report.planKinds.length === 0, `every kind of calendar item is in "Planning calendar" (missing: ${report.planKinds.join(", ") || "none"})`);
   check(report.alertKinds.length === 0, `every kind of alert is in "Settings: Alerts" (missing: ${report.alertKinds.join(", ") || "none"})`);
   check(report.tankTypes.length === 0, `every tank type is in "Settings: Equipment" (missing: ${report.tankTypes.join(", ") || "none"})`);
+  check(report.boardLists.length === 0, `the board builder's layouts, color schemes, and font pairings match the guide (${report.boardLists.join("; ") || "all match"})`);
   check(report.removals.length === 0, `every kind of removal is in "Inventory" (missing: ${report.removals.join(", ") || "none"})`);
 
   console.log("3. The ? on every screen opens that screen's part of the guide");

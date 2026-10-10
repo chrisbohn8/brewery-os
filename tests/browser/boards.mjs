@@ -1,4 +1,4 @@
-// Menu boards (step 2): a taproom's board in Settings → Menu → Menu boards. Its settings, a preview,
+// Menu boards (step 2): a taproom's board in Settings → Menu → Menu boards. Its title (in the builder), a preview,
 // print, and its links: the TV page (no sign-in) fills the screen, updates on its own, and keeps the
 // last good copy with no signal; the public page leaves off staff-only beers; a replaced or
 // turned-off link stops working. Real Chrome against the local Supabase test copy (port 8123).
@@ -65,12 +65,16 @@ try {
 
   console.log("1. The board's settings");
   await settings(page, "menu");
-  const card = `#board-list [data-board="${placeId}"]`;
-  check(await page.isVisible(card), "a board for the taproom");
-  await page.fill(`${card} [data-board-set="title"]`, `On tap ${run}`);
-  await page.press(`${card} [data-board-set="title"]`, "Tab");
+  // (a taproom with no board yet shows the one it would have; it's saved with its first change)
+  check(await page.isVisible(`#board-list [data-board="new:${placeId}"]`), "a board for the taproom");
+  await page.click(`#board-list [data-board="new:${placeId}"] [data-board-edit]`);
+  await page.waitForSelector("#board-builder[open]");
+  await page.fill('#board-form [name="title"]', `On tap ${run}`);
+  await page.click("#board-form button[type=submit]");
   await settle();
-  check(await page.evaluate((id) => data.boards.find((b) => b.placeId === id)?.title, placeId) === `On tap ${run}`, "the title saved");
+  const boardId = await page.evaluate((id) => data.boards.find((b) => b.placeId === id && b.title)?.id, placeId);
+  check(!!boardId && await page.evaluate((id) => data.boards.find((b) => b.id === id).title, boardId) === `On tap ${run}`, "the title saved");
+  const card = `#board-list [data-board="${boardId}"]`;
 
   console.log("2. Preview and print");
   await page.click(`${card} [data-board-preview]`);

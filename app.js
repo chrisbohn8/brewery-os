@@ -528,8 +528,12 @@ async function loadAll() {
     acidAfterStyles: settings.acid_after_styles,
     // The menu's lists (Settings → Menu): pour sizes, sections, tags, and the brewery's own fields
     // Each taproom's menu board: its settings and links (Settings → Menu → Menu boards)
-    boards: boards.map((x) => ({ placeId: x.place_id, title: x.title, orderBy: x.order_by, showComingSoon: x.show_coming_soon,
-      showToGo: x.show_to_go, tvToken: x.tv_token, publicToken: x.public_token })),
+    // (oldest first: a taproom's first board is the one step 2 made)
+    boards: [...boards].sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id)).map((x) => ({
+      id: x.id, placeId: x.place_id, title: x.title, orderBy: x.order_by, showComingSoon: x.show_coming_soon,
+      showToGo: x.show_to_go, tvToken: x.tv_token, publicToken: x.public_token,
+      name: x.name || "", layout: x.layout || "list", parts: x.parts || BoardView.DEFAULT_PARTS, sectionOrder: x.section_order || [],
+      theme: x.theme || { scheme: "auto" }, showOnTap: x.show_on_tap !== false })),
     menu: { sizes: settings.menu_sizes || [], sections: settings.menu_sections || [], tags: settings.menu_tags || [], fields: settings.menu_fields || [] },
     sheetFields: settings.sheet_fields,
     sheetCustomFields: settings.sheet_custom_fields,
@@ -2432,7 +2436,9 @@ async function loadIntoBrewery(source, description) {
   if (can("inventory") && d.batches.length) { // (places load with the batches, above)
     insert("menu_boards", (d.boards || []).filter((x) => (d.places || []).some((p) => p.id === x.placeId)).map((x) => ({
       place_id: idFor(x.placeId), title: x.title || "", order_by: x.orderBy || "lines",
-      show_coming_soon: x.showComingSoon !== false, show_to_go: !!x.showToGo })));
+      show_coming_soon: x.showComingSoon !== false, show_to_go: !!x.showToGo,
+      name: x.name || "", layout: x.layout || "list", parts: x.parts || BoardView.DEFAULT_PARTS, section_order: x.sectionOrder || [],
+      theme: x.theme || { scheme: "auto" }, show_on_tap: x.showOnTap !== false })));
   }
   // Beers' prices at one taproom, last: the taprooms are in by now (and matched to the brewery's own)
   for (const x of can("menu") ? d.beers.filter((b) => b.menuPrices.some((p) => p.at)) : []) {
@@ -3019,18 +3025,37 @@ document.getElementById("menu-setup-save").addEventListener("click", async () =>
   if (ok) { document.activeElement?.blur(); renderMenuSetup(); notify("Menu saved."); }
 });
 
-// ----- Settings → Menu → Menu boards: each taproom's board -----
-// Its settings (title, order, coming soon, to go), its TV and public links, a preview, and print.
-// What's on a board is worked out by the database (menu_board_json) and drawn by board.js, the same
-// way for the TV, the public page, the preview, and paper. Running boards needs the inventory permission.
-const boardOf = (placeId) => (data.boards || []).find((b) => b.placeId === placeId) ||
-  { placeId, title: "", orderBy: "lines", showComingSoon: true, showToGo: false, tvToken: null, publicToken: null };
+// ----- Settings → Menu → Menu boards: each taproom's boards -----
+// A taproom can have several boards ("TV 1: drafts", "TV 2: cans to go"), each with its own links,
+// layout, and look, made in the board builder below. What's on a board is worked out by the database
+// (menu_board_content) and drawn by board.js, the same way for the TV, the public page, the builder's
+// preview, and paper. Running boards needs the inventory permission.
+const newBoard = (placeId) => ({ id: null, placeId, title: "", orderBy: "lines", showComingSoon: true, showToGo: false,
+  tvToken: null, publicToken: null, name: "", layout: "list", parts: [...BoardView.DEFAULT_PARTS], sectionOrder: [],
+  theme: { scheme: "auto" }, showOnTap: true });
+const boardsAt = (placeId) => (data.boards || []).filter((b) => b.placeId === placeId);
+// A taproom with no board yet shows the one it would have (saved when it's first changed or linked)
+const boardFor = (key) => (key.startsWith("new:") ? newBoard(key.slice(4)) : (data.boards || []).find((b) => b.id === key));
+const boardName = (b) => b.name || "Menu board";
 const boardUrl = (token) => new URL(`board.html#t=${token}`, location.href).href;
 const embedCode = (token) => `<iframe src="${boardUrl(token)}" title="Menu" style="width:100%;height:900px;border:0"></iframe>`;
 const BOARD_LINKS = [
   { kind: "tv", label: "TV link", help: "For the taproom's TV: fills the screen, and updates on its own." },
   { kind: "public", label: "Public link", help: "For your website and social posts: phone-friendly, and leaves off beers marked \"Leave off the public menu\"." },
 ];
+// A board's settings, as board.js reads them (board.board)
+const boardSettings = (b) => ({ name: b.name, layout: b.layout, parts: b.parts, section_order: b.sectionOrder, theme: b.theme,
+  show_on_tap: b.showOnTap, show_coming_soon: b.showComingSoon, show_to_go: b.showToGo });
+
+// "Cards · Chalkboard · Oswald / Roboto"
+function boardSummary(b) {
+  const layout = BoardView.LAYOUTS.find((l) => l.id === b.layout)?.label || "Classic list";
+  const scheme = BoardView.THEMES.find((t) => t.id === (b.theme?.scheme || "auto"));
+  const pair = BoardView.FONT_PAIRS.find((p) => p.id !== "usual" && p.head === (b.theme?.head || "") && p.body === (b.theme?.body || ""));
+  const fonts = pair ? pair.label : [b.theme?.head, b.theme?.body].filter(Boolean).join(" / ");
+  const shows = [b.showOnTap && "on tap", b.showComingSoon && "coming soon", b.showToGo && "to go"].filter(Boolean).join(", ");
+  return [layout, scheme?.id === "auto" ? "" : scheme?.label, fonts, shows ? `shows ${shows}` : "shows nothing yet"].filter(Boolean).join(" · ");
+}
 
 function renderBoards() {
   const box = document.getElementById("board-list");
@@ -3041,9 +3066,7 @@ function renderBoards() {
     box.innerHTML = `<p class="muted">No taprooms yet. Add a taproom place in Settings → Equipment; its board is made from its draft lines (Inventory).</p>`;
     return;
   }
-  const off = allowed ? "" : "disabled";
-  box.innerHTML = taprooms.map((place) => {
-    const board = boardOf(place.id);
+  const card = (board, key) => {
     const links = BOARD_LINKS.map((link) => {
       const token = link.kind === "tv" ? board.tvToken : board.publicToken;
       return `<div class="board-link" data-link="${link.kind}">
@@ -3058,45 +3081,37 @@ function renderBoards() {
         : `<div class="muted">None yet.</div>`}
       </div>`;
     }).join("");
-    return `<div class="board-card" data-board="${place.id}">
-      <h3>${esc(place.name)}${data.locations.length > 1 && place.locationId ? ` <span class="muted">· ${esc(findLocation(place.locationId)?.name || "")}</span>` : ""}</h3>
-      <div class="board-settings">
-        <label>Title <input data-board-set="title" maxlength="80" placeholder="${esc(place.name)}" value="${esc(board.title)}" ${off}></label>
-        <label>List the beers <select data-board-set="order_by" ${off}>
-          <option value="lines" ${board.orderBy === "lines" ? "selected" : ""}>In draft line order</option>
-          <option value="sections" ${board.orderBy === "sections" ? "selected" : ""}>By section</option></select></label>
-        <label class="check-label"><input type="checkbox" data-board-set="show_coming_soon" ${board.showComingSoon ? "checked" : ""} ${off}>
-          <span>Coming soon <span class="muted">(beers in kegs in storage that aren't here yet)</span></span></label>
-        <label class="check-label"><input type="checkbox" data-board-set="show_to_go" ${board.showToGo ? "checked" : ""} ${off}>
-          <span>To go <span class="muted">(cases and cans on hand here)</span></span></label>
-      </div>
-      <p class="board-actions"><button type="button" class="btn small" data-board-preview>Preview</button>
+    return `<div class="board-card" data-board="${esc(key)}">
+      <h4>${esc(boardName(board))}${board.title ? ` <span class="muted">· "${esc(board.title)}"</span>` : ""}</h4>
+      <p class="board-summary muted">${esc(boardSummary(board))}</p>
+      <p class="board-actions">${allowed ? `<button type="button" class="btn small primary" data-board-edit>Design…</button>` : ""}
+        <button type="button" class="btn small" data-board-preview>Preview</button>
         <button type="button" class="btn small" data-board-print>Print</button></p>
       ${links}
+    </div>`;
+  };
+  box.innerHTML = taprooms.map((place) => {
+    const boards = boardsAt(place.id);
+    return `<div class="board-taproom" data-taproom="${place.id}">
+      <h3>${esc(place.name)}${data.locations.length > 1 && place.locationId ? ` <span class="muted">· ${esc(findLocation(place.locationId)?.name || "")}</span>` : ""}</h3>
+      ${boards.length ? boards.map((b) => card(b, b.id)).join("") : card(newBoard(place.id), `new:${place.id}`)}
+      ${allowed && boards.length ? `<p><button type="button" class="btn small" data-board-add>+ Another board</button></p>` : ""}
     </div>`;
   }).join("");
 }
 
-// A setting changed: saved right away
-document.getElementById("board-list").addEventListener("change", async (e) => {
-  const key = e.target.dataset.boardSet;
-  if (!key) return;
-  const placeId = e.target.closest("[data-board]").dataset.board;
-  const board = boardOf(placeId);
-  const row = { brewery_id: brewery.id, place_id: placeId, title: board.title, order_by: board.orderBy,
-    show_coming_soon: board.showComingSoon, show_to_go: board.showToGo };
-  row[key] = e.target.type === "checkbox" ? e.target.checked : key === "title" ? e.target.value.trim() : e.target.value;
-  e.target.blur();
-  await save(() => must(db.from("menu_boards").upsert(row, { onConflict: "place_id" })));
-});
-
 document.getElementById("board-list").addEventListener("click", async (e) => {
   const button = e.target.closest("button");
+  if (!button) return;
+  if (button.hasAttribute("data-board-add")) {
+    const placeId = button.closest("[data-taproom]").dataset.taproom;
+    openBuilder({ ...newBoard(placeId), name: `TV ${boardsAt(placeId).length + 1}` });
+    return;
+  }
   const card = e.target.closest("[data-board]");
-  if (!button || !card) return;
-  const placeId = card.dataset.board;
+  if (!card) return;
+  const board = boardFor(card.dataset.board);
   const kind = button.closest("[data-link]")?.dataset.link;
-  const board = boardOf(placeId);
   const token = kind === "tv" ? board.tvToken : board.publicToken;
   if (button.dataset.boardCopy) {
     const text = button.dataset.boardCopy === "embed" ? embedCode(token) : boardUrl(token);
@@ -3112,32 +3127,45 @@ document.getElementById("board-list").addEventListener("click", async (e) => {
     if (token && !(await ask(on
       ? `Make a new ${what}? The one you have now stops working right away, so anything using it (${kind === "tv" ? "a TV" : "your website"}) needs the new one.`
       : `Turn off the ${what}? It stops working right away. You can make a new one later.`, { ok: on ? "Make a new link" : "Turn off", danger: !on }))) return;
-    if (await save(() => must(db.rpc("set_menu_board_link", { p_place_id: placeId, p_kind: kind, p_on: on })))) {
-      notify(on ? `The ${what} is ready. Copy it, or open it on the ${kind === "tv" ? "TV" : "page"} where it goes.` : `The ${what} is off.`);
-    }
+    // (a taproom's first board is made along with its first link)
+    const made = await save(() => must(board.id
+      ? db.rpc("set_menu_board_link_for", { p_board_id: board.id, p_kind: kind, p_on: on })
+      : db.rpc("set_menu_board_link", { p_place_id: board.placeId, p_kind: kind, p_on: on })));
+    if (made) notify(on ? `The ${what} is ready. Copy it, or open it on the ${kind === "tv" ? "TV" : "page"} where it goes.` : `The ${what} is off.`);
+  } else if (button.hasAttribute("data-board-edit")) {
+    openBuilder(board);
   } else if (button.hasAttribute("data-board-preview")) {
-    openBoardPreview(placeId);
+    openBoardPreview(board);
   } else if (button.hasAttribute("data-board-print")) {
-    printBoard(placeId);
+    printBoard(board);
   }
 });
 
-// The board as the database works it out (signed in: menu_board_preview), for the preview and print
-async function boardData(placeId, publicView) {
+// The taproom's menu as the database works it out (signed in), with coming soon and to go both
+// included, so the builder can switch them on and off without asking again
+async function boardContent(placeId, publicView) {
   if (offline || !navigator.onLine) throw new Error("The menu board needs signal to show.");
-  return must(db.rpc("menu_board_preview", { p_place_id: placeId, p_public: publicView }));
+  return must(db.rpc("menu_board_preview_content", { p_place_id: placeId, p_public: publicView }));
+}
+// What board.js draws: the menu plus this board's settings
+const boardToDraw = (content, b) => ({ ...content, title: b.title || placeName(b.placeId), order: b.orderBy, board: boardSettings(b) });
+
+// Draw a board into a box on this page: the TV's text sized to fit (again once its fonts are in)
+function drawBoard(frame, drawn, as) {
+  frame.className = `board-frame board-frame-${as}`;
+  frame.style.fontSize = "";
+  frame.innerHTML = BoardView.render(drawn, as);
+  if (as === "tv") BoardView.fit(frame);
+  return BoardView.loadFonts(drawn).then(() => { if (as === "tv" && frame.isConnected) BoardView.fit(frame); });
 }
 
 const boardPreview = document.getElementById("board-preview");
-let previewPlace = null;
+let previewBoard = null;
 async function showBoardPreview(as) {
   document.querySelectorAll("[data-preview-as]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.previewAs === as)));
   const frame = document.getElementById("board-preview-frame");
-  frame.className = `board-frame board-frame-${as}`;
   try {
-    const board = await boardData(previewPlace, as === "public");
-    frame.innerHTML = BoardView.render(board, as);
-    if (as === "tv") BoardView.fit(frame);
+    drawBoard(frame, boardToDraw(await boardContent(previewBoard.placeId, as === "public"), previewBoard), as);
     document.getElementById("board-preview-note").textContent = as === "tv"
       ? "On the TV it fills the whole screen; the text gets as big as fits."
       : "As someone sees it on their phone (beers marked \"Leave off the public menu\" aren't on it).";
@@ -3146,9 +3174,9 @@ async function showBoardPreview(as) {
     document.getElementById("board-preview-note").textContent = `Couldn't show the board: ${explain(e)}`;
   }
 }
-function openBoardPreview(placeId) {
-  previewPlace = placeId;
-  document.getElementById("board-preview-title").textContent = `${placeName(placeId)}: menu board`;
+function openBoardPreview(board) {
+  previewBoard = board;
+  document.getElementById("board-preview-title").textContent = `${placeName(board.placeId)}: ${boardName(board)}`;
   boardPreview.showModal();
   showBoardPreview("tv");
 }
@@ -3157,17 +3185,268 @@ boardPreview.addEventListener("click", (e) => {
   if (as) showBoardPreview(as);
 });
 
-async function printBoard(placeId) {
+async function printBoard(board) {
   try {
-    const board = await boardData(placeId, false);
+    const drawn = boardToDraw(await boardContent(board.placeId, false), board);
     const sheet = document.getElementById("print-sheet");
     sheet.className = "print-menu";
-    sheet.innerHTML = BoardView.render(board, "print");
+    sheet.innerHTML = BoardView.render(drawn, "print");
+    await BoardView.loadFonts(drawn);
     window.print();
   } catch (e) {
     warn(`Couldn't print the board: ${explain(e)}`);
   }
 }
+
+// ----- Menu boards: the builder -----
+// One board's settings beside a live preview. Every choice comes from a fixed list (layouts, parts,
+// color schemes with a readability check, fonts), so a board can't end up unreadable by accident.
+// Nothing is saved until "Save board".
+const builder = document.getElementById("board-builder");
+const boardForm = document.getElementById("board-form");
+let draft = null;             // the board being built (a copy; saved with "Save board")
+let builderContent = {};      // the taproom's menu for the preview: { tv, public }
+let builderAs = "tv";
+
+// A list that can be put in order: drag the handle (mouse or finger), or use the arrows
+function makeSortable(list, onChange) {
+  const arrows = () => [...list.children].forEach((li, i, all) => {
+    li.querySelector('[data-move="up"]').disabled = i === 0;
+    li.querySelector('[data-move="down"]').disabled = i === all.length - 1;
+  });
+  list.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-move]");
+    if (!b) return;
+    const li = b.closest("li");
+    if (b.dataset.move === "up" && li.previousElementSibling) li.previousElementSibling.before(li);
+    if (b.dataset.move === "down" && li.nextElementSibling) li.nextElementSibling.after(li);
+    arrows();
+    if (b.disabled) li.querySelector(`[data-move="${b.dataset.move === "up" ? "down" : "up"}"]`).focus(); else b.focus();
+    onChange();
+  });
+  list.addEventListener("pointerdown", (e) => {
+    const handle = e.target.closest(".handle");
+    if (!handle) return;
+    e.preventDefault();
+    const li = handle.closest("li");
+    li.classList.add("dragging");
+    // (followed on the whole page: moving the row would make the handle lose track of the finger)
+    const move = (ev) => {
+      const over = [...list.children].find((x) => { const r = x.getBoundingClientRect(); return x !== li && ev.clientY >= r.top && ev.clientY <= r.bottom; });
+      if (!over) return;
+      const r = over.getBoundingClientRect();
+      if (ev.clientY < r.top + r.height / 2) over.before(li); else over.after(li);
+    };
+    const done = () => {
+      li.classList.remove("dragging");
+      removeEventListener("pointermove", move);
+      removeEventListener("pointerup", done);
+      removeEventListener("pointercancel", done);
+      arrows();
+      onChange();
+    };
+    addEventListener("pointermove", move);
+    addEventListener("pointerup", done);
+    addEventListener("pointercancel", done);
+  });
+  list.refreshArrows = arrows;
+}
+const sortRow = (inner, label) => `<span class="handle" aria-hidden="true" title="Drag to move">⠿</span>${inner}
+  <span class="arrows"><button type="button" data-move="up" aria-label="Move ${esc(label)} up">↑</button>
+  <button type="button" data-move="down" aria-label="Move ${esc(label)} down">↓</button></span>`;
+
+function renderBuilderParts() {
+  const list = document.getElementById("builder-parts");
+  const shown = draft.parts.filter((p) => BoardView.PARTS.some((x) => x.id === p));
+  const order = [...shown, ...BoardView.PARTS.map((p) => p.id).filter((p) => !shown.includes(p))];
+  list.innerHTML = order.map((id) => {
+    const part = BoardView.PARTS.find((p) => p.id === id);
+    return `<li data-part="${id}">${sortRow(`<label><input type="checkbox" data-part-on ${shown.includes(id) ? "checked" : ""} ${part.always ? "checked disabled" : ""}>
+      <span>${esc(part.label)}${part.help ? ` <span class="muted">(${esc(part.help)})</span>` : ""}${part.always ? ` <span class="muted">(always)</span>` : ""}</span></label>`, part.label)}</li>`;
+  }).join("");
+  list.refreshArrows();
+}
+function renderBuilderSections() {
+  const sections = data.menu?.sections || [];
+  document.getElementById("builder-sections-box").hidden = !sections.length;
+  const rank = (s) => { const i = draft.sectionOrder.indexOf(s.id); return i < 0 ? 1000 : i; };
+  const list = document.getElementById("builder-sections");
+  list.innerHTML = sections.map((s, i) => ({ ...s, i })).sort((a, b) => rank(a) - rank(b) || a.i - b.i)
+    .map((s) => `<li data-section="${esc(s.id)}">${sortRow(`<label><span>${esc(s.name)}</span></label>`, s.name)}</li>`).join("");
+  list.refreshArrows();
+}
+function renderBuilderLayouts() {
+  document.getElementById("builder-layouts").innerHTML = BoardView.LAYOUTS.map((l) =>
+    `<button type="button" role="radio" aria-checked="${draft.layout === l.id}" data-layout="${l.id}"><strong>${esc(l.label)}</strong>
+      <span class="muted">${esc(l.help)}</span></button>`).join("");
+}
+
+// Is the color scheme readable? (TV text needs more contrast than a phone held close)
+function contrastNote() {
+  const colors = BoardView.colorsOf(draft.theme);
+  const note = document.getElementById("builder-contrast");
+  if (!colors) {
+    note.className = "builder-contrast";
+    note.textContent = draft.theme.scheme === "custom" ? "Pick all three colors." : "";
+    return { ok: true };
+  }
+  const text = BoardView.contrast(colors.text, colors.bg);
+  const accent = BoardView.contrast(colors.accent, colors.bg);
+  const level = text < 4.5 || accent < 3 ? "bad" : text < 7 ? "warn" : "";
+  note.className = `builder-contrast ${level}`;
+  note.textContent = level === "bad"
+    ? `Hard to read: the ${text < 4.5 ? "text" : "accent"} is too close to the background (contrast ${(text < 4.5 ? text : accent).toFixed(1)}; aim for 7).`
+    : level === "warn" ? `Readable up close, but may be hard across a room (contrast ${text.toFixed(1)}; aim for 7).`
+    : `Easy to read across a room (contrast ${text.toFixed(1)}).`;
+  return { ok: level !== "bad", text, accent };
+}
+
+function fillBuilderForm() {
+  const f = boardForm;
+  f.name.value = draft.name;
+  f.title.value = draft.title;
+  f.title.placeholder = placeName(draft.placeId);
+  f.showOnTap.checked = draft.showOnTap;
+  f.showComingSoon.checked = draft.showComingSoon;
+  f.showToGo.checked = draft.showToGo;
+  f.orderBy.value = draft.orderBy;
+  document.getElementById("builder-scheme").innerHTML = BoardView.THEMES.map((t) =>
+    `<option value="${t.id}" ${t.id === (draft.theme.scheme || "auto") ? "selected" : ""}>${esc(t.label)}</option>`).join("");
+  const preset = BoardView.colorsOf({ scheme: "dark" });
+  f.bg.value = draft.theme.bg || preset.bg;
+  f.text.value = draft.theme.text || preset.text;
+  f.accent.value = draft.theme.accent || preset.accent;
+  f.head.value = draft.theme.head || "";
+  f.body.value = draft.theme.body || "";
+  const names = [...new Set(BoardView.FONT_PAIRS.flatMap((p) => [p.head, p.body]).filter(Boolean))].sort();
+  document.getElementById("builder-font-names").innerHTML = names.map((n) => `<option value="${esc(n)}">`).join("");
+  renderBuilderLayouts();
+  renderBuilderParts();
+  renderBuilderSections();
+  syncBuilderExtras();
+}
+// The parts of the form that depend on other choices
+function syncBuilderExtras() {
+  document.getElementById("builder-custom-colors").hidden = draft.theme.scheme !== "custom";
+  const pair = BoardView.FONT_PAIRS.find((p) => p.head === (draft.theme.head || "") && p.body === (draft.theme.body || ""));
+  document.getElementById("builder-pairs").innerHTML = [...BoardView.FONT_PAIRS.map((p) =>
+    `<option value="${p.id}" ${pair?.id === p.id ? "selected" : ""}>${esc(p.label)}${p.head ? ` (${esc(p.head)} / ${esc(p.body)})` : ""}</option>`),
+    pair ? "" : `<option value="" selected>Your own choice</option>`].join("");
+  document.getElementById("builder-sections").closest("fieldset").querySelector("legend").textContent =
+    draft.orderBy === "sections" ? "Sections, in order" : "Sections, in order (when listed by section)";
+  contrastNote();
+}
+
+// Read the form into the draft
+function readBuilderForm() {
+  const f = boardForm;
+  draft.name = f.name.value.trim();
+  draft.title = f.title.value.trim();
+  draft.showOnTap = f.showOnTap.checked;
+  draft.showComingSoon = f.showComingSoon.checked;
+  draft.showToGo = f.showToGo.checked;
+  draft.orderBy = f.orderBy.value;
+  draft.parts = [...document.querySelectorAll("#builder-parts li")].filter((li) => li.querySelector("[data-part-on]").checked).map((li) => li.dataset.part);
+  draft.sectionOrder = [...document.querySelectorAll("#builder-sections li")].map((li) => li.dataset.section);
+  const scheme = document.getElementById("builder-scheme").value;
+  draft.theme = { scheme, ...(scheme === "custom" ? { bg: f.bg.value, text: f.text.value, accent: f.accent.value } : {}),
+    head: f.head.value.trim(), body: f.body.value.trim() };
+  if (!draft.theme.head) delete draft.theme.head;
+  if (!draft.theme.body) delete draft.theme.body;
+}
+
+let builderTimer = null;
+function builderChanged() {
+  readBuilderForm();
+  syncBuilderExtras();
+  clearTimeout(builderTimer);
+  builderTimer = setTimeout(showBuilderPreview, 150);
+}
+// (fonts: once the name is typed, not every letter; the pairing list has its own handler below, since
+// redrawing it in the middle of a pick would undo the pick)
+boardForm.addEventListener("input", (e) => { if (!e.target.matches("[name=head], [name=body], #builder-pairs")) builderChanged(); });
+boardForm.addEventListener("change", (e) => { if (!e.target.matches("#builder-pairs")) builderChanged(); });
+document.getElementById("builder-pairs").addEventListener("change", (e) => {
+  const pair = BoardView.FONT_PAIRS.find((p) => p.id === e.target.value);
+  if (!pair) return;
+  boardForm.head.value = pair.head;
+  boardForm.body.value = pair.body;
+  builderChanged();
+});
+document.getElementById("builder-layouts").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-layout]");
+  if (!b) return;
+  draft.layout = b.dataset.layout;
+  renderBuilderLayouts();
+  builderChanged();
+});
+makeSortable(document.getElementById("builder-parts"), builderChanged);
+makeSortable(document.getElementById("builder-sections"), builderChanged);
+builder.addEventListener("click", (e) => {
+  const as = e.target.closest("[data-builder-as]")?.dataset.builderAs;
+  if (!as) return;
+  builderAs = as;
+  showBuilderPreview();
+});
+
+async function showBuilderPreview() {
+  document.querySelectorAll("[data-builder-as]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.builderAs === builderAs)));
+  const frame = document.getElementById("builder-frame");
+  const note = document.getElementById("builder-note");
+  const which = builderAs === "public" ? "public" : "tv";
+  try {
+    builderContent[which] ??= await boardContent(draft.placeId, which === "public");
+    const drawn = boardToDraw(builderContent[which], draft);
+    note.textContent = { tv: "As the TV shows it: the text gets as big as fits the screen.",
+      public: "As someone sees it on their phone (the public link).", print: "On paper: black on white, with your layout and fonts." }[builderAs];
+    await drawBoard(frame, drawn, builderAs);
+    const missing = [draft.theme.head, draft.theme.body].filter((n) => n && (!BoardView.FONT_NAME.test(n) || BoardView.fontMissing(n)));
+    document.getElementById("builder-font-note").textContent = missing.length
+      ? `Google Fonts doesn't have a font called "${missing.join('" or "')}" (check the spelling); the usual font is used instead.` : "";
+  } catch (e) {
+    frame.innerHTML = "";
+    note.textContent = `Couldn't show the board: ${explain(e)}`;
+  }
+}
+
+function openBuilder(board) {
+  draft = JSON.parse(JSON.stringify(board));
+  draft.theme = draft.theme || { scheme: "auto" };
+  builderContent = {};
+  builderAs = "tv";
+  document.getElementById("board-builder-title").textContent = `${placeName(board.placeId)}: ${board.id ? boardName(board) : "a new board"}`;
+  document.getElementById("delete-board").hidden = !board.id;
+  document.getElementById("builder-font-note").textContent = "";
+  fillBuilderForm();
+  builder.showModal();
+  showBuilderPreview();
+}
+
+boardForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  readBuilderForm();
+  if (!draft.showOnTap && !draft.showComingSoon && !draft.showToGo) {
+    warn("Tick at least one of On tap, Coming soon, or To go, so the board has something to show.");
+    return;
+  }
+  const colors = contrastNote();
+  if (!colors.ok && !(await ask("These colors are hard to read, especially on a TV across a room. Save them anyway?", { ok: "Save anyway" }))) return;
+  const missing = [draft.theme.head, draft.theme.body].filter((n) => n && (!BoardView.FONT_NAME.test(n) || BoardView.fontMissing(n)));
+  if (missing.length && !(await ask(`Google Fonts doesn't have "${missing.join('" or "')}", so the usual font will show instead. Save anyway?`, { ok: "Save anyway" }))) return;
+  const row = { name: draft.name, title: draft.title, order_by: draft.orderBy, show_on_tap: draft.showOnTap,
+    show_coming_soon: draft.showComingSoon, show_to_go: draft.showToGo, layout: draft.layout, parts: draft.parts,
+    section_order: draft.sectionOrder, theme: draft.theme };
+  const ok = await save(() => must(draft.id
+    ? db.from("menu_boards").update(row).eq("id", draft.id)
+    : db.from("menu_boards").insert({ id: newId(), brewery_id: brewery.id, place_id: draft.placeId, ...row })));
+  if (ok) builder.close();
+});
+
+document.getElementById("delete-board").addEventListener("click", async () => {
+  if (!draft?.id) return;
+  if (!(await ask(`Remove the board "${boardName(draft)}"? Its TV and public links stop working right away.`, { ok: "Remove", danger: true }))) return;
+  if (await save(() => must(db.from("menu_boards").delete().eq("id", draft.id)))) builder.close();
+});
 
 // ----- Brew sheet: which fields this brewery measures -----
 // Ticks are kept here while someone is choosing (so a background refresh doesn't undo them),
