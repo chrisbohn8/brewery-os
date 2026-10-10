@@ -134,6 +134,23 @@ try {
   await serverCheck();
   check(sent.slice(before).some((m) => m.text?.includes(`#AQ${run}`)), "once they're over, it's sent");
 
+  console.log("Fermentation checks: thresholds in the brewery's units");
+  await settings(page, "alerts");
+  const unit = await page.evaluate(() => prefs().gravityUnit);
+  const box = page.locator('[data-alert-kind="stalled"]');
+  check(await box.isVisible() && (await box.textContent()).includes("above the target FG"), "Fermentation stalled has its thresholds as a sentence");
+  const shown = await box.locator('[data-param="drop"]').inputValue();
+  check(unit === "sg" ? shown === "0.002" : shown === "0.5", `the drop shows in the brewery's unit (${shown} ${unit})`);
+  await box.locator('[data-param="drop"]').fill(unit === "sg" ? "0.0012" : "0.3");
+  await page.locator('[data-alert-kind="ph"] [data-param="skip_styles"]').fill("sour, gose, berliner, lambic, wild, brett");
+  await page.click("#alerts-form button[type=submit]");
+  await page.waitForFunction(() => document.getElementById("alerts-saved").textContent === "Saved.");
+  const saved = await page.evaluate(async () => Object.fromEntries((await db.from("alert_rules").select("kind, params").eq("brewery_id", brewery.id)).data.map((r) => [r.kind, r.params])));
+  check(Math.abs(saved.stalled?.drop - 0.0012) < 1e-9 && saved.stalled?.days === 3 && saved.ph?.skip_styles?.includes("brett"),
+    `saved in SG (${saved.stalled?.drop}), with the rest of the sentence kept, and the pH list (${saved.ph?.skip_styles?.join(", ")})`);
+  // (back to the usual thresholds, for other test runs)
+  await page.evaluate(async () => { await db.from("alert_rules").delete().eq("brewery_id", brewery.id).in("kind", ["stalled", "looks_finished", "finished_off", "ph"]); await refresh(); });
+
   // Tidy up: nobody emailed by this rule, so other test runs start clean
   await settings(page, "alerts");
   await page.locator('[data-alert-kind="no_gravity"]').locator(`[data-recipient="${me}"]`).uncheck();

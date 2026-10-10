@@ -417,6 +417,14 @@
     <h2>Settings: Alerts</h2>
     <ul>
       <li>Each kind of alert can be on or off, with its threshold: <strong>No gravity logged</strong> (after how many days, in which stages), <strong>Too long in a stage</strong> (a limit per stage; empty for none), <strong>Acid due</strong>, <strong>Under par</strong>, <strong>Low on a raw material</strong> (below the item's reorder level), <strong>Gravity step due</strong> (a logged gravity reached a step in the beer's schedule; see <a href="#calendar">Planning calendar</a>), and <strong>Short for a planned brew</strong> (below).</li>
+      <li><strong>Fermentation checks</strong>, from a batch's own readings (all on to start; each threshold is shown in your units and can be changed):
+        <ul>
+          <li><strong>Fermentation stalled:</strong> a fermenting batch that dropped less than 0.5 °P in 3 days while still more than 1.5 °P above its beer's target FG.</li>
+          <li><strong>Looks finished:</strong> a nudge when a fermenting batch holds steady (two readings within 0.2 °P, at least 2 days apart) at or near its target FG: time to crash or dry hop?</li>
+          <li><strong>Finished high or low:</strong> holding steady more than 1 °P from the target FG. High (once it's past fermenting) may be stuck; low can mean a wild yeast or diastaticus, worth checking before packaging. (Still fermenting, steady and high is a stall, and shows as stalled.)</li>
+          <li><strong>pH:</strong> still above 4.8 after 3 days (a slow start), or up more than 0.2 from its lowest (a common early sign of infection). Beers whose style or name has <em>sour</em>, <em>gose</em>, <em>berliner</em>, <em>lambic</em>, or <em>wild</em> are left out (change the list).</li>
+        </ul>
+        A beer needs a target FG for the gravity checks (Settings → Beers).</li>
       <li><strong>Email to:</strong> tick the people who get each kind. Nobody is ticked to start, so alerts only show on the board until you choose.</li>
       <li><strong>Short for a planned brew:</strong> on by default; <strong>look ahead how many days</strong> for it (14 to start; people who can plan the schedule change it). Items that take longer to arrive are warned about that much earlier.</li>
       <li><strong>Quiet hours:</strong> no emails between these hours (your brewery's time zone); they're sent when the quiet hours end.</li>

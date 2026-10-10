@@ -6391,9 +6391,38 @@ const ALERT_KINDS = [
   { kind: "low_stock", label: "Low on a raw material", help: "Below the item's reorder level (Inventory → Raw materials → Items)." },
   { kind: "gravity_due", label: "Gravity step due", help: "A batch whose logged gravity reached a step in its beer's schedule (\"dry hop at 4 °P\"), until the step is done (Calendar → Beer schedules)." },
   { kind: "short_for_brew", label: "Short for a planned brew", help: "A brew on the calendar that there won't be enough of a raw material for (on hand, plus deliveries on order, minus earlier planned brews), unless someone dismissed it." },
+  // Fermentation checks, from a batch's own readings (supabase/migrations/..._fermentation_checks.sql)
+  { kind: "stalled", label: "Fermentation stalled", help: "A fermenting batch whose gravity has hardly moved, while still well above its beer's target FG.",
+    sentence: "Dropped less than {drop:gdiff} in {days:int} days, while more than {above_fg:gdiff} above the target FG." },
+  { kind: "looks_finished", label: "Looks finished", help: "A nudge: a fermenting batch whose gravity has held steady at (or near) its target FG. Time to crash or dry hop?",
+    sentence: "Two readings within {within:gdiff} of each other, at least {days:int} days apart." },
+  { kind: "finished_off", label: "Finished high or low", help: "A batch holding steady, but far from its target FG: high (once it's past fermenting) may be stuck; low can mean a wild yeast. (Still fermenting, steady and high shows as stalled.)",
+    sentence: "More than {off:gdiff} from the target FG." },
+  { kind: "ph", label: "pH", help: "A slow start (pH still high days into fermentation) or a rise after it dropped (a common early sign of infection). Sour styles are left out.",
+    sentence: "Still above pH {max_after:num} after {days:int} days; or up more than {rise:num} from its lowest. Leave out styles or beers whose name has: {skip_styles:list}." },
 ];
 const ALERT_DEFAULTS = { no_gravity: { days: 3, stages: ["fermenting", "dry-hopping"] },
-  stage_too_long: { days: { fermenting: 21, "dry-hopping": 7, conditioning: 28, carbonating: 7, ready: 30 } } };
+  stage_too_long: { days: { fermenting: 21, "dry-hopping": 7, conditioning: 28, carbonating: 7, ready: 30 } },
+  stalled: { drop: 0.002, days: 3, above_fg: 0.006 }, looks_finished: { within: 0.0008, days: 2 }, finished_off: { off: 0.004 },
+  ph: { max_after: 4.8, days: 3, rise: 0.2, skip_styles: ["sour", "gose", "berliner", "lambic", "wild"] } };
+// A threshold in a sentence: a gravity difference (in the brewery's unit; kept in SG), a whole number, a number, or a list
+const GDIFF = LIMIT_KINDS.find((k) => k.key === "gravity");
+function paramInput(name, type, value) {
+  if (type === "gdiff") return `<input type="number" min="0" step="any" inputmode="decimal" class="param-input" data-param="${name}" data-type="gdiff"
+    value="${value == null ? "" : +GDIFF.toShown(value).toFixed(prefs().gravityUnit === "sg" ? 4 : 2)}"> ${GDIFF.unit()}`;
+  if (type === "list") return `<input class="param-input wide" data-param="${name}" data-type="list" value="${esc((value || []).join(", "))}">`;
+  return `<input type="number" min="0" step="${type === "int" ? 1 : "any"}" inputmode="decimal" class="param-input" data-param="${name}" data-type="${type}" value="${value ?? ""}">`;
+}
+const paramSentence = (sentence, params) => sentence.replace(/\{(\w+):(\w+)\}/g, (_, name, type) => paramInput(name, type, params[name]));
+function readParams(box) {
+  const params = {};
+  for (const input of box.querySelectorAll(".param-input")) {
+    const { param, type } = input.dataset;
+    if (type === "list") params[param] = input.value.split(",").map((x) => x.trim()).filter(Boolean);
+    else if (input.value !== "") params[param] = type === "gdiff" ? Math.abs(GDIFF.fromShown(Number(input.value))) : type === "int" ? Math.round(Number(input.value)) : Number(input.value);
+  }
+  return params;
+}
 const ruleFor = (kind) => {
   const r = (data.alertRules || []).find((x) => x.kind === kind);
   return { enabled: r ? r.enabled : true, params: { ...(ALERT_DEFAULTS[kind] || {}), ...(r?.params || {}) }, recipients: r?.recipients || [] };
@@ -6428,7 +6457,7 @@ function renderAlertSettings() {
   const members = (data.members || []).filter((m) => m.email);
   const stageInputs = (params) => STAGES.filter((s) => !["packaged", "used"].includes(s.id)).map((s) => `
     <label>${s.label} <input type="number" min="1" step="1" inputmode="numeric" data-stage-days="${s.id}" value="${params.days?.[s.id] ?? ""}" placeholder="no limit"></label>`).join("");
-  document.getElementById("alert-rules").innerHTML = ALERT_KINDS.map(({ kind, label, help }) => {
+  document.getElementById("alert-rules").innerHTML = ALERT_KINDS.map(({ kind, label, help, sentence }) => {
     const r = ruleFor(kind);
     const extra = kind === "no_gravity" ? `<div class="two-col"><label>After how many days <input type="number" min="1" step="1" inputmode="numeric" data-param="days" value="${r.params.days}"></label>
         <div><span class="muted">In these stages</span>${STAGES.filter((s) => !["packaged", "used"].includes(s.id)).map((s) => `
@@ -6436,7 +6465,8 @@ function renderAlertSettings() {
       : kind === "stage_too_long" ? `<div class="stage-days">${stageInputs(r.params)}</div>`
       : kind === "short_for_brew" ? `<label>Look ahead how many days <input type="number" min="1" max="90" step="1" inputmode="numeric" id="lookahead-days"
           value="${data.planLookaheadDays ?? 14}" ${can("plan_schedule") ? "" : "data-locked"}></label>
-          <p class="muted">Brews further out than this are still checked on the calendar; an item that takes longer to arrive (its lead time) is warned about that much earlier.</p>` : "";
+          <p class="muted">Brews further out than this are still checked on the calendar; an item that takes longer to arrive (its lead time) is warned about that much earlier.</p>`
+      : sentence ? `<p class="alert-sentence">${paramSentence(sentence, r.params)}</p>` : "";
     return `<fieldset class="group alert-rule" data-alert-kind="${kind}">
       <legend><label class="choice"><input type="checkbox" data-enabled ${r.enabled ? "checked" : ""}> ${label}</label></legend>
       <p class="muted">${help}</p>${extra}
@@ -6462,6 +6492,7 @@ document.getElementById("alerts-form").addEventListener("submit", async (e) => {
     if (kind === "stage_too_long") {
       params.days = Object.fromEntries([...box.querySelectorAll("[data-stage-days]")].filter((i) => i.value !== "").map((i) => [i.dataset.stageDays, Number(i.value)]));
     }
+    if (ALERT_KINDS.find((k) => k.kind === kind)?.sentence) Object.assign(params, readParams(box));
     return { brewery_id: brewery.id, kind, enabled: box.querySelector("[data-enabled]").checked, params,
       recipients: [...box.querySelectorAll("[data-recipient]:checked")].map((i) => i.dataset.recipient) };
   });

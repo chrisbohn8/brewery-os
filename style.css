@@ -889,3 +889,8 @@ body.in-demo .demo-note { display: block; }
 .tryit-tick { flex: none; width: 26px; height: 26px; border-radius: 50%; border: 2px solid var(--border); display: grid; place-items: center; font-weight: 700; }
 .tryit-job.done .tryit-tick { background: var(--ready); border-color: var(--ready); color: #fff; }
 .tryit-count { font-weight: 600; margin: 4px 0; }
+
+/* An alert's thresholds, written as a sentence with boxes in it */
+.alert-sentence { line-height: 2.2; }
+.alert-sentence .param-input { width: 5.5em; padding: 4px 6px; font: inherit; display: inline-block; }
+.alert-sentence .param-input.wide { width: min(100%, 22em); }

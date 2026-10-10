@@ -546,6 +546,17 @@
       const late = (c) => c.batchId === quiet.id && c.occurredOn > dayString(-3);
       d.cellar = d.cellar.filter((c) => !(late(c) && c.action === "Check")).map((c) => (late(c) ? { ...c, gravitySg: null } : c));
     }
+    // Another fermenting batch stalled partway (the demo shows the "stalled" check): from its second day
+    // its gravity barely moves, well above its target FG. (Its own random sequence: nothing else changes.)
+    const stallRandom = rng(777);
+    const stalled = active.filter((b) => b !== quiet && b.stage === "fermenting" && b.start <= -5).sort((a, b) => a.start - b.start)[0];
+    if (stalled) {
+      const plateau = gravityOn(stalled, 2);
+      for (const c of d.cellar) {
+        const age = Math.round((new Date(`${c.occurredOn}T12:00:00`) - new Date(`${dayString(stalled.start)}T12:00:00`)) / 86400000);
+        if (c.batchId === stalled.id && c.gravitySg != null && age >= 2) c.gravitySg = round(plateau - 0.0001 * (age - 2) - stallRandom() * 0.0001, 4);
+      }
+    }
 
     // ---------- Today: tanks' statuses ----------
     for (const t of d.tanks) {

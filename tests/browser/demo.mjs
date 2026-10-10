@@ -115,7 +115,7 @@ try {
   check(!facts.lotsNegative.length && facts.lots > 20, `raw materials by lot, none used beyond what was received (${facts.lots} lots${facts.lotsNegative.length ? `; below zero: ${facts.lotsNegative.join(", ")}` : ""})`);
   check(facts.low.length > 0, `something is low on raw materials (${facts.low.join(", ")})`);
   check(facts.threeTurns && facts.split && facts.blend, `a three-turn batch with a sheet for each turn (${facts.threeTurns}), a split (${facts.split}), and a blend (${facts.blend})`);
-  check(["no_gravity", "under_par", "low_stock"].every((k) => facts.alerts.includes(k)), `alerts on the tank board (${Object.entries(facts.alerts.reduce((m, k) => ((m[k] = (m[k] || 0) + 1), m), {})).map(([k, n]) => `${k} ${n}`).join(", ")})`);
+  check(["no_gravity", "under_par", "low_stock", "stalled"].every((k) => facts.alerts.includes(k)), `alerts on the tank board (${Object.entries(facts.alerts.reduce((m, k) => ((m[k] = (m[k] || 0) + 1), m), {})).map(([k, n]) => `${k} ${n}`).join(", ")})`);
   check(facts.plans >= 10 && facts.recipes >= 10 && facts.lines >= 10 && facts.boards === 4 && facts.views === 1 && facts.pars >= 10 && facts.cleanings > 0,
     `the calendar, recipes, draft lines, menu boards, a view, pars, acid cycles (${JSON.stringify({ plans: facts.plans, recipes: facts.recipes, lines: facts.lines, boards: facts.boards, pars: facts.pars, cleanings: facts.cleanings })})`);
   await page.screenshot({ path: `${SHOTS}demo-tanks.png`, fullPage: false });
