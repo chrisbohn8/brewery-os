@@ -575,6 +575,8 @@ The user's idea (2026-10-08): see the week ahead, tank by tank, and know before 
 
 ### Up soon: a demo brewery for prospects
 - [ ] **"Try the demo"** (the user's idea, 2026-10-10; **[design draft](docs/demo-design.md)**): one tap, no email; each visitor gets their own copy of a lived-in demo brewery, deleted after about a week, never turned into a real one. Two locations to show one-, two-, and three-turn batches (a 15 bbl brewhouse with 15s and 30s; a 30 bbl brewhouse with 30s, 60s, and a 90), with three months of history dated relative to today.
+    - [x] **Step 1, the demo brewery** (done 2026-10-10): `demo.js` simulates 90 days of brewing at both locations, day by day, ending today (brew days, transfers to free brites, packaging days, taproom restocks and counts, wholesale, deliveries by lot, a split and a blend), loaded in one step like a backup. `tests/browser/demo.mjs` checks every day of the week: beer in several stages, one batch per tank, volumes and stock that add up, and something on every screen.
+    - [ ] Step 2, "Try the demo"; step 3, the weekly clean-up; step 4, the guide and a short tour.
 
 ### Later: the official app, and a feature tour
 - [ ] **Installable web app** (home-screen icon, full screen): quick, any time.

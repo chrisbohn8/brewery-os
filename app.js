@@ -438,6 +438,19 @@ async function sendErrorReports() {
 window.addEventListener("error", (e) => reportError(e.error || new Error(e.message), "crash"));
 window.addEventListener("unhandledrejection", (e) => reportError(e.reason, "unhandled"));
 
+// Every row of a list, however long. The database answers at most 1000 rows to a request, so a
+// long list (a year's brew-sheet values, cellar log, stock records) is asked for in pages, in a
+// fixed order (ending with the id, so no row is skipped or repeated between pages).
+const PAGE_ROWS = 1000;
+async function allRows(query) {
+  const rows = [];
+  for (let from = 0; ; from += PAGE_ROWS) {
+    const page = await must(query().range(from, from + PAGE_ROWS - 1));
+    rows.push(...page);
+    if (page.length < PAGE_ROWS) return rows;
+  }
+}
+
 // Load everything for the current brewery, in the shape the rest of the page uses.
 // `serverData` is exactly what the database has; `data` (what the screen shows) is that,
 // plus any changes made on this phone that are still waiting to be sent.
@@ -448,49 +461,49 @@ async function loadAll() {
   // its alert right away). A failed check never stops the data loading; the server checks too.
   await db.rpc("check_alerts", { p_brewery_id: b }).then(() => {}, () => {});
   const [locations, beers, tanks, batches, events, cleanings, settings, members, invites, permissions, memberRows, levels, cellar, additions, readings, movements, packageTypes, packageCounts, places, stockMoves, pars, rawItems, rawReceipts, rawAdjustments, lines, inventoryViews, recipes, recipeIngredientRows, alertRules, alerts, planItems, schedules, shifts, rawOrders, shortfalls, needs, gravityDue, boards, brewFiles] = await Promise.all([
-    must(db.from("locations").select("*").eq("brewery_id", b).order("created_at")),
-    must(db.from("beers").select("*").eq("brewery_id", b)),
-    must(db.from("tanks").select("*").eq("brewery_id", b).order("created_at")),
-    must(db.from("batch_status").select("*").eq("brewery_id", b)),
-    must(db.from("batch_events").select("*").eq("brewery_id", b).order("effective_date").order("recorded_at")),
-    must(db.from("tank_cleanings").select("*").eq("brewery_id", b).order("cleaned_on").order("recorded_at")),
+    allRows(() => db.from("locations").select("*").eq("brewery_id", b).order("created_at").order("id")),
+    allRows(() => db.from("beers").select("*").eq("brewery_id", b).order("id")),
+    allRows(() => db.from("tanks").select("*").eq("brewery_id", b).order("created_at").order("id")),
+    allRows(() => db.from("batch_status").select("*").eq("brewery_id", b).order("id")),
+    allRows(() => db.from("batch_events").select("*").eq("brewery_id", b).order("effective_date").order("recorded_at").order("id")),
+    allRows(() => db.from("tank_cleanings").select("*").eq("brewery_id", b).order("cleaned_on").order("recorded_at").order("id")),
     must(db.from("breweries").select("acid_after_styles, temperature_unit, gravity_unit, volume_unit, time_zone, target_limits, sheet_fields, sheet_custom_fields, sheet_field_settings, stock_reasons, require_stock_reason, alert_quiet_start, alert_quiet_end, plan_lookahead_days, recipes_per, gravity_trigger_readings, menu_sizes, menu_sections, menu_tags, menu_fields").eq("id", b).single()),
     must(db.rpc("brewery_members", { p_brewery_id: b })),
-    must(db.from("invites").select("*").eq("brewery_id", b).order("created_at")), // admins only; others get none
+    allRows(() => db.from("invites").select("*").eq("brewery_id", b).order("created_at").order("id")), // admins only; others get none
     must(db.rpc("my_permissions", { b })),
     must(db.from("memberships").select("user_id, role, grants, revokes").eq("brewery_id", b)),
     must(db.from("role_levels").select("level, permissions").eq("brewery_id", b)),
-    must(db.from("cellar_entries").select("*").eq("brewery_id", b).order("occurred_on").order("recorded_at")),
-    must(db.from("batch_additions").select("*").eq("brewery_id", b).order("added_on").order("recorded_at")),
+    allRows(() => db.from("cellar_entries").select("*").eq("brewery_id", b).order("occurred_on").order("recorded_at").order("id")),
+    allRows(() => db.from("batch_additions").select("*").eq("brewery_id", b).order("added_on").order("recorded_at").order("id")),
     // (only each field's current value; history stays in the database)
-    must(db.from("batch_readings_current").select("id, batch_id, turn, field_key, value, value_text, raw, recorded_at").eq("brewery_id", b)),
-    must(db.from("beer_movements").select("*").eq("brewery_id", b).order("occurred_on").order("recorded_at")),
-    must(db.from("package_types").select("*").eq("brewery_id", b).order("created_at")),
-    must(db.from("package_counts").select("*").eq("brewery_id", b)),
-    must(db.from("stock_places").select("*").eq("brewery_id", b).order("created_at")),
-    must(db.from("stock_moves").select("*").eq("brewery_id", b).order("occurred_on").order("recorded_at")),
-    must(db.from("stock_pars").select("*").eq("brewery_id", b)),
-    must(db.from("raw_items").select("*").eq("brewery_id", b).order("created_at")),
-    must(db.from("raw_receipts").select("*").eq("brewery_id", b).order("received_on").order("recorded_at")),
-    must(db.from("raw_adjustments").select("*").eq("brewery_id", b).order("adjusted_on").order("recorded_at")),
-    must(db.from("draft_lines").select("*").eq("brewery_id", b)),
-    must(db.from("inventory_views").select("*").eq("brewery_id", b)),
-    must(db.from("recipes").select("*").eq("brewery_id", b).order("created_at")),
-    must(db.from("recipe_ingredients").select("*").eq("brewery_id", b)),
+    allRows(() => db.from("batch_readings_current").select("id, batch_id, turn, field_key, value, value_text, raw, recorded_at").eq("brewery_id", b).order("id")),
+    allRows(() => db.from("beer_movements").select("*").eq("brewery_id", b).order("occurred_on").order("recorded_at").order("id")),
+    allRows(() => db.from("package_types").select("*").eq("brewery_id", b).order("created_at").order("id")),
+    allRows(() => db.from("package_counts").select("*").eq("brewery_id", b).order("id")),
+    allRows(() => db.from("stock_places").select("*").eq("brewery_id", b).order("created_at").order("id")),
+    allRows(() => db.from("stock_moves").select("*").eq("brewery_id", b).order("occurred_on").order("recorded_at").order("id")),
+    allRows(() => db.from("stock_pars").select("*").eq("brewery_id", b).order("id")),
+    allRows(() => db.from("raw_items").select("*").eq("brewery_id", b).order("created_at").order("id")),
+    allRows(() => db.from("raw_receipts").select("*").eq("brewery_id", b).order("received_on").order("recorded_at").order("id")),
+    allRows(() => db.from("raw_adjustments").select("*").eq("brewery_id", b).order("adjusted_on").order("recorded_at").order("id")),
+    allRows(() => db.from("draft_lines").select("*").eq("brewery_id", b).order("id")),
+    allRows(() => db.from("inventory_views").select("*").eq("brewery_id", b).order("id")),
+    allRows(() => db.from("recipes").select("*").eq("brewery_id", b).order("created_at").order("id")),
+    allRows(() => db.from("recipe_ingredients").select("*").eq("brewery_id", b).order("id")),
     must(db.from("alert_rules").select("*").eq("brewery_id", b)),
-    must(db.from("alerts").select("*").eq("brewery_id", b).is("resolved_at", null).order("opened_at")),
-    must(db.from("plan_items").select("*").eq("brewery_id", b).order("planned_on").order("created_at")),
+    allRows(() => db.from("alerts").select("*").eq("brewery_id", b).is("resolved_at", null).order("opened_at").order("id")),
+    allRows(() => db.from("plan_items").select("*").eq("brewery_id", b).order("planned_on").order("created_at").order("id")),
     must(db.from("beer_schedules").select("beer_id, steps").eq("brewery_id", b)),
     must(db.from("plan_shifts").select("batch_id, days").eq("brewery_id", b)),
-    must(db.from("raw_orders").select("*").eq("brewery_id", b).is("received_at", null).order("expected_on")),
+    allRows(() => db.from("raw_orders").select("*").eq("brewery_id", b).is("received_at", null).order("expected_on").order("id")),
     // Will there be enough for the planned brews? Worked out by the database (plan_shortfalls), one place for the arithmetic
     must(db.rpc("plan_shortfalls", { p_brewery_id: b })),
     must(db.rpc("plan_needs", { p_brewery_id: b })),
     // Schedule steps a logged gravity has reached ("dry hop at 4 °P"): gravity_due in the database
     must(db.rpc("gravity_due", { p_brewery_id: b })),
-    must(db.from("menu_boards").select("*").eq("brewery_id", b)),
+    allRows(() => db.from("menu_boards").select("*").eq("brewery_id", b).order("id")),
     // The brewery's own fonts and logos: names and sizes only (each file is fetched when it's used)
-    must(db.from("brewery_files").select("id, kind, name, mime, bytes, created_at").eq("brewery_id", b).order("created_at")),
+    allRows(() => db.from("brewery_files").select("id, kind, name, mime, bytes, created_at").eq("brewery_id", b).order("created_at").order("id")),
   ]);
   // Each member: email and level (from brewery_members) plus their personal adjustments
   const adjustments = Object.fromEntries(memberRows.map((r) => [r.user_id, r]));
