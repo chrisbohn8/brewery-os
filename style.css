@@ -580,7 +580,14 @@ dialog fieldset.acid p { margin: 0 0 8px; }
 #blend-editor h3 { margin: 14px 0 4px; font-size: 1rem; }
 
 /* Inventory */
-.header-buttons { display: flex; gap: 8px; }
+.header-buttons { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+/* A phone: the buttons get their own row under the title (four buttons don't fit beside it) */
+@media (max-width: 600px) {
+  .top { flex-wrap: wrap; gap: 10px; }
+  .top > div { flex: 1 1 100%; }
+  .header-buttons { flex: 1 1 100%; justify-content: flex-start; gap: 6px; }
+  .header-buttons .btn { padding: 8px 10px; font-size: 0.95rem; }
+}
 .help-btn { min-width: 44px; font-weight: 700; }
 
 /* Help: one section of guide.html, shown in a dialog */
