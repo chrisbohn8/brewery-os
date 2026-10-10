@@ -573,6 +573,9 @@ The user's idea (2026-10-08): see the week ahead, tank by tank, and know before 
 - [x] **Plan ahead:** put a future brew on an empty tank, and see a clash (two batches planned into one tank, a tank still full on the planned brew day) before it happens.
 - [x] **In Google or Apple Calendar:** a private calendar link each person can subscribe to (read-only, one-way, revocable like an API key), with all tanks or just chosen ones. Note: Google Calendar refreshes subscribed calendars only every several hours, so the app stays the live view.
 
+### Up soon: a demo brewery for prospects
+- [ ] **"Try the demo"** (the user's idea, 2026-10-10; **[design draft](docs/demo-design.md)**): one tap, no email; each visitor gets their own copy of a lived-in demo brewery, deleted after about a week, never turned into a real one. Two locations to show one-, two-, and three-turn batches (a 15 bbl brewhouse with 15s and 30s; a 30 bbl brewhouse with 30s, 60s, and a 90), with three months of history dated relative to today.
+
 ### Later: the official app, and a feature tour
 - [ ] **Installable web app** (home-screen icon, full screen): quick, any time.
 - [ ] **App Store app** (the user's idea: an "official" app earns respect): the same code in a native shell (Capacitor), so no rewrite. Needs an Apple Developer account ($99/year), icons and screenshots, and Apple's review; native features make the case for it (camera QR scanning, push reminders like "acid due" or "under par", keeping the screen awake on the brew deck). A few days of work plus about a week of review. **Android** from the same project later ($25 one-time). Best timed before the pilots, with onboarding.
