@@ -28,6 +28,8 @@
 .mb-swatch { display: inline-block; width: 0.7em; height: 0.7em; border-radius: 50%; margin-right: 0.35em; vertical-align: 0.02em; border: 1px solid rgba(0, 0, 0, 0.25); }
 .mb-tag { display: inline-block; font-size: 0.6em; font-weight: 600; padding: 0.1em 0.5em; margin-left: 0.5em; border-radius: 1em; vertical-align: 0.25em; white-space: nowrap; }
 .mb-badge { background: var(--mb-accent); color: var(--mb-accent-text); }
+/* Almost gone: outlined in the accent color, so it reads apart from the brewery's own tags */
+.mb-almost { border: 0.12em solid var(--mb-accent); color: var(--mb-accent); }
 .mb-allergen { border: 1px solid var(--mb-dim); color: var(--mb-dim); }
 .mb-facts { color: var(--mb-dim); font-size: 0.85em; }
 .mb-words { font-size: 0.85em; margin-top: 0.1em; }

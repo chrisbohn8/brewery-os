@@ -1,6 +1,6 @@
 # Menu boards: design (draft for review)
 
-Status: **steps 1 and 2 built (2026-10-09); step 3, the builder (3a) with uploaded fonts and logos (3b), built (2026-10-10).** Fonts and logos are kept in the database (not a separate file store), so they're in every backup. "Almost gone" (step 2) waits until keg levels are tracked. Built in three steps, each useful on its own: (1) the menu's data, (2) one good board (TV, print, public link), (3) the board builder. The open questions are at the end.
+Status: **steps 1 and 2 built (2026-10-09); step 3, the builder (3a) with uploaded fonts and logos (3b), built (2026-10-10).** Fonts and logos are kept in the database (not a separate file store), so they're in every backup. "Almost gone" is built (2026-10-10, docs/keg-design.md): a beer is almost gone when no storage place has a keg of it left. Built in three steps, each useful on its own: (1) the menu's data, (2) one good board (TV, print, public link), (3) the board builder. The open questions are at the end.
 
 ## What it's for
 

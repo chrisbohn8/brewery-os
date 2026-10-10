@@ -40,6 +40,7 @@
     { id: "color", label: "Color dot", row: "title" },
     { id: "name", label: "Name", row: "title", always: true },
     { id: "tags", label: "Tags", row: "title" },
+    { id: "almost", label: "Almost gone", row: "title", help: "when no storage place has a keg of it left" },
     { id: "style", label: "Style", row: "facts" },
     { id: "abv", label: "ABV", row: "facts" },
     { id: "ibu", label: "IBU", row: "facts" },
@@ -47,7 +48,7 @@
     { id: "fields", label: "Your own fields", row: "fields", help: "not on the TV" },
     { id: "prices", label: "Prices", row: "prices" },
   ];
-  const DEFAULT_PARTS = ["number", "color", "name", "style", "abv", "ibu", "tags", "words", "fields", "prices"];
+  const DEFAULT_PARTS = ["number", "color", "name", "almost", "style", "abv", "ibu", "tags", "words", "fields", "prices"];
   // Color schemes: background, text, and accent (headings and badges). "auto" is step 2's look:
   // dark on a TV, the phone's light or dark on the public page.
   const THEMES = [
@@ -223,6 +224,7 @@
     const part = {
       color: () => (b.srm != null ? `<span class="mb-swatch" style="background:${srmColor(b.srm)}" aria-hidden="true"></span>` : ""),
       name: () => `<span class="mb-beer">${esc(b.name)}</span>`,
+      almost: () => (b.almost_gone ? `<span class="mb-tag mb-almost">Almost gone</span>` : ""),
       tags: () => (b.tags || []).map((t) => `<span class="mb-tag mb-${t.kind === "allergen" ? "allergen" : "badge"}">${esc(t.name)}</span>`).join(""),
       style: () => esc(b.style || ""),
       abv: () => (b.abv != null ? `${num(b.abv)}%` : ""),

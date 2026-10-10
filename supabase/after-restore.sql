@@ -65,6 +65,9 @@ revoke execute on function public.approve_api_suggestion(uuid, jsonb) from anon;
 revoke execute on function public.reject_api_suggestion(uuid) from anon;
 revoke execute on function public.undo_api_action(uuid) from anon;
 revoke execute on function public.mark_api_action_undone(uuid) from anon;
+-- Kicked kegs (kick_keg is for people and keys; beer_almost_gone runs only inside the board's content)
+revoke execute on function public.kick_keg(uuid, uuid, date, uuid, text) from anon;
+revoke execute on function public.beer_almost_gone(uuid) from anon, authenticated;
 -- The daily demo clean-up is a scheduled job (not in backups' tables): schedule it again
 create extension if not exists pg_cron with schema pg_catalog;
 select cron.schedule('brewery-os-demo-cleanup', '23 9 * * *', $job$ select public.cleanup_demos(); $job$);

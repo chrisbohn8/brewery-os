@@ -151,6 +151,7 @@
     const random = rng(20261010);
     // pH has its own sequence, so adding it didn't change how the rest of the three months play out
     const phRandom = rng(4321);
+    const kickRandom = rng(999); // (its own stream, so the rest of the demo stays the same)
     const phJitter = (n) => (phRandom() - 0.5) * 2 * n;
     const pick = (list) => list[Math.floor(random() * list.length)];
     const jitter = (n) => (random() - 0.5) * 2 * n;
@@ -169,7 +170,7 @@
       beers: [], menu: MENU, cleanings: [], acidAfterStyles: ["Gose"],
       batches: [], events: [], movements: [], places: [], packageTypes: [], packageCounts: [], stockMoves: [],
       rawItems: [], rawReceipts: [], rawAdjustments: [], rawOrders: [], recipes: [], recipeIngredients: [],
-      cellar: [], additions: [], readings: [], views: [], lines: [], pars: [], planItems: [], schedules: {}, shifts: {},
+      cellar: [], additions: [], readings: [], views: [], lines: [], pars: [], kicks: [], planItems: [], schedules: {}, shifts: {},
       planLookaheadDays: 14, recipesPer: "turn", gravityReadings: 1,
       prefs: { temperatureUnit: "F", gravityUnit: "plato", volumeUnit: "bbl", timeZone: "America/Chicago" },
       sheetFields: null, sheetCustomFields: [], sheetFieldSettings: {}, files: [], boards: [],
@@ -463,7 +464,12 @@
           const group = id("grp");
           for (const beer of BEERS) {
             const kegs = have(taproom, beer.id, "half");
-            if (kegs > 0) take(taproom, beer.id, "half", Math.min(kegs, 1 + Math.floor(random() * 2)), n, { kind: "removed", removalKind: "taproom", groupId: group, notes: "count" });
+            const poured = kegs > 0 ? take(taproom, beer.id, "half", Math.min(kegs, 1 + Math.floor(random() * 2)), n, { kind: "removed", removalKind: "taproom", groupId: group, notes: "count" }) : 0;
+            // ...each poured keg was kicked on some day that week (its line is filled in once the lines are known)
+            for (let k = 0; k < poured; k++) {
+              const day = n - Math.floor(kickRandom() * 7);
+              d.kicks.push({ placeId: taproom, beerId: beer.id, label: "", packageTypeId: "half", kickedOn: dayString(day), lineNo: null, recordedAt: `${dayString(day)}T22:00:00Z` });
+            }
             const cases = have(taproom, beer.id, "case16");
             if (cases > 0) take(taproom, beer.id, "case16", Math.min(cases, 1), n, { kind: "removed", removalKind: "taproom", groupId: group, notes: "count" });
           }
@@ -628,6 +634,15 @@
     d.rawItems.find((i) => i.name === "Mosaic").reorderLevel = Math.ceil(mosaicLeft + 30);
     d.rawOrders.push({ itemId: "raw-Mosaic", amount: 88, expectedOn: dayString(12), supplier: SUPPLIERS.hop, notes: "Two boxes" });
 
+    // The one-off blend's last kegs in storage went to a festival yesterday, so it's "Almost gone" on the boards
+    for (const l of LOCATIONS) {
+      const storage = `${l.id[0]}-storage`;
+      for (const type of ["half", "sixth"]) {
+        const left = have(storage, "blend", type);
+        if (left > 0) take(storage, "blend", type, left, -1, { kind: "removed", removalKind: "sold", account: "Fall beer festival", groupId: id("grp"), notes: "" });
+      }
+    }
+
     // ---------- Taprooms: draft lines, pars, a view, and boards ----------
     for (const l of LOCATIONS) {
       const taproom = `${l.id[0]}-taproom`;
@@ -636,6 +651,7 @@
       d.lines.push({ placeId: taproom, lineNo: pouring.length + 1, status: "other", beerId: null, label: "Guest cider" });
       d.lines.push({ placeId: taproom, lineNo: pouring.length + 2, status: "empty", beerId: null, label: "" });
       // Pars of a keg and a half, two for the best sellers (so a few are under, and "Bring up" shows)
+      for (const k of d.kicks.filter((x) => x.placeId === taproom)) k.lineNo = pouring.findIndex((b) => b.id === k.beerId) + 1 || null;
       for (const b of pouring) d.pars.push({ placeId: taproom, beerId: b.id, parBbl: b.id === "hazy" || b.id === "pils" ? 1.5 : 1, parCases: b.cans ? 2 : null });
     }
     for (const b of ["hazy", "wcipa", "pils", "pale"]) d.pars.push({ placeId: null, beerId: b, parBbl: 20, parCases: 30 });
@@ -643,11 +659,11 @@
       show: ["total_bbl", "par_bbl", "pipeline"], beers: "stock_or_par", sortMode: "az", position: 0 });
     d.boards.push(
       { placeId: "r-taproom", title: "On tap", orderBy: "sections", showComingSoon: true, showToGo: false, name: "TV 1: drafts", layout: "columns",
-        parts: ["number", "color", "name", "tags", "style", "abv", "words", "prices"], sectionOrder: [], theme: { scheme: "chalkboard", head: "Oswald", body: "Roboto" }, showOnTap: true },
+        parts: ["number", "color", "name", "almost", "tags", "style", "abv", "words", "prices"], sectionOrder: [], theme: { scheme: "chalkboard", head: "Oswald", body: "Roboto" }, showOnTap: true },
       { placeId: "r-taproom", title: "Riverside menu", orderBy: "sections", showComingSoon: true, showToGo: true, name: "Website menu", layout: "list",
-        parts: ["color", "name", "tags", "style", "abv", "ibu", "words", "fields", "prices"], sectionOrder: [], theme: { scheme: "auto" }, showOnTap: true },
+        parts: ["color", "name", "almost", "tags", "style", "abv", "ibu", "words", "fields", "prices"], sectionOrder: [], theme: { scheme: "auto" }, showOnTap: true },
       { placeId: "n-taproom", title: "Northgate taproom", orderBy: "lines", showComingSoon: true, showToGo: false, name: "TV 1: drafts", layout: "cards",
-        parts: ["number", "color", "name", "tags", "style", "abv", "ibu", "words", "prices"], sectionOrder: [], theme: { scheme: "midnight", head: "Bebas Neue", body: "Lato" }, showOnTap: true },
+        parts: ["number", "color", "name", "almost", "tags", "style", "abv", "ibu", "words", "prices"], sectionOrder: [], theme: { scheme: "midnight", head: "Bebas Neue", body: "Lato" }, showOnTap: true },
       { placeId: "n-taproom", title: "To go", orderBy: "lines", showComingSoon: false, showToGo: true, name: "TV 2: cans to go", layout: "compact",
         parts: ["name", "style", "abv", "prices"], sectionOrder: [], theme: { scheme: "kraft", head: "Rye", body: "Lora" }, showOnTap: false },
     );

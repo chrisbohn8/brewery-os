@@ -254,7 +254,7 @@ try {
   await allSent();
   await page.screenshot({ path: SHOTS + "lines.png", fullPage: true });
   const linesText = await text("#inv-lines");
-  check(/1 Old Stock .* none here 2 Wine 3 Inv Ale .* 8 × ½ bbl keg here/.test(linesText), `lines: "${linesText.slice(0, 150)}"`);
+  check(/1 Old Stock .* none here (Kicked )?2 Wine (Kicked )?3 Inv Ale .* 8 × ½ bbl keg here/.test(linesText), `lines: "${linesText.slice(0, 150)}"`);
   check(!(await text("#inv-deck")).includes(`Old Stock ${run}`), "a beer on a line isn't 'on deck' any more");
   await page.click("#inv-count");
   await page.waitForSelector("#count-editor[open]");

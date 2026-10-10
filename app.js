@@ -463,7 +463,7 @@ async function loadAll() {
   // Bring the alerts up to date first, so the list below is current (a gravity just logged clears
   // its alert right away). A failed check never stops the data loading; the server checks too.
   await db.rpc("check_alerts", { p_brewery_id: b }).then(() => {}, () => {});
-  const [locations, beers, tanks, batches, events, cleanings, settings, members, invites, permissions, memberRows, levels, cellar, additions, readings, movements, packageTypes, packageCounts, places, stockMoves, pars, rawItems, rawReceipts, rawAdjustments, lines, inventoryViews, recipes, recipeIngredientRows, alertRules, alerts, planItems, schedules, shifts, rawOrders, shortfalls, needs, gravityDue, boards, brewFiles, keyNames, suggestions] = await Promise.all([
+  const [locations, beers, tanks, batches, events, cleanings, settings, members, invites, permissions, memberRows, levels, cellar, additions, readings, movements, packageTypes, packageCounts, places, stockMoves, pars, rawItems, rawReceipts, rawAdjustments, lines, inventoryViews, recipes, recipeIngredientRows, alertRules, alerts, planItems, schedules, shifts, rawOrders, shortfalls, needs, gravityDue, boards, brewFiles, keyNames, suggestions, kicks] = await Promise.all([
     allRows(() => db.from("locations").select("*").eq("brewery_id", b).order("created_at").order("id")),
     allRows(() => db.from("beers").select("*").eq("brewery_id", b).order("id")),
     allRows(() => db.from("tanks").select("*").eq("brewery_id", b).order("created_at").order("id")),
@@ -511,6 +511,8 @@ async function loadAll() {
     must(db.rpc("api_key_names", { p_brewery_id: b })),
     // Changes suggested by suggest-only keys, waiting for a person
     allRows(() => db.from("api_actions").select("id, key_id, method, path, summary, request, created_at").eq("brewery_id", b).eq("status", "suggested").order("created_at").order("id")),
+    // Kegs kicked on the draft lines (a log; it doesn't change stock)
+    allRows(() => db.from("keg_kicks").select("*").eq("brewery_id", b).order("kicked_on").order("recorded_at").order("id")),
   ]);
   // Each member: email and level (from brewery_members) plus their personal adjustments
   const adjustments = Object.fromEntries(memberRows.map((r) => [r.user_id, r]));
@@ -560,6 +562,8 @@ async function loadAll() {
       theme: x.theme || { scheme: "auto" }, showOnTap: x.show_on_tap !== false })),
     files: brewFiles.map((f) => ({ id: f.id, kind: f.kind, name: f.name, mime: f.mime, bytes: f.bytes })),
     keyNames: Object.fromEntries(keyNames.map((k) => [k.id, k.name])),
+    kicks: kicks.map((k) => ({ id: k.id, placeId: k.place_id, lineNo: k.line_no, beerId: k.beer_id, label: k.label,
+      packageTypeId: k.package_type_id, kickedOn: k.kicked_on, recordedBy: k.recorded_by, recordedAt: k.recorded_at, viaKey: k.via_key })),
     suggestions: suggestions.map((x) => ({ id: x.id, keyId: x.key_id, summary: x.summary || `${x.method} ${x.path}`, request: x.request, createdAt: x.created_at })),
     menu: { sizes: settings.menu_sizes || [], sections: settings.menu_sections || [], tags: settings.menu_tags || [], fields: settings.menu_fields || [] },
     sheetFields: settings.sheet_fields,
@@ -1624,7 +1628,7 @@ batchForm.addEventListener("submit", async (e) => {
     stage: batchForm.stage.value,
     stageStartDate: batchForm.stageStartDate.value,
   };
-  const others = data.batches.filter((b) => b !== editingBatch);
+  const others = data.batches.filter((b) => b.id !== editingBatch?.id);
   const name = beerName(values);
 
   // Check 1: a batch has to be a brew of some beer
@@ -1838,7 +1842,7 @@ tankForm.locationId.addEventListener("change", () => {
 tankForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   const name = tankForm.name.value.trim();
-  if (data.tanks.some((t) => t !== editingTank && t.name.toLowerCase() === name.toLowerCase())) {
+  if (data.tanks.some((t) => t.id !== editingTank?.id && t.name.toLowerCase() === name.toLowerCase())) {
     warn(`There's already a tank called ${name}.`);
     return;
   }
@@ -2066,7 +2070,7 @@ beerForm.addEventListener("submit", async (e) => {
     target_fg: readUnitInput(beerForm.targetFg, "gravity"),
     ...(can("menu") ? menu : {}),
   };
-  if (data.beers.some((b) => b !== editingBeer && b.name.toLowerCase() === values.name.toLowerCase())) {
+  if (data.beers.some((b) => b.id !== editingBeer?.id && b.name.toLowerCase() === values.name.toLowerCase())) {
     warn(`There's already a beer called ${values.name}.`);
     return;
   }
@@ -2136,7 +2140,7 @@ function openLocationEditor(location) {
 locationForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   const name = locationForm.name.value.trim();
-  if (data.locations.some((l) => l !== editingLocation && l.name.toLowerCase() === name.toLowerCase())) {
+  if (data.locations.some((l) => l.id !== editingLocation?.id && l.name.toLowerCase() === name.toLowerCase())) {
     warn(`There's already a location called ${name}.`);
     return;
   }
@@ -2432,6 +2436,8 @@ async function loadIntoBrewery(source, description, { quiet = false } = {}) {
       split_by_place: v.splitByPlace, type_ids: v.typeIds.map(idFor), show: v.show, beers: v.beers, sort_mode: v.sortMode, position: v.position })));
     insert("draft_lines", (d.lines || []).map((l) => ({ place_id: idFor(l.placeId), line_no: l.lineNo,
       status: l.status, beer_id: idFor(l.beerId), label: l.label || "" })));
+    insert("keg_kicks", (d.kicks || []).map((k) => ({ place_id: idFor(k.placeId), line_no: k.lineNo ?? null, beer_id: idFor(k.beerId),
+      label: k.label || "", package_type_id: idFor(k.packageTypeId), kicked_on: k.kickedOn, ...recorded(k.recordedAt) })));
     insert("stock_pars", (d.pars || []).map((p) => ({
       place_id: idFor(p.placeId), beer_id: idFor(p.beerId), par_bbl: p.parBbl ?? null, par_cases: p.parCases ?? null })));
     insert("stock_moves", (d.stockMoves || []).map((m) => ({
@@ -5652,10 +5658,12 @@ function renderLines() {
   };
   const empty = lines.filter((l) => l.status === "empty").length;
   box.innerHTML = `<div class="section-head"><h2>Draft lines</h2>${empty ? `<span class="muted">${empty} empty</span>` : ""}</div>
-    <ul class="plain log-list">${lines.map((l) => `<li class="item"><button type="button" class="entry ${canEdit ? "" : "static"}" data-line="${l.id}">
-      <span class="line-no">${l.lineNo}</span> ${what(l)}</button></li>`).join("") || `<li class="item muted">No lines yet.${canEdit ? " Add one for each tap; count sheets here will follow the lines." : ""}</li>`}</ul>
+    <ul class="plain log-list">${lines.map((l) => `<li class="item line-row"><button type="button" class="entry ${canEdit ? "" : "static"}" data-line="${l.id}">
+      <span class="line-no">${l.lineNo}</span> ${what(l)}</button>${canEdit && ["beer", "other"].includes(l.status)
+        ? `<button type="button" class="btn small" data-kick="${l.id}" aria-label="Line ${l.lineNo} kicked">Kicked</button>` : ""}</li>`).join("") || `<li class="item muted">No lines yet.${canEdit ? " Add one for each tap; count sheets here will follow the lines." : ""}</li>`}</ul>
     ${canEdit ? `<div class="actions"><button type="button" class="btn small" id="add-line">+ Add a line</button>
-      ${lines.length && lines.at(-1).status === "empty" ? `<button type="button" class="btn small" id="remove-line">Remove line ${lines.at(-1).lineNo}</button>` : ""}</div>` : ""}`;
+      ${lines.length && lines.at(-1).status === "empty" ? `<button type="button" class="btn small" id="remove-line">Remove line ${lines.at(-1).lineNo}</button>` : ""}</div>` : ""}
+    ${kickedReport(place)}`;
 }
 
 const lineDialog = document.getElementById("line-editor");
@@ -5700,6 +5708,120 @@ lineForm.addEventListener("submit", async (e) => {
     status, beer_id: status === "beer" ? lineForm.beerId.value : null, label: status === "other" ? lineForm.label.value.trim() : "",
   }).eq("id", editingLine.id)));
   if (ok) lineDialog.close();
+});
+
+// ----- Kicked kegs (docs/keg-design.md) -----
+// "Kicked" on a draft line logs the keg (beer, size, day), like a monthly kicked-keg sheet, and the
+// line pours the next keg or is empty. It's a log only: stock changes with counts, as before, so the
+// two never fight. Each taproom shows a month's kicks, added up by beer and size.
+const kegTypes = () => (data.packageTypes || []).filter((t) => t.active && ["keg", "cask"].includes(t.kind));
+const kickName = (k) => (k.beerId ? findBeer(k.beerId)?.name ?? "A beer" : k.label || "Something else");
+let kickMonth = null; // "2026-10"; the current month until someone looks at another
+function monthName(ym) {
+  return new Date(`${ym}-15T12:00:00`).toLocaleDateString(undefined, { month: "long", year: "numeric" });
+}
+function shiftMonth(ym, by) {
+  const [y, m] = ym.split("-").map(Number), d = new Date(y, m - 1 + by, 15);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+// A month's kicks at a taproom, added up: [{ name, beerId, counts: { typeId: n }, total }], most kicked first
+function kickTotals(placeId, ym) {
+  const rows = new Map();
+  for (const k of (data.kicks || []).filter((x) => x.placeId === placeId && x.kickedOn.startsWith(ym))) {
+    const key = k.beerId || `other:${k.label}`;
+    if (!rows.has(key)) rows.set(key, { name: kickName(k), beerId: k.beerId, counts: {}, total: 0 });
+    const r = rows.get(key);
+    r.counts[k.packageTypeId || ""] = (r.counts[k.packageTypeId || ""] || 0) + 1;
+    r.total += 1;
+  }
+  return [...rows.values()].sort((a, b) => b.total - a.total || a.name.localeCompare(b.name));
+}
+function kickedReport(place) {
+  const ym = kickMonth || today().slice(0, 7);
+  const totals = kickTotals(place.id, ym);
+  const each = (data.kicks || []).filter((k) => k.placeId === place.id && k.kickedOn.startsWith(ym)).slice().reverse();
+  const sizes = (counts) => Object.entries(counts).map(([t, n]) => `${n} × ${esc(typeOf(t)?.name ?? "keg (size not given)")}`).join(", ");
+  const bbl = each.reduce((sum, k) => sum + (typeOf(k.packageTypeId)?.volumeBbl || 0), 0);
+  const day = (d) => new Date(`${d}T12:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  return `<div class="kicked" id="kicked">
+    <div class="section-head"><h2>Kicked kegs</h2>
+      <span class="month-nav"><button type="button" class="btn small" data-kick-month="-1" aria-label="Month before">‹</button>
+        <strong id="kick-month">${esc(monthName(ym))}</strong>
+        <button type="button" class="btn small" data-kick-month="1" aria-label="Month after" ${ym >= today().slice(0, 7) ? "disabled" : ""}>›</button></span></div>
+    ${totals.length ? `<ul class="plain log-list" id="kick-totals">${totals.map((r) => `<li class="item"><strong>${esc(r.name)}</strong>
+        <span class="muted">${sizes(r.counts)}</span></li>`).join("")}</ul>
+      <p class="muted">${each.length} ${each.length === 1 ? "keg" : "kegs"}${bbl ? ` · ${showUnit("volume", bbl)}` : ""} kicked in ${esc(monthName(ym))}.
+        <button type="button" class="btn small" id="kick-csv">Download (CSV)</button></p>
+      <details><summary>Each keg</summary><ul class="plain log-list">${each.map((k) => `<li class="item"><span class="when">${day(k.kickedOn)}</span>
+        ${k.lineNo ? `line ${k.lineNo} · ` : ""}<strong>${esc(kickName(k))}</strong> <span class="muted">${esc(typeOf(k.packageTypeId)?.name ?? "")}${viaTag(k)}</span>
+        ${can("inventory") ? `<button type="button" class="btn small" data-unkick="${k.id}" aria-label="Remove this kick">Remove</button>` : ""}</li>`).join("")}</ul></details>`
+    : `<p class="muted">None logged in ${esc(monthName(ym))}.${can("inventory") ? " Tap Kicked on a line when its keg runs out." : ""}</p>`}
+  </div>`;
+}
+// The size a kicked keg most likely was: the last one kicked of this beer here, else the size of it
+// there's most of here (then anywhere), else the first keg size
+function likelyKegType(line) {
+  const last = (data.kicks || []).filter((k) => k.placeId === line.placeId && (line.beerId ? k.beerId === line.beerId : k.label === line.label)).at(-1);
+  if (last?.packageTypeId && kegTypes().some((t) => t.id === last.packageTypeId)) return last.packageTypeId;
+  const kegs = new Set(kegTypes().map((t) => t.id));
+  const most = (rows) => {
+    const by = {};
+    for (const r of rows) if (kegs.has(r.typeId)) by[r.typeId] = (by[r.typeId] || 0) + r.count;
+    return Object.entries(by).sort((a, b) => b[1] - a[1])[0]?.[0];
+  };
+  const stock = line.beerId ? stockOnHand().filter((r) => r.beerId === line.beerId && r.count > 0) : [];
+  return most(stock.filter((r) => r.placeId === line.placeId)) || most(stock) || kegTypes()[0]?.id || "";
+}
+const kickDialog = document.getElementById("kick-editor");
+const kickForm = document.getElementById("kick-form");
+let kickingLine = null;
+function openKick(line) {
+  kickingLine = line;
+  const name = line.status === "beer" ? findBeer(line.beerId)?.name ?? "the beer" : line.label || "it";
+  document.getElementById("kick-title").textContent = `Line ${line.lineNo}: ${name} kicked`;
+  kickForm.kickedOn.value = today();
+  kickForm.typeId.innerHTML = kegTypes().map((t) => `<option value="${t.id}">${esc(t.name)}</option>`).join("") + `<option value="">Not sure</option>`;
+  kickForm.typeId.value = likelyKegType(line);
+  document.getElementById("kick-same").textContent = `The next keg of ${name}`;
+  document.getElementById("kick-then-legend").textContent = `Now on line ${line.lineNo}`;
+  kickForm.then.value = "same";
+  kickDialog.showModal();
+}
+kickForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const then = kickForm.then.value, line = kickingLine;
+  const ok = await save(() => must(db.rpc("kick_keg", { p_id: crypto.randomUUID(), p_line_id: line.id, p_date: kickForm.kickedOn.value || today(),
+    p_type: kickForm.typeId.value || null, p_then: then === "empty" ? "empty" : "same" })));
+  if (!ok) return;
+  kickDialog.close();
+  notify(`Logged: ${document.getElementById("kick-title").textContent}.`);
+  // Something new on the line: choose it, the usual way
+  if (then === "change") openLineEditor(data.lines.find((l) => l.id === line.id));
+});
+document.getElementById("inv-lines").addEventListener("click", async (e) => {
+  const kick = e.target.closest("[data-kick]");
+  if (kick) { e.stopPropagation(); openKick(data.lines.find((l) => l.id === kick.dataset.kick)); return; }
+  const month = e.target.closest("[data-kick-month]");
+  if (month) {
+    kickMonth = shiftMonth(kickMonth || today().slice(0, 7), Number(month.dataset.kickMonth));
+    if (kickMonth > today().slice(0, 7)) kickMonth = today().slice(0, 7);
+    renderLines();
+    return;
+  }
+  const unkick = e.target.closest("[data-unkick]");
+  if (unkick) {
+    const k = data.kicks.find((x) => x.id === unkick.dataset.unkick);
+    if (k && (await ask(`Remove the kick of ${kickName(k)} on ${k.kickedOn}?`, { ok: "Remove" }))) {
+      await save(() => must(db.from("keg_kicks").delete().eq("id", k.id)));
+    }
+    return;
+  }
+  if (e.target.closest("#kick-csv")) {
+    const ym = kickMonth || today().slice(0, 7), place = data.places.find((p) => p.id === inventoryPlace);
+    const rows = kickTotals(place.id, ym).flatMap((r) => Object.entries(r.counts).map(([t, n]) => ({
+      "Month": ym, "Taproom": placeName(place.id), "Beer": r.name, "Keg": typeOf(t)?.name ?? "", "Kicked": n })));
+    downloadFile(`${slugName(brewery.name)}-kicked-kegs-${slugName(placeName(place.id))}-${ym}.csv`, new Blob([csvText(rows)], { type: "text/csv;charset=utf-8" }));
+  }
 });
 
 // ----- API keys (Settings → API keys) -----
@@ -5865,6 +5987,8 @@ function exportLists() {
       [`Par (${vol})`]: v(p.parBbl), "Par (cases)": p.parCases ?? "" })),
     "draft-lines": (data.lines || []).map((l) => ({ "Place": place(l.placeId), "Line": l.lineNo,
       "Pouring": l.status === "beer" ? findBeer(l.beerId)?.name ?? "" : { other: l.label, empty: "(empty)", out: "(out of order)" }[l.status] })),
+    "kicked-kegs": (data.kicks || []).map((k) => ({ "Day": k.kickedOn, "Taproom": place(k.placeId), "Line": k.lineNo ?? "",
+      "Pouring": kickName(k), "Keg": typeOf(k.packageTypeId)?.name ?? "" })),
     "raw-materials-on-hand": (data.rawItems || []).flatMap((item) => rawLots(item).filter((l) => Math.abs(l.onHand) > 1e-9)
       .map((l) => ({ "Item": item.name, "Kind": RAW_KINDS[item.kind], "Lot": l.lot, "On hand": +l.onHand.toFixed(3), "Unit": item.unit }))),
     "raw-material-deliveries": (data.rawReceipts || []).map((r) => {

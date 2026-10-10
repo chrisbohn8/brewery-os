@@ -28,6 +28,7 @@ Tanks and batches can be named by their id **or** their name / number (`FV-3`, `
 | `POST /batches/142/log` | Log cellar work (needs "Log readings and cellar work"), see below |
 | `GET /beers` | Beers with target OG / FG, their menu details (short line, description, ABV, IBU, color, section, tags, your own fields, prices by pour size with any taproom's own price, and whether it's on the public menu; all by name), their recipes (size, targets, IBU, ingredients), and the latest batch's brew-day ingredients |
 | `GET /inventory` | Finished goods on hand: beer, place, package, count, barrels |
+| `GET /kicks?month=2026-10` | Kegs kicked that month (this month if left out): each one (day, taproom, line, what was pouring, keg) and `totals` added up by taproom, beer, and keg |
 
 ### Logging cellar work
 
@@ -62,7 +63,7 @@ Someone in the brewery approves it on the tank board (it's saved as them, under 
 
 ## Undo
 
-A key's change can be undone by a person in the app (Settings → API keys → What keys did lately → Undo): what it added is removed, and what it changed is put back unless it's been changed again since. The answers to `PATCH /tanks/…`, `PATCH /beers/…`, and `PUT /lines/…` include `was` and `now` (the values before and after) for this. Volumes, stock, brew-day sheet values, and raw material counts aren't undone: they're corrected with a level check, a count, a move, or a new value, so their history is kept. A key can't undo.
+A key's change can be undone by a person in the app (Settings → API keys → What keys did lately → Undo): what it added is removed (a kicked keg too), and what it changed is put back unless it's been changed again since. The answers to `PATCH /tanks/…`, `PATCH /beers/…`, and `PUT /lines/…` include `was` and `now` (the values before and after) for this. Volumes, stock, brew-day sheet values, and raw material counts aren't undone: they're corrected with a level check, a count, a move, or a new value, so their history is kept. A key can't undo.
 
 ## Writing (doing what the app does)
 
@@ -86,6 +87,7 @@ Every write is **the app's own action**, run as you and limited by the key: the 
 | `POST /plan` | `{ "kind": "brew", "date": "2026-10-14", "tank": "FV3", "beer": "House Hazy" }` |
 | `PATCH /beers/House Hazy` | `{ "style": "Hazy IPA", "menu": { "short": "...", "abv": 6.5, "section": "IPAs", "tags": ["New"], "prices": [{ "size": "16 oz", "price": 7 }] } }` (prices replace the beer's list) |
 | `PUT /lines/Taproom/4` | `{ "beer": "House Hazy" }`, `{ "label": "Guest cider" }`, or `{ "status": "empty" }` |
+| `POST /kicks` | `{ "taproom": "Riverside Taproom", "line": 4, "keg": "½ bbl keg", "date": "2026-10-10" }`: a keg kicked on that line (a log; stock isn't changed). The line keeps pouring the same beer; change it with `PUT /lines`. |
 | `POST /batches/142/sheet` | brew-day sheet values, each with its unit: `{ "values": [{ "field": "ko_gravity", "turn": 1, "plato": 15.2 }, { "field": "mash_temp", "turn": 1, "f": 152 }, { "field": "mash_water_volume", "turn": 1, "start": 1200, "end": 1780 }, { "field": "brewers", "text": "Sam, Jo" }, { "field": "mash_ph", "turn": 1, "value": 5.35 }] }` (units: `sg`/`plato`, `f`/`c`, `bbl`/`gal`/`hl`; a meter's `start` and `end` in gallons; `value` for pH and plain numbers; `text`). A new value replaces what's shown; the old one stays in the history. `GET /batches/142/sheet` reads them back (SG, °C, barrels). |
 | `POST /raw/counts` | `{ "item": "Citra", "lot": "CIT-210", "actual": 31, "reason": "Weekly count" }`: what's there, in the item's unit; the difference from what the lot should have is recorded |
 | `POST /raw/orders` | `{ "item": "Citra", "amount": 88, "expected_on": "2026-10-20", "supplier": "..." }` |

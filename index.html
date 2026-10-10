@@ -1498,6 +1498,22 @@
         <button type="button" class="btn cancel">Cancel</button><button type="submit" class="btn primary">Save</button></div>
     </form>
   </dialog>
+  <!-- A keg kicked on a draft line (docs/keg-design.md) -->
+  <dialog id="kick-editor">
+    <form id="kick-form">
+      <h2 id="kick-title" tabindex="-1" autofocus>Kicked</h2>
+      <p class="muted">Logged for the month's kicked kegs. It doesn't change stock: counts do that.</p>
+      <label>Day <input type="date" name="kickedOn" required></label>
+      <label>Keg <select name="typeId" aria-label="Keg size"></select></label>
+      <fieldset class="group"><legend id="kick-then-legend">Now on the line</legend>
+        <label class="choice"><input type="radio" name="then" value="same" checked> <span id="kick-same">The next keg</span></label>
+        <label class="choice"><input type="radio" name="then" value="change"> Something else (choose it next)</label>
+        <label class="choice"><input type="radio" name="then" value="empty"> Nothing: the line is empty</label>
+      </fieldset>
+      <div class="actions"><span class="spacer"></span>
+        <button type="button" class="btn cancel">Cancel</button><button type="submit" class="btn primary">Log it</button></div>
+    </form>
+  </dialog>
   <!-- A place's own order -->
   <dialog id="arrange-editor">
     <form id="arrange-form">

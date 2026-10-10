@@ -640,6 +640,20 @@ dialog.wide { max-width: 720px; width: calc(100vw - 32px); }
 #line-editor label.choice input { width: 22px; height: 22px; }
 #line-editor select, #line-editor input[name=label] { font: inherit; font-size: 16px; padding: 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--card); color: var(--text); width: 100%; }
 .arrange-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+/* Kicked kegs: a Kicked button beside each pouring line, and the month's kicks under the lines */
+ul.plain.log-list .item.line-row { display: flex; align-items: center; gap: 8px; }
+.log-list .line-row .entry { flex: 1; min-width: 0; width: auto; }
+.line-row > .btn { flex: none; }
+#kick-editor label.choice { display: flex; gap: 8px; align-items: center; color: var(--text); margin: 8px 0; }
+#kick-editor label.choice input { width: 22px; height: 22px; }
+#kick-editor select, #kick-editor input[type=date] { font: inherit; font-size: 16px; padding: 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--card); color: var(--text); width: 100%; }
+.kicked { margin-top: 18px; }
+.kicked .section-head { flex-wrap: wrap; gap: 6px; }
+.month-nav { display: inline-flex; align-items: center; gap: 8px; }
+.kicked details { margin-top: 6px; }
+.kicked details summary { cursor: pointer; color: var(--muted); }
+.kicked details .item { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.kicked details .item .btn { margin-left: auto; }
 
 /* Inventory views */
 .place-chips .view-chip { border-style: dashed; }

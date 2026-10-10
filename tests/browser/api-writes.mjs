@@ -108,6 +108,12 @@ try {
   check(r.status === 200, `the beer's short menu line (${r.status}: ${JSON.stringify(r.json)})`);
   r = await call(key, "PUT", `/lines/${enc(`API taproom ${run}`)}/1`, { beer: made.beer });
   check(r.status === 200 && r.json.pours === made.beer, `draft line 1 pours ${made.beer}`);
+  r = await call(key, "POST", "/kicks", { taproom: `API taproom ${run}`, line: 1, keg: "½ bbl keg" });
+  check(r.status === 201 && r.json.pouring === made.beer, `a keg kicked on line 1 (${r.status}: ${JSON.stringify(r.json)})`);
+  const kicks = await call(key, "GET", "/kicks");
+  check(kicks.json?.kicks?.some((k) => k.id === r.json.id && k.line === 1 && k.keg === "½ bbl keg")
+    && kicks.json.totals.some((t) => t.taproom === `API taproom ${run}` && t.pouring === made.beer && t.kicked === 1), "GET /kicks: this month's, each and added up");
+  check((await call(key, "GET", "/kicks?month=Oct")).status === 400, "a month written wrong gets a clear answer");
 
   r = await call(key, "POST", `/batches/${batch}/sheet`, { values: [{ field: "ko_gravity", turn: 1, plato: 15.2 }, { field: "mash_temp", turn: 1, f: 152 },
     { field: "mash_water_volume", turn: 1, start: 1200, end: 1780 }, { field: "brewers", text: "Sam, Jo" }, { field: "mash_ph", turn: 1, value: 5.35 }] });

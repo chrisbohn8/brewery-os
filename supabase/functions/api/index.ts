@@ -34,6 +34,7 @@
 //   POST  /raw/counts                  a count of a raw material's lot
 //   POST  /raw/orders                  a raw material on order
 //   POST  /recipes                     a recipe for a beer
+//   POST  /kicks                       a keg kicked on a draft line (GET /kicks?month=2026-10 lists them)
 //
 // A suggest-only key's writes are tried (so one that couldn't be saved is refused right away), undone,
 // and kept as suggestions for a person to approve in the app. Approving runs the write here, as that
@@ -339,6 +340,25 @@ async function route(tx: Tx, b: string, email: string, method: string, resource?
     return { body: rows.map((r: Record<string, unknown>) => ({ ...r, count: num(r.count), bbl: round(num(r.bbl), 3) })) };
   }
 
+  // GET /kicks?month=2026-10: kegs kicked that month (this month if left out), each one and added up
+  if (is("GET", "kicks", false)) {
+    const month = query?.get("month")
+      || (await tx`select to_char(now() at time zone time_zone, 'YYYY-MM') as m from public.breweries where id = ${b}`)[0]?.m;
+    if (!/^\d{4}-\d{2}$/.test(month)) throw new Problem(400, `Months are written like 2026-10 (not "${month}").`);
+    const rows = await tx`select k.id, k.kicked_on::text as date, p.name as taproom, l.name as location, k.line_no as line,
+                                 coalesce(be.name, k.label) as pouring, pt.name as keg
+                            from public.keg_kicks k join public.stock_places p on p.id = k.place_id left join public.locations l on l.id = p.location_id
+                            left join public.beers be on be.id = k.beer_id left join public.package_types pt on pt.id = k.package_type_id
+                           where k.brewery_id = ${b} and to_char(k.kicked_on, 'YYYY-MM') = ${month} order by k.kicked_on, k.recorded_at`;
+    const totals: Record<string, Record<string, unknown>> = {};
+    for (const r of rows) {
+      const key = `${r.location}|${r.taproom}|${r.pouring}|${r.keg}`;
+      totals[key] ??= { location: r.location, taproom: r.taproom, pouring: r.pouring, keg: r.keg, kicked: 0 };
+      (totals[key].kicked as number)++;
+    }
+    return { body: { month, kicks: rows, totals: Object.values(totals) } };
+  }
+
   throw new Problem(404, "Not an API address. See docs/api.md for what's available.");
 }
 
@@ -552,6 +572,22 @@ async function write(tx: Tx, b: string, method: string, resource?: string, ref?:
              values (${id}::uuid, ${b}::uuid, ${item.id}::uuid, ${day(body.date)}::date, ${text(body.lot)}, ${amount}::numeric, ${text(body.supplier)},
                      ${numberOr(body.cost, "cost")}::numeric, ${text(body.notes)}) on conflict (id) do nothing`;
     return done(`Received ${amount} ${item.unit} ${item.name}${body.lot ? ` (lot ${body.lot})` : ""}`, { id, item: item.name });
+  }
+
+  // POST /kicks: { "taproom": "Riverside Taproom", "line": 3, "keg": "½ bbl keg", "date": "2026-10-10" }
+  // A kicked keg, logged for the month (stock isn't changed; counts do that). The line keeps pouring
+  // the same thing; change it with PUT /lines.
+  if (method === "POST" && resource === "kicks" && !ref) {
+    const where = await place(body.taproom);
+    const lineNo = Number(body.line);
+    const [line] = await tx`select l.id, l.status, coalesce(be.name, l.label) as pouring from public.draft_lines l left join public.beers be on be.id = l.beer_id
+                             where l.place_id = ${where.id} and l.line_no = ${lineNo}`;
+    if (!line) throw new Problem(404, `${where.name} has no line ${body.line}.`);
+    const keg = body.keg ?? body.package;
+    const type = keg ? await packageType(keg) : null;
+    const id = idOr(body.id);
+    await tx`select public.kick_keg(${id}::uuid, ${line.id}::uuid, ${day(body.date)}::date, ${type?.id ?? null}::uuid, 'same')`;
+    return done(`Kicked: ${line.pouring}${type ? ` (${type.name})` : ""} on ${where.name} line ${lineNo}`, { id, taproom: where.name, line: lineNo, pouring: line.pouring });
   }
 
   // POST /plan: { "kind": "brew", "date": "2026-10-14", "tank": "FV3", "beer": "House Hazy", "notes": "..." }
