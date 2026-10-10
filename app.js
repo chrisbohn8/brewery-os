@@ -442,6 +442,9 @@ window.addEventListener("unhandledrejection", (e) => reportError(e.reason, "unha
 // long list (a year's brew-sheet values, cellar log, stock records) is asked for in pages, in a
 // fixed order (ending with the id, so no row is skipped or repeated between pages).
 const PAGE_ROWS = 1000;
+// Tanks and locations show in the order they were added; ones added at the same moment (a backup or
+// the demo, loaded in one step) go by name, with numbers in number order (FV2 before FV11)
+const addedOrder = (a, b) => a.created_at.localeCompare(b.created_at) || a.name.localeCompare(b.name, undefined, { numeric: true });
 async function allRows(query) {
   const rows = [];
   for (let from = 0; ; from += PAGE_ROWS) {
@@ -508,7 +511,7 @@ async function loadAll() {
   // Each member: email and level (from brewery_members) plus their personal adjustments
   const adjustments = Object.fromEntries(memberRows.map((r) => [r.user_id, r]));
   serverData = {
-    locations: locations.map((l) => ({
+    locations: [...locations].sort(addedOrder).map((l) => ({
       id: l.id, name: l.name,
       // Brewhouse settings (used by brew-day sheets at this location)
       turnSizeBbl: num(l.turn_size_bbl), usualTurns: l.usual_turns, kettleFullBbl: num(l.kettle_full_bbl),
@@ -524,7 +527,7 @@ async function loadAll() {
       menuSection: x.menu_section || null, menuTags: x.menu_tags || [], menuExtra: x.menu_extra || {},
       menuPublic: x.menu_public !== false,
     })),
-    tanks: tanks.map((t) => ({
+    tanks: [...tanks].sort(addedOrder).map((t) => ({
       id: t.id, name: t.name, type: t.type, status: t.status, locationId: t.location_id,
       capacityBbl: t.capacity_bbl === null ? null : Number(t.capacity_bbl),
       acidEveryTurns: t.acid_every_turns,
