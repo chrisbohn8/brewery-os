@@ -875,3 +875,17 @@ body.in-demo .demo-note { display: block; }
 .tour-tv-screen { position: absolute; top: 0; left: 0; width: 1280px; height: 720px; transform-origin: top left; overflow: hidden; }
 .tour-tv-screen > .mb { height: 100%; }
 .demo-bar-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+
+/* Try it yourself: the next thing to tap pulses, and a small hint says what to do */
+@keyframes coach-pulse { 0%, 100% { box-shadow: 0 0 0 3px #f59e0b; } 50% { box-shadow: 0 0 0 7px rgb(245 158 11 / 0.35); } }
+.coach-target { animation: coach-pulse 1.4s ease-in-out infinite; border-radius: 8px; position: relative; z-index: 1; }
+.coach-hint { position: fixed; inset: auto; margin: 0; padding: 12px 14px; border: 2px solid #f59e0b; border-radius: 12px;
+  background: var(--card); color: var(--text); box-shadow: 0 8px 28px rgb(0 0 0 / 0.3); max-width: 340px; }
+.coach-hint.coach-bottom { left: 8px; right: 8px; bottom: 8px; top: auto; width: auto; max-width: none; }
+.coach-hint .coach-text { margin: 0 0 8px; line-height: 1.4; }
+.coach-actions { display: flex; gap: 6px; justify-content: flex-end; }
+.tryit-list li { display: flex; gap: 10px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--border); }
+.tryit-list li > div { flex: 1; min-width: 0; }
+.tryit-tick { flex: none; width: 26px; height: 26px; border-radius: 50%; border: 2px solid var(--border); display: grid; place-items: center; font-weight: 700; }
+.tryit-job.done .tryit-tick { background: var(--ready); border-color: var(--ready); color: #fff; }
+.tryit-count { font-weight: 600; margin: 4px 0; }

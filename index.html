@@ -125,6 +125,7 @@
   <div id="demo-bar" class="demo-bar" role="note" hidden>
     <span><strong>Demo brewery:</strong> made-up records, yours alone. Change anything; it's deleted <span id="demo-ends">after a week</span>.</span>
     <span class="demo-bar-actions"><button type="button" id="take-tour" class="btn small">Take the tour</button>
+      <button type="button" id="try-it" class="btn small">Try it yourself</button>
       <button type="button" id="leave-demo" class="btn small">Start your own brewery</button></span>
   </div>
 
@@ -1087,6 +1088,18 @@
     </form>
   </dialog>
 
+  <!-- Try it yourself (the demo): seven real jobs, ticked off from the records (tryit.js) -->
+  <dialog id="tryit-panel" class="wide">
+    <form method="dialog">
+      <h2 tabindex="-1" autofocus>Try it yourself</h2>
+      <p class="muted">Seven jobs a brewery does every week, a minute or less each, with the real forms. Do them however you like;
+        <strong>Show me</strong> points the way. Each is ticked off when it's really done.</p>
+      <p id="tryit-count" class="tryit-count"></p>
+      <ul id="tryit-list" class="plain tryit-list"></ul>
+      <div class="actions"><span class="spacer"></span><button type="submit" class="btn">Close</button></div>
+    </form>
+  </dialog>
+
   <!-- A menu board's preview: as the TV shows it (16:9), or as the public page does (a phone) -->
   <dialog id="board-preview" class="board-preview-dialog">
     <form method="dialog">
@@ -1633,6 +1646,7 @@
   <script src="demo.js"></script>
   <script src="app.js"></script>
   <script src="tour.js"></script>
+  <script src="tryit.js"></script>
   <!-- The printed brew-day sheet: only shown on paper (filled in when "Print" is tapped) -->
   <div id="print-sheet"></div>
 </body>

@@ -36,7 +36,7 @@ try {
   console.log("1. The guide itself (no app needed)");
   const guideHtml = readFileSync(new URL("../../guide.html", import.meta.url), "utf8");
   // (the app's own files: the page, its code, and the demo tour)
-  const appText = ["index.html", "app.js", "tour.js"].map((f) => readFileSync(new URL(`../../${f}`, import.meta.url), "utf8")).join("\n");
+  const appText = ["index.html", "app.js", "tour.js", "tryit.js"].map((f) => readFileSync(new URL(`../../${f}`, import.meta.url), "utf8")).join("\n");
   const buttons = [...new Set([...guideHtml.matchAll(/class="ui">([^<]+)</g)].map((m) => m[1].replace(/&amp;/g, "&")))];
   const missing = buttons.filter((b) => !appText.includes(b));
   check(missing.length === 0, `every button the guide names is in the app (${buttons.length} names; missing: ${missing.join(", ") || "none"})`);

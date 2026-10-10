@@ -99,7 +99,7 @@
         text: "Built from the taproom's draft lines and each beer's menu: change a line and the TV updates within seconds. Each board has its own layout, colors, and fonts." },
       { id: "done", title: "That's the tour",
         before: () => showSettings(false),
-        text: "It's all yours: tap a batch and log a gravity reading, start a batch in an empty tank, or count the taproom. Take the tour again from the yellow bar any time.",
+        text: "Now try the jobs yourself: log a check, dry hop, transfer, package, bring kegs up, change a draft line, and plan a brew day, each a minute or less with the real forms. Or explore on your own; the tour and the jobs are on the yellow bar any time.",
         finish: true },
     ].filter((s) => !s.when || s.when());
   }
@@ -130,6 +130,7 @@
       if (act === "back") go(at - 1);
       if (act === "skip" || act === "explore") end();
       if (act === "own") { end(); document.getElementById("leave-demo").click(); }
+      if (act === "tryit") { end(); TryIt.open(); }
     });
     addEventListener("keydown", keys, true);
     addEventListener("resize", place);
@@ -161,7 +162,8 @@
       <div class="tour-actions">
         ${step.finish
           ? `<button type="button" class="btn" data-tour="own">Start your own brewery</button><span class="spacer"></span>
-             <button type="button" class="btn primary" data-tour="explore">Explore the demo</button>`
+             <button type="button" class="btn" data-tour="explore">Explore the demo</button>
+             <button type="button" class="btn primary" data-tour="tryit">Try it yourself</button>`
           : `${i > 0 ? `<button type="button" class="btn" data-tour="back">Back</button>` : `<button type="button" class="btn" data-tour="skip">Skip the tour</button>`}
              <span class="spacer"></span>${i > 0 ? `<button type="button" class="btn link" data-tour="skip">Skip</button>` : ""}
              <button type="button" class="btn primary" data-tour="next">${i === 0 ? "Show me" : "Next"}</button>`}

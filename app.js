@@ -549,7 +549,7 @@ async function loadAll() {
     cleanings: cleanings.map((c) => ({ id: c.id, tankId: c.tank_id, cleanedOn: c.cleaned_on, note: c.note, viaKey: c.via_key })),
     acidAfterStyles: settings.acid_after_styles,
     // A demo brewery (docs/demo-design.md), and the day it's deleted (a week after it was made)
-    isDemo: !!settings.is_demo, demoEnds: settings.is_demo ? addDays(settings.created_at.slice(0, 10), 7) : null,
+    isDemo: !!settings.is_demo, demoEnds: settings.is_demo ? addDays(settings.created_at.slice(0, 10), 7) : null, createdAt: settings.created_at,
     // The menu's lists (Settings → Menu): pour sizes, sections, tags, and the brewery's own fields
     // Each taproom's menu board: its settings and links (Settings → Menu → Menu boards)
     // (oldest first: a taproom's first board is the one step 2 made)
@@ -602,7 +602,8 @@ async function loadAll() {
     alertRules: alertRules.map((r) => ({ kind: r.kind, enabled: r.enabled, params: r.params || {}, recipients: r.recipients || [] })),
     alerts: alerts.map(mapAlert),
     planItems: planItems.map((i) => ({ id: i.id, kind: i.kind, title: i.title, plannedOn: i.planned_on, someday: i.someday,
-      tankId: i.tank_id, beerId: i.beer_id, batchId: i.batch_id, notes: i.notes, doneAt: i.done_at, assignedTo: i.assigned_to, viaKey: i.via_key })),
+      tankId: i.tank_id, beerId: i.beer_id, batchId: i.batch_id, notes: i.notes, doneAt: i.done_at, assignedTo: i.assigned_to, viaKey: i.via_key,
+      createdAt: i.created_at })),
     schedules: Object.fromEntries(schedules.map((s) => [s.beer_id, s.steps || []])),
     shifts: Object.fromEntries(shifts.map((s) => [s.batch_id, s.days])), // days a batch's schedule was pushed back
     rawOrders: rawOrders.map((o) => ({ id: o.id, itemId: o.item_id, amount: num(o.amount), expectedOn: o.expected_on, supplier: o.supplier, notes: o.notes })),
@@ -620,7 +621,7 @@ async function loadAll() {
       amount: num(i.amount), unit: i.unit, timing: i.timing })),
     views: inventoryViews.map((v) => ({ id: v.id, name: v.name, placeIds: v.place_ids || [], splitByPlace: v.split_by_place,
       typeIds: v.type_ids || [], show: v.show || [], beers: v.beers, sortMode: v.sort_mode, position: v.position })),
-    lines: lines.map((l) => ({ id: l.id, placeId: l.place_id, lineNo: l.line_no, status: l.status, beerId: l.beer_id, label: l.label })),
+    lines: lines.map((l) => ({ id: l.id, placeId: l.place_id, lineNo: l.line_no, status: l.status, beerId: l.beer_id, label: l.label, updatedAt: l.updated_at })),
     stockMoves: stockMoves.map((m) => ({
       id: m.id, groupId: m.group_id, occurredOn: m.occurred_on, kind: m.kind, removalKind: m.removal_kind, beerId: m.beer_id,
       batchId: m.batch_id, packageTypeId: m.package_type_id, count: num(m.count), fromPlaceId: m.from_place_id,
@@ -653,6 +654,7 @@ async function loadAll() {
   brewery.permissions = serverData.permissions;
   brewery.isDemo = serverData.isDemo;
   brewery.demoEnds = serverData.demoEnds;
+  brewery.createdAt = serverData.createdAt;
   brewery.role = (serverData.members.find((m) => m.email === signedInEmail) || {}).role || brewery.role;
 }
 
@@ -2834,6 +2836,8 @@ async function fillDemo() {
   const stop = notify("Setting up your demo brewery…", { stay: true });
   try {
     if (await loadIntoBrewery(DemoBrewery.make(today()), "the demo", { quiet: true })) {
+      // (when the demo was ready: what's made after this is the visitor's own, for Try it yourself)
+      try { localStorage.setItem(`brewery-os.demo-ready.${brewery.id}`, new Date().toISOString()); } catch {}
       await refresh();
       notify("Your demo brewery is ready. Look around and change anything: it's yours alone.");
       DemoTour.offer(); // (the tour, the first time a demo opens on this device)
@@ -2865,6 +2869,7 @@ function renderDemoBar() {
   document.body.classList.toggle("in-demo", demo);
   document.getElementById("demo-bar").hidden = !demo;
   if (demo && brewery.demoEnds) document.getElementById("demo-ends").textContent = `on ${formatDate(brewery.demoEnds)}`;
+  if (demo && typeof TryIt !== "undefined") TryIt.render();
 }
 document.getElementById("take-tour").addEventListener("click", () => DemoTour.start());
 // A real brewery starts with an email: leaving the demo signs out of it (for good: it has no email to come back with)

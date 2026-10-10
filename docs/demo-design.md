@@ -52,7 +52,7 @@ Made by a generator, with every date **relative to today**, so it always looks c
 3. The weekly clean-up job.
 4. The guide's "Try the demo", and a short "what to look at" tour inside the demo (built 2026-10-10: tour.js, 11 steps on the real screens, picking its examples from the demo's records; checked at computer and phone sizes by tests/browser/tour.mjs).
 
-## Try it yourself (planned 2026-10-10, after the tour)
+## Try it yourself (built 2026-10-10)
 
 The tour shows what the app knows; a brewer is convinced by doing the jobs themselves. **Try it yourself** is a short list of real jobs in the demo, each a minute or less, with the real forms:
 
