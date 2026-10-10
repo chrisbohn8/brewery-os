@@ -51,3 +51,22 @@ Made by a generator, with every date **relative to today**, so it always looks c
 2. "Try the demo": anonymous sign-in (a setting to switch on, locally and on the live project), the demo bar, what's switched off, coming back to your copy.
 3. The weekly clean-up job.
 4. The guide's "Try the demo", and a short "what to look at" tour inside the demo (built 2026-10-10: tour.js, 11 steps on the real screens, picking its examples from the demo's records; checked at computer and phone sizes by tests/browser/tour.mjs).
+
+## Try it yourself (planned 2026-10-10, after the tour)
+
+The tour shows what the app knows; a brewer is convinced by doing the jobs themselves. **Try it yourself** is a short list of real jobs in the demo, each a minute or less, with the real forms:
+
+| Job | Who usually does it | Done when (from the records) | Then it points at |
+| --- | --- | --- | --- |
+| Log today's check (gravity, temperature, pH) | Cellar | a cellar entry with a gravity, made after the demo was | the new point on the chart and pH strip |
+| Dry hop a batch, with a lot number | Cellar | an addition (not brew day) with a lot | the lot used up in raw materials |
+| Transfer a batch to a brite | Cellar | a transfer | the volume and the loss in its history |
+| Package a batch | Cellar | a packaging run | the kegs and cases in inventory |
+| Bring kegs up to the taproom | Taproom | a move into a taproom | the par going green |
+| Put a beer on a draft line | Taproom | a draft line changed | the TV menu, with the beer on it |
+| Plan next week's brew day | Head brewer | a calendar item added | the calendar (and its warning, if the tank won't be empty) |
+
+- **Where:** "Try it yourself (2 of 7)" on the demo bar, after the tour's last step. The list shows each job's goal, who usually does it, and a tick when it's done.
+- **Show me:** guidance that doesn't get in the way. The next button to tap gets a pulsing outline (inside forms too) and a small hint floats above everything ("Tap + Log cellar work"); the visitor does the real thing, and the hint moves on as each step happens. Forms open as dialogs, which sit above everything, so a spotlight can't be used here.
+- **Honest ticks:** a job is done when its record exists (made after the demo was), never by clicking through.
+- **Checked by a test** that does every job the way a visitor would, on a computer and a phone.
