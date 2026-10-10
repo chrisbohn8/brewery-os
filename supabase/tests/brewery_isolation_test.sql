@@ -11,7 +11,7 @@ set local role postgres;
 create extension if not exists pgtap with schema extensions;
 set search_path = public, extensions;
 
-select plan(59);
+select plan(61);
 
 -- ---------- Setup: three pretend people ----------
 insert into auth.users (id, email) values
@@ -124,7 +124,7 @@ select ok(not has_function_privilege('anon', p.oid, 'execute'), 'signed-out visi
    and p.proname in ('create_brewery', 'accept_invites', 'brewery_members', 'my_permissions', 'save_batch', 'log_cellar_entry', 'record_packaging', 'record_level_check', 'make_batch_from', 'record_stock', 'record_count', 'set_place_order', 'create_api_key', 'revoke_api_key', 'check_alerts', 'acknowledge_alert', 'new_join_code', 'join_with_code', 'delete_brewery', 'load_into_brewery', 'plan_needs', 'plan_shortfalls', 'gravity_due', 'create_calendar_feed', 'revoke_calendar_feed', 'calendar_feed',
                      'set_menu_board_link', 'set_menu_board_link_for', 'menu_board_preview', 'menu_board_preview_content',
                      'menu_board_json', 'menu_board_content', 'menu_board_settings', 'menu_board_files',
-                     'create_demo_brewery', 'cleanup_demos', 'is_anonymous_user', 'log_api_action', 'api_key_names', 'log_api_suggestion', 'approve_api_suggestion', 'reject_api_suggestion')
+                     'create_demo_brewery', 'cleanup_demos', 'is_anonymous_user', 'log_api_action', 'api_key_names', 'log_api_suggestion', 'approve_api_suggestion', 'reject_api_suggestion', 'undo_api_action', 'mark_api_action_undone')
  order by p.proname;
 
 select * from finish();

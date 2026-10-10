@@ -63,6 +63,8 @@ revoke execute on function public.create_api_key(uuid, text, text[], text) from 
 revoke execute on function public.log_api_suggestion(text, text, text, jsonb) from anon;
 revoke execute on function public.approve_api_suggestion(uuid, jsonb) from anon;
 revoke execute on function public.reject_api_suggestion(uuid) from anon;
+revoke execute on function public.undo_api_action(uuid) from anon;
+revoke execute on function public.mark_api_action_undone(uuid) from anon;
 -- The daily demo clean-up is a scheduled job (not in backups' tables): schedule it again
 create extension if not exists pg_cron with schema pg_catalog;
 select cron.schedule('brewery-os-demo-cleanup', '23 9 * * *', $job$ select public.cleanup_demos(); $job$);

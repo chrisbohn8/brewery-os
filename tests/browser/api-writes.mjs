@@ -147,6 +147,35 @@ try {
   const count = await page.evaluate(() => document.querySelectorAll("#key-activity li").length);
   check(count >= 15, `every write listed (${count})`);
   check(!activity.includes(`Logger ${run}`), "the refused write isn't listed");
+
+  console.log("5. Undo from the activity list");
+  const row = (text) => page.evaluate((t) => [...document.querySelectorAll("#key-activity li")].find((li) => li.textContent.includes(t))?.querySelector("[data-undo-action]")?.dataset.undoAction || null, text);
+  check(!(await row("Packaged #")), "packaging has no Undo (volumes and stock are corrected the usual way)");
+  const addId = await row(`Citra to #${batch}`);
+  check(!!addId, "the addition has Undo");
+  await page.click(`[data-undo-action="${addId}"]`);
+  await page.waitForFunction((id) => !document.querySelector(`[data-undo-action="${id}"]`), addId, { timeout: 10000 }).catch(() => {});
+  await page.evaluate(() => refresh());
+  check(await page.evaluate((n) => !data.additions.some((a) => a.batchId === data.batches.find((b) => b.batchNumber === n)?.id && a.name === "Citra"), batch),
+    "undone: the addition is gone");
+  check(/undone by brewer1@example.test/.test(await page.textContent("#key-activity")), "and the list says who undid it");
+  const beerUndo = await row(`Changed ${made.beer}`);
+  await page.click(`[data-undo-action="${beerUndo}"]`);
+  await wait(1500);
+  check(await page.evaluate(async (id) => (await db.from("beers").select("menu_short").eq("id", id).single()).data.menu_short, made.beerId) === (beerWas?.menu_short ?? ""),
+    "undone: the beer's menu line is back to what it was");
+  // A change someone made again since: undo won't erase it
+  r = await call(key, "PATCH", `/tanks/${enc(`API BT ${run}`)}`, { status: "maintenance" });
+  await page.evaluate((id) => db.from("tanks").update({ status: "cleaning" }).eq("id", id), made.bt);
+  await settings(page, "account");
+  await settings(page, "api");
+  await page.waitForFunction((t) => [...document.querySelectorAll("#key-activity li")].some((li) => li.textContent.includes(t)), `API BT ${run} set to maintenance`, { timeout: 10000 }).catch(() => {});
+  await page.evaluate(() => { window.__told = []; const w = window.warn; window.warn = (t, o) => { window.__told.push(t); return w(t, o); }; });
+  await page.click(`[data-undo-action="${await row(`API BT ${run} set to maintenance`)}"]`);
+  await wait(1500);
+  const said = await page.evaluate(() => [...window.__told, document.getElementById("toasts").textContent].join(" "));
+  check(/changed since/.test(said) && await page.evaluate(async (id) => (await db.from("tanks").select("status").eq("id", id).single()).data.status, made.bt) === "cleaning",
+    "changed since: undo refuses, and the newer status stays");
   check(errors.length === 0, `no page errors (${errors.join("; ")})`);
 } catch (e) {
   fails.push("crashed: " + e.message);

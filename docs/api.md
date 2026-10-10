@@ -60,6 +60,10 @@ A key either **suggests changes** (the usual choice, and the one for AI assistan
 
 Someone in the brewery approves it on the tank board (it's saved as them, under their permissions, marked "via" the key, dated the day it was suggested) or rejects it. A key can't approve its own suggestions. `GET` requests work the same for both kinds.
 
+## Undo
+
+A key's change can be undone by a person in the app (Settings → API keys → What keys did lately → Undo): what it added is removed, and what it changed is put back unless it's been changed again since. The answers to `PATCH /tanks/…`, `PATCH /beers/…`, and `PUT /lines/…` include `was` and `now` (the values before and after) for this. Volumes and stock aren't undone: they're corrected with a level check, a count, or a move, so their history is kept. A key can't undo.
+
 ## Writing (doing what the app does)
 
 Every write is **the app's own action**, run as you and limited by the key: the API can't do anything the app wouldn't let you do, and the same rules hold (one batch per tank, volumes, oldest stock first). Things are named by **id or name**: a tank `"FV3"`, a beer `"House Hazy"`, a package `"½ bbl keg"`, a place `"Taproom"` (or `"Riverside Taproom"` when two locations have one). Dates are `"2026-10-07"`; left out, they're today (in the brewery's time zone). Volumes are in barrels.
@@ -87,4 +91,4 @@ A mistake gets a clear answer: `404` for a name that isn't here (`No beer "Hazy 
 
 ## What's next
 
-Undo from the activity list, more writes (recipes, the brew-day sheet's values, raw counts and orders), and later a sensor inbox for tank probes. Rate limits come when someone outside the brewery holds a key.
+More writes (recipes, the brew-day sheet's values, raw counts and orders), and later a sensor inbox for tank probes. Rate limits come when someone outside the brewery holds a key.

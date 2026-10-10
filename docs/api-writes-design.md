@@ -1,6 +1,6 @@
 # API writes: design
 
-Status: **steps 1 and 2 built (2026-10-10): the writes, stamped with the key and listed; suggest-only keys and the review list. Next: undo.** From the product principles (README): *API maximalism. The API does everything the UI does. API writes are attributed to the key, shown in the history, and undoable. Suggest-only keys: their changes wait in a "to review" list for a person to approve. AI assistants get them by default.*
+Status: **built (2026-10-10): the writes, stamped with the key and listed (step 1); suggest-only keys and the review list (step 2); undo from the activity list (step 3).** Next: more writes (recipes, the brew-day sheet's values, raw counts and orders, settings). From the product principles (README): *API maximalism. The API does everything the UI does. API writes are attributed to the key, shown in the history, and undoable. Suggest-only keys: their changes wait in a "to review" list for a person to approve. AI assistants get them by default.*
 
 ## The rules
 

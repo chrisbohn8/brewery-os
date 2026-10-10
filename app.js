@@ -5709,7 +5709,7 @@ async function loadApiKeys() {
   renderApiKeys(); // (the keys first; what they did lately follows)
   // What keys wrote lately (everyone in the brewery can see this)
   try {
-    keyActivity = await must(db.from("api_actions").select("id, key_id, status, method, path, summary, created_at, decided_by")
+    keyActivity = await must(db.from("api_actions").select("id, key_id, status, method, path, summary, created_at, decided_by, undoable")
       .eq("brewery_id", brewery.id).order("created_at", { ascending: false }).limit(50));
   } catch { keyActivity = []; }
   renderApiKeys();
@@ -5733,9 +5733,23 @@ function renderApiKeys() {
   const at = (t) => new Date(t).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
   document.getElementById("key-activity").innerHTML = keyActivity.map((a) => `
     <li class="item"><span class="when">${esc(at(a.created_at))}</span> · <strong>${esc(data.keyNames?.[a.key_id] || "A key")}</strong>: ${esc(a.summary || `${a.method} ${a.path}`)}${
-      a.status === "done" ? "" : ` <span class="tag">${{ suggested: "waiting for review", approved: `approved by ${memberEmail(a.decided_by)}`, rejected: `rejected by ${memberEmail(a.decided_by)}`, undone: "undone" }[a.status] || a.status}</span>`}</li>`).join("")
+      a.status === "done" ? "" : ` <span class="tag">${{ suggested: "waiting for review", approved: `approved by ${memberEmail(a.decided_by)}`, rejected: `rejected by ${memberEmail(a.decided_by)}`, undone: `undone by ${memberEmail(a.decided_by)}` }[a.status] || a.status}</span>`}${
+      a.undoable && ["done", "approved"].includes(a.status) && canUndoKeys() ? ` <button type="button" class="btn small" data-undo-action="${a.id}">Undo</button>` : ""}</li>`).join("")
     || `<li class="item muted">Nothing yet. Every change a key makes is listed here, and marked "via" its key where it shows.</li>`;
 }
+// Undo what a key did (docs/api-writes-design.md, step 3): as you, under your permissions, in one step.
+// Records it added are removed; changes it made are put back unless someone changed them since.
+// Volumes and stock aren't undone here: they're corrected the usual way, so history is kept.
+const canUndoKeys = () => brewery.role === "admin" || (brewery.permissions || []).length > 0;
+document.getElementById("key-activity").addEventListener("click", async (e) => {
+  const id = e.target.closest("[data-undo-action]")?.dataset.undoAction;
+  const a = id && keyActivity.find((x) => x.id === id);
+  if (!a || !(await ask(`Undo "${a.summary}"?`, { ok: "Undo" }))) return;
+  if (await save(() => must(db.rpc("undo_api_action", { p_id: id })))) {
+    notify(`Undone: ${a.summary}.`);
+    await loadApiKeys();
+  }
+});
 document.getElementById("key-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const permissions = [...document.querySelectorAll("#key-permissions input:checked")].map((i) => i.value);

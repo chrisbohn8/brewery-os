@@ -224,12 +224,15 @@ async function route(tx: Tx, b: string, email: string, method: string, resource?
   if (is("PATCH", "tanks", true)) {
     const status = body?.status;
     if (!["empty", "cleaning", "maintenance"].includes(String(status))) throw new Problem(400, 'Send { "status": "empty" | "cleaning" | "maintenance" }.');
+    const [before] = await tx`select status from public.tanks where brewery_id = ${b} and (id::text = ${ref} or lower(name) = lower(${ref}))`;
     const updated = await tx`update public.tanks set status = ${String(status)}
                               where brewery_id = ${b} and (id::text = ${ref} or lower(name) = lower(${ref})) returning id, name, status`;
     if (!updated.length) throw new Problem(404, `No tank "${ref}" (or it can't be changed with this key).`);
     const summary = `${updated[0].name} set to ${updated[0].status}`;
-    if (ctx.mode === "direct") await tx`select public.log_api_action(${method}, ${pathText}, ${summary}, ${JSON.stringify(body)}::jsonb, ${JSON.stringify({ id: updated[0].id })}::jsonb)`;
-    return { body: updated[0], summary };
+    // (what it was, and what it was set to: for undo, which refuses if it's been changed since)
+    const result = { id: updated[0].id, was: { status: before?.status }, now: { status: updated[0].status } };
+    if (ctx.mode === "direct") await tx`select public.log_api_action(${method}, ${pathText}, ${summary}, ${JSON.stringify(body)}::jsonb, ${JSON.stringify(result)}::jsonb)`;
+    return { body: { ...updated[0], was: result.was, now: result.now }, summary };
   }
 
   if (is("GET", "batches", false)) {
@@ -541,6 +544,13 @@ async function write(tx: Tx, b: string, method: string, resource?: string, ref?:
     if ("tags" in m) set.menu_tags = ((m.tags ?? []) as unknown[]).map((t) => byName(setup.menu_tags, t, "tag"));
     if ("prices" in m) set.menu_prices = ((m.prices ?? []) as Body[]).map((p) => ({ size: byName(setup.menu_sizes, p.size, "pour size"), price: numberOr(p.price, "price") }));
     if (!Object.keys(set).length) throw new Problem(400, 'Send what to change: { "style": ..., "menu": { "short": ..., "abv": ..., "prices": [{ "size": "16 oz", "price": 7 }] } }.');
+    // (the changed columns before and after: for undo, which refuses if they've been changed since)
+    const columns = Object.keys(set);
+    const snapshot = async () => {
+      const [row] = await tx`select to_jsonb(x) as row from public.beers x where id = ${be.id}`;
+      return Object.fromEntries(columns.map((c) => [c, row.row[c] ?? null]));
+    };
+    const was = await snapshot();
     // (only what was sent changes; the database's rules check it, as for the app's form. Prices replace the beer's price list.)
     const [updated] = await tx`update public.beers set
         style = case when ${"style" in set} then ${set.style ?? null}::text else style end,
@@ -557,7 +567,7 @@ async function write(tx: Tx, b: string, method: string, resource?: string, ref?:
         menu_prices = case when ${"menu_prices" in set} then ${JSON.stringify(set.menu_prices ?? [])}::jsonb else menu_prices end
       where id = ${be.id} returning id`;
     if (!updated) throw new Problem(403, "This key can't change that beer.");
-    return done(`Changed ${be.name}: ${Object.keys(set).map((k) => k.replace("menu_", "menu ")).join(", ")}`, { id: be.id, beer: be.name }, 200);
+    return done(`Changed ${be.name}: ${Object.keys(set).map((k) => k.replace("menu_", "menu ")).join(", ")}`, { id: be.id, beer: be.name, was, now: await snapshot() }, 200);
   }
 
   // PUT /lines/{taproom}/{line}: { "beer": "House Hazy" } | { "label": "Guest cider" } | { "status": "empty" | "out" }
@@ -568,10 +578,13 @@ async function write(tx: Tx, b: string, method: string, resource?: string, ref?:
     const be = body.beer ? await beer(body.beer) : null;
     const status = be ? "beer" : body.label ? "other" : text(body.status) || "empty";
     if (!["beer", "other", "empty", "out"].includes(status)) throw new Problem(400, 'Send { "beer": ... }, { "label": ... }, or { "status": "empty" | "out" }.');
+    const line = async () => (await tx`select status, beer_id, label from public.draft_lines where place_id = ${where.id} and line_no = ${lineNo}`)[0] ?? null;
+    const was = await line();
     await tx`insert into public.draft_lines (brewery_id, place_id, line_no, status, beer_id, label)
              values (${b}::uuid, ${where.id}::uuid, ${lineNo}, ${status}, ${be?.id ?? null}::uuid, ${status === "other" ? text(body.label) : ""})
              on conflict (place_id, line_no) do update set status = excluded.status, beer_id = excluded.beer_id, label = excluded.label`;
-    return done(`${where.name} line ${lineNo}: ${be ? be.name : status === "other" ? text(body.label) : status}`, { place: where.name, line: lineNo, pours: be?.name ?? (text(body.label) || status) }, 200);
+    return done(`${where.name} line ${lineNo}: ${be ? be.name : status === "other" ? text(body.label) : status}`,
+      { place: where.name, place_id: where.id, line: lineNo, pours: be?.name ?? (text(body.label) || status), was, now: await line() }, 200);
   }
   return null;
 }
