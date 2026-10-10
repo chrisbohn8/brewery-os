@@ -62,7 +62,7 @@ Someone in the brewery approves it on the tank board (it's saved as them, under 
 
 ## Undo
 
-A key's change can be undone by a person in the app (Settings → API keys → What keys did lately → Undo): what it added is removed, and what it changed is put back unless it's been changed again since. The answers to `PATCH /tanks/…`, `PATCH /beers/…`, and `PUT /lines/…` include `was` and `now` (the values before and after) for this. Volumes and stock aren't undone: they're corrected with a level check, a count, or a move, so their history is kept. A key can't undo.
+A key's change can be undone by a person in the app (Settings → API keys → What keys did lately → Undo): what it added is removed, and what it changed is put back unless it's been changed again since. The answers to `PATCH /tanks/…`, `PATCH /beers/…`, and `PUT /lines/…` include `was` and `now` (the values before and after) for this. Volumes, stock, brew-day sheet values, and raw material counts aren't undone: they're corrected with a level check, a count, a move, or a new value, so their history is kept. A key can't undo.
 
 ## Writing (doing what the app does)
 
@@ -86,9 +86,13 @@ Every write is **the app's own action**, run as you and limited by the key: the 
 | `POST /plan` | `{ "kind": "brew", "date": "2026-10-14", "tank": "FV3", "beer": "House Hazy" }` |
 | `PATCH /beers/House Hazy` | `{ "style": "Hazy IPA", "menu": { "short": "...", "abv": 6.5, "section": "IPAs", "tags": ["New"], "prices": [{ "size": "16 oz", "price": 7 }] } }` (prices replace the beer's list) |
 | `PUT /lines/Taproom/4` | `{ "beer": "House Hazy" }`, `{ "label": "Guest cider" }`, or `{ "status": "empty" }` |
+| `POST /batches/142/sheet` | brew-day sheet values, each with its unit: `{ "values": [{ "field": "ko_gravity", "turn": 1, "plato": 15.2 }, { "field": "mash_temp", "turn": 1, "f": 152 }, { "field": "mash_water_volume", "turn": 1, "start": 1200, "end": 1780 }, { "field": "brewers", "text": "Sam, Jo" }, { "field": "mash_ph", "turn": 1, "value": 5.35 }] }` (units: `sg`/`plato`, `f`/`c`, `bbl`/`gal`/`hl`; a meter's `start` and `end` in gallons; `value` for pH and plain numbers; `text`). A new value replaces what's shown; the old one stays in the history. `GET /batches/142/sheet` reads them back (SG, °C, barrels). |
+| `POST /raw/counts` | `{ "item": "Citra", "lot": "CIT-210", "actual": 31, "reason": "Weekly count" }`: what's there, in the item's unit; the difference from what the lot should have is recorded |
+| `POST /raw/orders` | `{ "item": "Citra", "amount": 88, "expected_on": "2026-10-20", "supplier": "..." }` |
+| `POST /recipes` | `{ "beer": "House Hazy", "location": "Riverside", "name": "House Hazy (15 bbl)", "batch_size_bbl": 15, "og_plato": 16.1, "fg_plato": 4.1, "ibu": 35, "ingredients": [{ "kind": "malt", "name": "Pale 2-Row", "amount": 520, "unit": "lb", "timing": "Mash" }] }` (`og`/`fg` as SG, or `og_plato`/`fg_plato`) |
 
 A mistake gets a clear answer: `404` for a name that isn't here (`No beer "Hazy House".`), `400` for something that can't be done (`The stage is one of: ...`), `403` for something the key (or you) may not do.
 
 ## What's next
 
-More writes (recipes, the brew-day sheet's values, raw counts and orders), and later a sensor inbox for tank probes. Rate limits come when someone outside the brewery holds a key.
+Settings through the API, and later a sensor inbox for tank probes. Rate limits come when someone outside the brewery holds a key.

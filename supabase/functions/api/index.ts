@@ -30,6 +30,10 @@
 //   POST  /plan                        a calendar item
 //   PATCH /beers/{name}                a beer's targets and menu details
 //   PUT   /lines/{taproom}/{line}      what a draft line pours
+//   POST  /batches/{n}/sheet           brew-day sheet values (GET it too)
+//   POST  /raw/counts                  a count of a raw material's lot
+//   POST  /raw/orders                  a raw material on order
+//   POST  /recipes                     a recipe for a beer
 //
 // A suggest-only key's writes are tried (so one that couldn't be saved is refused right away), undone,
 // and kept as suggestions for a person to approve in the app. Approving runs the write here, as that
@@ -266,6 +270,12 @@ async function route(tx: Tx, b: string, email: string, method: string, resource?
       if (ctx.mode === "direct") await tx`select public.log_api_action(${method}, ${pathText}, ${summary}, ${JSON.stringify(body)}::jsonb, ${JSON.stringify({ id, batch: batch.batch_number })}::jsonb)`;
       return { status: 201, body: { id, batch: batch.batch_number, saved: true }, summary };
     }
+    if (method === "GET" && sub === "sheet") {
+      const rows = await tx`select field_key, turn, value, value_text, raw, recorded_at::text from public.batch_readings_current
+                              where batch_id = ${batch.id} order by field_key, turn nulls first`;
+      return { body: { batch: batch.batch_number, note: "Values are stored in standard units: gravity as SG, temperature in °C, volumes in barrels.",
+        values: rows.map((r: Record<string, unknown>) => ({ field: r.field_key, turn: r.turn, value: num(r.value), text: r.value_text, meter: r.raw ?? undefined })) } };
+    }
     if (method === "GET" && (!sub || sub === "log")) {
       const log = await tx`select id, occurred_on::text as occurred_on, action, gravity_sg, ph, temp_c, cellar_change, notes
                              from public.cellar_entries where batch_id = ${batch.id} order by occurred_on, recorded_at`;
@@ -400,8 +410,44 @@ async function write(tx: Tx, b: string, method: string, resource?: string, ref?:
     return done(`Started #${number} (${be.name}) in ${t.name}`, { id, batch: number, beer: be.name, tank: t.name, stage });
   }
 
-  if (resource === "batches" && ref && method === "POST" && ["stage", "package", "level", "additions"].includes(String(sub))) {
+  if (resource === "batches" && ref && method === "POST" && ["stage", "package", "level", "additions", "sheet"].includes(String(sub))) {
     const x = await batchRow(ref);
+    // POST /batches/{n}/sheet: { "values": [{ "field": "ko_gravity", "turn": 1, "plato": 15.2 }, { "field": "mash_temp", "turn": 1, "f": 152 },
+    //   { "field": "mash_water_volume", "turn": 1, "start": 1200, "end": 1780 }, { "field": "brewers", "text": "Sam, Jo" }] }
+    // Each value says its unit (sg / plato, f / c, bbl / gal / hl), or is a plain "value" (pH, numbers) or "text".
+    // Like the app, a new value for a field replaces what's shown and the old one is kept in the history.
+    if (sub === "sheet") {
+      if (!Array.isArray(body.values) || !body.values.length) throw new Problem(400, 'Send { "values": [{ "field": "ko_gravity", "turn": 1, "plato": 15.2 }] }.');
+      const saved: string[] = [];
+      for (const v of body.values as Body[]) {
+        const field = text(v.field);
+        if (!/^[a-z][a-z0-9_]{0,59}$/.test(field)) throw new Problem(400, `"${field}" isn't a brew-day field name (like "ko_gravity").`);
+        const turn = numberOr(v.turn, "turn");
+        if (turn != null && (!Number.isInteger(turn) || turn < 1 || turn > 6)) throw new Problem(400, "A turn is 1 to 6.");
+        let value: number | null = null, valueText: string | null = null, raw: Body | null = null;
+        if ("text" in v) valueText = text(v.text).slice(0, 500);
+        else if ("sg" in v) value = numberOr(v.sg, "sg");
+        else if ("plato" in v) value = platoToSg(numberOr(v.plato, "plato")!);
+        else if ("c" in v) value = numberOr(v.c, "c");
+        else if ("f" in v) value = (numberOr(v.f, "f")! - 32) * 5 / 9;
+        else if ("bbl" in v) value = numberOr(v.bbl, "bbl");
+        else if ("gal" in v) value = numberOr(v.gal, "gal")! / 31;
+        else if ("hl" in v) value = numberOr(v.hl, "hl")! / 1.17348;
+        else if ("start" in v && "end" in v) {
+          const start = numberOr(v.start, "start")!, end = numberOr(v.end, "end")!;
+          if (end < start) throw new Problem(400, `${field}: the end reading is lower than the start reading.`);
+          raw = { start, end, unit: "gal" };
+          value = (end - start) / 31;
+        } else if ("value" in v) value = numberOr(v.value, "value");
+        if (value == null && !valueText) throw new Problem(400, `${field}: send its value with a unit (sg, plato, f, c, bbl, gal, hl), "start" and "end" for a meter, "value", or "text".`);
+        await tx`insert into public.batch_readings (id, brewery_id, batch_id, turn, field_key, value, value_text, raw)
+                 values (${idOr(v.id)}::uuid, ${b}::uuid, ${x.id}::uuid, ${turn}::int, ${field}, ${value}::numeric, ${valueText}, ${raw ? JSON.stringify(raw) : null}::jsonb)
+                 on conflict (id) do nothing`;
+        saved.push(turn ? `${field} (turn ${turn})` : field);
+      }
+      return done(`Brew-day sheet for #${x.batch_number}: ${saved.slice(0, 4).join(", ")}${saved.length > 4 ? ` and ${saved.length - 4} more` : ""}`,
+        { batch: x.batch_number, values: saved.length });
+    }
     // POST /batches/{n}/stage: a new stage, and/or a transfer to another tank (with the volume moved)
     if (sub === "stage") {
       const stage = text(body.stage) || x.stage;
@@ -517,6 +563,79 @@ async function write(tx: Tx, b: string, method: string, resource?: string, ref?:
              values (${id}::uuid, ${b}::uuid, ${kind}, ${text(body.title)}, ${dateOr(body.date)}::date, ${text(body.someday)}, ${t?.id ?? null}::uuid,
                      ${be?.id ?? null}::uuid, ${text(body.notes)}) on conflict (id) do nothing`;
     return done(`Planned ${kind.replace("_", " ")}${be ? ` of ${be.name}` : ""}${t ? ` in ${t.name}` : ""} ${body.date ?? body.someday ?? ""}`.trim(), { id });
+  }
+
+  // A raw material by id or name
+  const rawItem = async (r: unknown) => {
+    const [item] = await tx`select id, name, unit from public.raw_items where brewery_id = ${b} and (id::text = ${text(r)} or lower(name) = lower(${text(r)}))`;
+    if (!item) throw new Problem(404, `No raw material "${r}" (add it in Inventory → Raw materials → Items first).`);
+    return item;
+  };
+
+  // POST /raw/counts: { "item": "Citra", "lot": "CIT-210", "actual": 31, "reason": "Weekly count" } (in the item's unit)
+  // The difference from what the lot should have (received − used on batches ± counts) is recorded, as the app does.
+  if (method === "POST" && resource === "raw" && ref === "counts") {
+    const item = await rawItem(body.item);
+    const actual = numberOr(body.actual, "actual");
+    if (actual == null || actual < 0) throw new Problem(400, `Send what's actually there, in the item's unit (${item.unit}): { "actual": 31 }.`);
+    const lot = text(body.lot);
+    const [{ on_hand }] = await tx`select
+        coalesce((select sum(amount) from public.raw_receipts where item_id = ${item.id} and trim(lot) = ${lot}), 0)
+      + coalesce((select sum(change) from public.raw_adjustments where item_id = ${item.id} and trim(lot) = ${lot}), 0)
+      - coalesce((select sum(public.convert_amount(a.amount, lower(a.unit), ${item.unit})) from public.batch_additions a
+                   where a.brewery_id = ${b} and lower(trim(a.name)) = lower(trim(${item.name})) and trim(a.lot) = ${lot}), 0) as on_hand`;
+    const change = Math.round((actual - Number(on_hand)) * 1e6) / 1e6;
+    if (change === 0) return { status: 200, body: { item: item.name, lot, expected: Number(on_hand), actual, saved: false, note: "It matches: nothing to record." },
+      summary: `Counted ${item.name}${lot ? ` lot ${lot}` : ""}: it matches` };
+    const id = idOr(body.id);
+    await tx`insert into public.raw_adjustments (id, brewery_id, item_id, lot, adjusted_on, change, reason)
+             values (${id}::uuid, ${b}::uuid, ${item.id}::uuid, ${lot}, ${day(body.date)}::date, ${change}::numeric, ${text(body.reason) || "Count"})
+             on conflict (id) do nothing`;
+    return done(`Counted ${item.name}${lot ? ` lot ${lot}` : ""}: ${actual} ${item.unit} (${change > 0 ? "+" : ""}${change})`,
+      { id, item: item.name, lot, expected: Number(on_hand), actual, change });
+  }
+
+  // POST /raw/orders: { "item": "Citra", "amount": 88, "expected_on": "2026-10-20", "supplier": "..." }
+  if (method === "POST" && resource === "raw" && ref === "orders") {
+    const item = await rawItem(body.item);
+    const amount = numberOr(body.amount, "amount");
+    if (!amount || amount <= 0) throw new Problem(400, `Send the amount on order, in the item's unit (${item.unit}).`);
+    const expected = dateOr(body.expected_on);
+    if (!expected) throw new Problem(400, 'Send when it\'s expected: { "expected_on": "2026-10-20" }.');
+    const id = idOr(body.id);
+    await tx`insert into public.raw_orders (id, brewery_id, item_id, amount, expected_on, supplier, notes)
+             values (${id}::uuid, ${b}::uuid, ${item.id}::uuid, ${amount}::numeric, ${expected}::date, ${text(body.supplier)}, ${text(body.notes)})
+             on conflict (id) do nothing`;
+    return done(`On order: ${amount} ${item.unit} ${item.name}, expected ${expected}`, { id, item: item.name });
+  }
+
+  // POST /recipes: { "beer": "House Hazy", "location": "Riverside", "name": "House Hazy (15 bbl)", "batch_size_bbl": 15,
+  //   "og_plato": 16.1, "fg_plato": 4.1, "ibu": 35, "ingredients": [{ "kind": "malt", "name": "Pale 2-Row", "amount": 520, "unit": "lb", "timing": "Mash" }] }
+  if (method === "POST" && resource === "recipes" && !ref) {
+    const be = await beer(body.beer);
+    let locationId = null;
+    if (body.location) {
+      const [l] = await tx`select id from public.locations where brewery_id = ${b} and (id::text = ${text(body.location)} or lower(name) = lower(${text(body.location)}))`;
+      if (!l) throw new Problem(404, `No location "${body.location}".`);
+      locationId = l.id;
+    }
+    const grav = (sg: unknown, plato: unknown, name: string) => (sg != null ? numberOr(sg, name) : plato != null ? platoToSg(numberOr(plato, name)!) : null);
+    const ingredients = Array.isArray(body.ingredients) ? body.ingredients as Body[] : [];
+    if (ingredients.length > 200) throw new Problem(400, "A recipe can have up to 200 ingredients.");
+    const id = idOr(body.id);
+    const [made] = await tx`insert into public.recipes (id, brewery_id, beer_id, location_id, name, batch_size_bbl, target_og, target_fg, ibu, color_srm, notes, source)
+      values (${id}::uuid, ${b}::uuid, ${be.id}::uuid, ${locationId}::uuid, ${text(body.name) || be.name}, ${numberOr(body.batch_size_bbl, "batch_size_bbl")}::numeric,
+              ${grav(body.og_sg ?? body.og, body.og_plato, "og")}::numeric, ${grav(body.fg_sg ?? body.fg, body.fg_plato, "fg")}::numeric,
+              ${numberOr(body.ibu, "ibu")}::numeric, ${numberOr(body.color_srm, "color_srm")}::numeric, ${text(body.notes).slice(0, 4000)}, 'API')
+      on conflict (id) do nothing returning id`;
+    if (made) {
+      for (const [i, g] of ingredients.entries()) {
+        await tx`insert into public.recipe_ingredients (brewery_id, recipe_id, position, kind, name, amount, unit, timing)
+                 values (${b}::uuid, ${id}::uuid, ${i}, ${text(g.kind) || "other"}, ${text(g.name)}, ${numberOr(g.amount, "amount")}::numeric,
+                         ${text(g.unit) || "lb"}, ${text(g.timing)})`;
+      }
+    }
+    return done(`Recipe for ${be.name}: ${text(body.name) || be.name} (${ingredients.length} ingredients)`, { id, beer: be.name });
   }
 
   // PATCH /beers/{name}: targets and menu details (sizes, sections, and tags by name)

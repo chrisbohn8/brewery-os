@@ -109,6 +109,23 @@ try {
   r = await call(key, "PUT", `/lines/${enc(`API taproom ${run}`)}/1`, { beer: made.beer });
   check(r.status === 200 && r.json.pours === made.beer, `draft line 1 pours ${made.beer}`);
 
+  r = await call(key, "POST", `/batches/${batch}/sheet`, { values: [{ field: "ko_gravity", turn: 1, plato: 15.2 }, { field: "mash_temp", turn: 1, f: 152 },
+    { field: "mash_water_volume", turn: 1, start: 1200, end: 1780 }, { field: "brewers", text: "Sam, Jo" }, { field: "mash_ph", turn: 1, value: 5.35 }] });
+  check(r.status === 201 && r.json.values === 5, `brew-day sheet values, each in its own unit (${r.status}: ${JSON.stringify(r.json)})`);
+  const sheet = await call(key, "GET", `/batches/${batch}/sheet`);
+  const val = (f) => sheet.json?.values?.find((v) => v.field === f);
+  check(Math.abs(val("ko_gravity")?.value - 1.0621) < 0.0005 && Math.abs(val("mash_temp")?.value - 66.67) < 0.01
+    && Math.abs(val("mash_water_volume")?.value - 580 / 31) < 0.001 && val("brewers")?.text === "Sam, Jo",
+    `read back in standard units (SG, °C, barrels): ${JSON.stringify(sheet.json?.values?.slice(0, 2))}`);
+  r = await call(key, "POST", "/raw/counts", { item: `API malt ${run}`, lot: `M-${run}`, actual: 500, reason: "Count" });
+  check(r.status === 201 && r.json.expected === 550 && r.json.change === -50, `a raw count records the difference (${JSON.stringify(r.json)})`);
+  r = await call(key, "POST", "/raw/orders", { item: `API malt ${run}`, amount: 1100, expected_on: "2030-01-10", supplier: "Test supplier" });
+  check(r.status === 201, "an order on the way");
+  r = await call(key, "POST", "/recipes", { beer: made.beer, location: made.location, name: `API recipe ${run}`, batch_size_bbl: 15, og_plato: 16.1, fg_plato: 4.1, ibu: 35,
+    ingredients: [{ kind: "malt", name: "Pale 2-Row", amount: 520, unit: "lb", timing: "Mash" }, { kind: "hop", name: "Citra", amount: 8, unit: "lb", timing: "Whirlpool" }] });
+  check(r.status === 201, `a recipe, with its ingredients (${r.status}: ${JSON.stringify(r.json)})`);
+  const recipeId = r.json?.id;
+
   console.log("3. Clear answers to mistakes");
   r = await call(key, "POST", `/batches/${batch}/stage`, { stage: "lagering" });
   check(r.status === 400 && /stage is one of/.test(r.json.error), `a stage that doesn't exist: ${r.status} "${r.json.error}"`);
@@ -145,7 +162,7 @@ try {
   check(activity.includes(`Writer ${run}`) && activity.includes(`Started #${batch}`) && activity.includes("Packaged") && activity.includes("line 1"),
     "Settings → API keys lists what the key did");
   const count = await page.evaluate(() => document.querySelectorAll("#key-activity li").length);
-  check(count >= 15, `every write listed (${count})`);
+  check(count >= 19, `every write listed (${count})`);
   check(!activity.includes(`Logger ${run}`), "the refused write isn't listed");
 
   console.log("5. Undo from the activity list");
@@ -164,6 +181,11 @@ try {
   await wait(1500);
   check(await page.evaluate(async (id) => (await db.from("beers").select("menu_short").eq("id", id).single()).data.menu_short, made.beerId) === (beerWas?.menu_short ?? ""),
     "undone: the beer's menu line is back to what it was");
+  const recipeUndo = await row(`Recipe for ${made.beer}: API recipe ${run}`);
+  await page.click(`[data-undo-action="${recipeUndo}"]`);
+  await wait(1500);
+  check(!(await page.evaluate(async (id) => (await db.from("recipes").select("id").eq("id", id)).data.length, recipeId)), "undone: the recipe (and its ingredients) is gone");
+  check(!(await row("Brew-day sheet for #")) && !(await row(`Counted API malt ${run}`)), "sheet values and raw counts have no Undo (corrected with a new value or count)");
   // A change someone made again since: undo won't erase it
   r = await call(key, "PATCH", `/tanks/${enc(`API BT ${run}`)}`, { status: "maintenance" });
   await page.evaluate((id) => db.from("tanks").update({ status: "cleaning" }).eq("id", id), made.bt);
@@ -190,6 +212,9 @@ try {
       await db.from("tank_cleanings").delete().eq("tank_id", made.fv);
       await db.from("tanks").delete().in("id", [made.fv, made.bt]);
       await db.from("stock_places").delete().eq("id", made.tap);
+      await db.from("raw_orders").delete().eq("item_id", made.item);
+      await db.from("raw_adjustments").delete().eq("item_id", made.item);
+      await db.from("raw_receipts").delete().eq("item_id", made.item);
       await db.from("raw_items").delete().eq("id", made.item);
       if (was) await db.from("beers").update(was).eq("id", made.beerId);
       for (const k of data.keyNames ? Object.entries(data.keyNames).filter(([, n]) => n.endsWith(run)).map(([id]) => id) : []) await db.rpc("revoke_api_key", { p_key_id: k });

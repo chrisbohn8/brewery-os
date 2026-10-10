@@ -62,7 +62,7 @@ select lives_ok($$ select public.undo_api_action((select id from made where name
 select is((select status from tanks), 'empty', 'the tank''s status is what it was');
 
 -- Volumes and stock: not undone here
-select throws_like($$ select public.undo_api_action((select id from made where name = 'move')) $$, '%Volumes and stock aren''t undone here%', 'a transfer isn''t undone here');
+select throws_like($$ select public.undo_api_action((select id from made where name = 'move')) $$, '%aren''t undone here%', 'a transfer isn''t undone here');
 
 select * from finish();
 rollback;
