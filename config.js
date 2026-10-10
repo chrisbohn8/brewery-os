@@ -13,5 +13,5 @@ const SUPABASE_KEY = ON_THIS_COMPUTER
   : "sb_publishable_hcERCBatEZUWfy9iret5sw_x2cTAXb5";
 
 // "Try the demo" (docs/demo-design.md) needs anonymous sign-ins switched on in the database's
-// settings. On for the private test copy; for the real site, it's turned on here once they're on there.
-const DEMO_OPEN = ON_THIS_COMPUTER;
+// settings (supabase/config.toml): on for the test copy, and for the real project since 2026-10-10.
+const DEMO_OPEN = true;

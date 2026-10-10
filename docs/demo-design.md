@@ -1,6 +1,6 @@
 # The demo: design (draft for review)
 
-Status: **built and tested on the private test copy (2026-10-10): the demo brewery (step 1, live) and "Try the demo" with the weekly clean-up (steps 2 and 3).** "Try the demo" opens on the real site once anonymous sign-ins are switched on there (the user's yes). The user's decisions (2026-10-10) are below; the build order is at the end.
+Status: **built and tested on the private test copy (2026-10-10): the demo brewery (step 1, live) and "Try the demo" with the weekly clean-up (steps 2 and 3).** "Try the demo" is open on the real site since 2026-10-10 (anonymous sign-ins switched on, with the user's yes). The user's decisions (2026-10-10) are below; the build order is at the end.
 
 ## What it's for
 
