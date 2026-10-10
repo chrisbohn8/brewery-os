@@ -54,7 +54,7 @@ $$;
 select is(pg_temp.almost(1), false, 'IPA: 2 halves still in storage, not almost gone');
 select is(pg_temp.almost(2), true, 'Stout: none left in storage (both are in the taproom): almost gone');
 select is(pg_temp.almost(3), false, 'a beer never kept in storage: never marked (the app can''t know)');
-select is((select parts from menu_boards limit 1) ? 'almost', true, 'new boards show it');
+select is((select parts from menu_boards where place_id = '55555555-0000-0000-0000-00000000000b') ? 'almost', true, 'new boards show it');
 
 -- 2. The taproom manager logs a kicked keg; the line pours the next one
 select pg_temp.act_as('00000000-0000-0000-0000-0000000000f1');
