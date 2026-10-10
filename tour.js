@@ -36,10 +36,12 @@
     const tank = b ? data.tanks.find((t) => t.id === b.tankId) : null;
     const beer = b ? findBeer(b.beerId) : null;
     const taproom = taproomWithPars();
-    // The board to show: one with what's on tap, at the taproom pouring the most
+    // The board to show: one with what's on tap and its own look (colors, fonts), at the taproom pouring the most
     const lines = (placeId) => (data.lines || []).filter((l) => l.placeId === placeId && l.status === "beer").length;
+    const styled = (x) => (x.theme?.scheme && x.theme.scheme !== "auto" ? 1 : 0) + (x.theme?.head ? 1 : 0);
     const board = (data.boards || []).filter((x) => x.showOnTap && lines(x.placeId) > 0)
-      .sort((x, y) => lines(y.placeId) - lines(x.placeId) || (x.layout === "compact") - (y.layout === "compact"))[0] || (data.boards || [])[0];
+      .sort((x, y) => styled(y) - styled(x) || lines(y.placeId) - lines(x.placeId) || (x.layout === "compact") - (y.layout === "compact"))[0]
+      || (data.boards || [])[0];
     const batches = data.batches.length;
     return [
       { id: "welcome", title: `Welcome to ${brewery.name}`,
