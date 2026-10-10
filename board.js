@@ -256,9 +256,12 @@
     const head = inColumns ? `<div class="mb-cols" aria-hidden="true">${sizes.map((s) => `<span class="mb-price">${esc(s.name)}</span>`).join("")}</div>` : "";
     // (a group with no prices, like "Also pouring", has no price headings)
     const priced = (g) => g.lines.some((l) => (l.beer?.prices || []).length);
+    // A section's heading (and its sizes) is kept with its first beer (cards keep the whole grid instead), so in two columns a heading never
+    // ends up alone at the bottom of one column with its beers in the other (board.css: .mb-keep)
+    const ol = (lines) => `<ol class="mb-list" style="--sizes:${inColumns ? sizes.length : 0}">${lines.map((l) => item(l, sizes, mode, set)).join("")}</ol>`;
     const list = groups(board, set).map((g) => `<section class="mb-group">
-        <div class="mb-group-head">${g.title ? `<h2>${esc(g.title)}</h2>` : "<span></span>"}${priced(g) ? head : ""}</div>
-        <ol class="mb-list" style="--sizes:${inColumns ? sizes.length : 0}">${g.lines.map((l) => item(l, sizes, mode, set)).join("")}</ol>
+        <div class="mb-keep"><div class="mb-group-head">${g.title ? `<h2>${esc(g.title)}</h2>` : "<span></span>"}${priced(g) ? head : ""}</div>
+        ${ol(set.layout === "cards" ? [] : g.lines.slice(0, 1))}</div>${set.layout === "cards" ? ol(g.lines) : g.lines.length > 1 ? ol(g.lines.slice(1)) : ""}
       </section>`).join("");
     // A TV or a page of paper has room for a few coming soon; the public page lists them all
     const comingSoon = set.showComingSoon ? board.coming_soon || [] : [];

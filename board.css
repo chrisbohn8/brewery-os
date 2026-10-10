@@ -94,3 +94,10 @@
 .mb-title { display: flex; align-items: center; gap: 0.5em; min-width: 0; }
 .mb-logo { height: 2.4em; width: auto; max-width: 12em; object-fit: contain; flex: none; }
 .mb-print .mb-logo { height: 1.8em; }
+
+/* Two columns (and paper): a section's heading always stays with its first beer (board.js wraps them
+   together); a long section can still continue in the next column, between beers. (Safari ignores
+   "break-after: avoid" on the heading, so the wrapper does the work.) */
+.mb-keep { break-inside: avoid; -webkit-column-break-inside: avoid; page-break-inside: avoid; }
+.mb-keep + .mb-list > .mb-item:first-child { border-top: 1px solid var(--mb-line); }
+.mb-keep > .mb-list > .mb-item:last-child { border-bottom: 0; }
