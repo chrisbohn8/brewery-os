@@ -50,4 +50,4 @@ Made by a generator, with every date **relative to today**, so it always looks c
 1. The generator (two locations, dates relative to today), loaded as one step; checked by a test that every screen has something on it.
 2. "Try the demo": anonymous sign-in (a setting to switch on, locally and on the live project), the demo bar, what's switched off, coming back to your copy.
 3. The weekly clean-up job.
-4. The guide's "Try the demo", and a short "what to look at" tour inside the demo.
+4. The guide's "Try the demo", and a short "what to look at" tour inside the demo (built 2026-10-10: tour.js, 11 steps on the real screens, picking its examples from the demo's records; checked at computer and phone sizes by tests/browser/tour.mjs).

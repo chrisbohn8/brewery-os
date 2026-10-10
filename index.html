@@ -124,7 +124,8 @@
   <!-- In a demo brewery: what it is, and the way to a real one -->
   <div id="demo-bar" class="demo-bar" role="note" hidden>
     <span><strong>Demo brewery:</strong> made-up records, yours alone. Change anything; it's deleted <span id="demo-ends">after a week</span>.</span>
-    <button type="button" id="leave-demo" class="btn small">Start your own brewery</button>
+    <span class="demo-bar-actions"><button type="button" id="take-tour" class="btn small">Take the tour</button>
+      <button type="button" id="leave-demo" class="btn small">Start your own brewery</button></span>
   </div>
 
   <!-- Shown when there's no signal: how old the data on screen is -->
@@ -1631,6 +1632,7 @@
   <script src="board.js"></script>
   <script src="demo.js"></script>
   <script src="app.js"></script>
+  <script src="tour.js"></script>
   <!-- The printed brew-day sheet: only shown on paper (filled in when "Print" is tapped) -->
   <div id="print-sheet"></div>
 </body>

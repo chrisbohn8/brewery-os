@@ -17,7 +17,12 @@ const errors = [];
 const asked = [];
 await onDialog(page, (d) => { if (d.type() !== "alert") asked.push(d.message()); d.accept(); });
 page.on("pageerror", (e) => errors.push(e.message));
-const ready = () => page.waitForFunction(() => !busy && !reloading && brewery?.isDemo && data.batches.length > 30, null, { timeout: 60000 });
+// (a new demo opens with its tour, which covers the page: skip it, as a visitor might; tour.mjs tests the tour)
+const ready = async () => {
+  await page.waitForFunction(() => !busy && !reloading && brewery?.isDemo && data.batches.length > 30, null, { timeout: 60000 });
+  await wait(500);
+  if (await page.evaluate(() => DemoTour.open)) await page.click('.tour-card [data-tour="skip"]');
+};
 const made = [];
 
 try {

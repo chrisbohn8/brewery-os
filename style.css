@@ -847,3 +847,27 @@ body.in-demo .demo-note { display: block; }
 .review-row { display: flex; gap: 10px; align-items: center; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--border); }
 .review-row:last-child { border-bottom: 0; }
 .review-row .actions { display: flex; gap: 6px; flex: none; }
+
+/* The demo tour: a spotlight on what a step is about, and its words beside it (at the bottom on a phone) */
+.tour-layer { position: fixed; inset: 0; z-index: 900; }
+.tour-spot { position: fixed; border-radius: 12px; box-shadow: 0 0 0 9999px rgb(0 0 0 / 0.55); pointer-events: none;
+  outline: 3px solid #fbbf24; outline-offset: 2px; transition: top 0.25s, left 0.25s, width 0.25s, height 0.25s; }
+.tour-card { position: fixed; background: var(--card); color: var(--text); border-radius: 14px; padding: 16px 18px;
+  box-shadow: 0 12px 40px rgb(0 0 0 / 0.35); max-width: 420px; outline: none; }
+.tour-card.tour-center { top: 50%; left: 50%; transform: translate(-50%, -50%); width: min(460px, calc(100vw - 32px)); max-width: none; }
+.tour-card.tour-sheet { left: 8px; right: 8px; bottom: 8px; top: auto; width: auto; max-width: none; max-height: 55vh; overflow-y: auto;
+  padding-bottom: max(16px, env(safe-area-inset-bottom)); }
+.tour-card h2 { margin: 2px 0 6px; font-size: 1.2rem; }
+.tour-text { margin: 0 0 12px; line-height: 1.45; }
+.tour-count { margin: 0; font-size: 0.8rem; color: var(--muted); }
+.tour-progress { display: flex; gap: 4px; margin-bottom: 8px; }
+.tour-progress span { flex: 1; height: 4px; border-radius: 2px; background: var(--border); }
+.tour-progress span.done { background: var(--muted); }
+.tour-progress span.on { background: #f59e0b; }
+.tour-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.tour-actions .spacer { flex: 1; }
+.tour-actions .btn.link { background: none; border: none; text-decoration: underline; color: var(--muted); padding: 6px; }
+.tour-tv { margin: 0 0 12px; aspect-ratio: 16 / 9; width: 100%; overflow: hidden; border-radius: 8px; position: relative; background: #111110; }
+.tour-tv-screen { position: absolute; top: 0; left: 0; width: 1280px; height: 720px; transform-origin: top left; overflow: hidden; }
+.tour-tv-screen > .mb { height: 100%; }
+.demo-bar-actions { display: flex; gap: 6px; flex-wrap: wrap; }

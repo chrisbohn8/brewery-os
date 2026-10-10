@@ -145,7 +145,8 @@ try {
     check(await page.inputValue("#builder-pairs") === "", "and the pairing shows 'Your own choice'");
     await page.fill('#board-form [name="head"]', "Bebas Neue");
     await page.press('#board-form [name="head"]', "Tab");
-    await wait(1500);
+    // (wait for Google to answer, however long it takes, rather than a fixed time)
+    await page.waitForFunction(() => document.fonts.check('16px "Bebas Neue"') && document.getElementById("builder-font-note").textContent === "", null, { timeout: 8000 }).catch(() => {});
     check(await page.textContent("#builder-font-note") === "", "any Google Font by name (Bebas Neue): no warning");
   } else console.log("  (skipped the Google Fonts checks: no internet)");
 

@@ -2836,6 +2836,7 @@ async function fillDemo() {
     if (await loadIntoBrewery(DemoBrewery.make(today()), "the demo", { quiet: true })) {
       await refresh();
       notify("Your demo brewery is ready. Look around and change anything: it's yours alone.");
+      DemoTour.offer(); // (the tour, the first time a demo opens on this device)
     }
   } finally {
     stop();
@@ -2865,6 +2866,7 @@ function renderDemoBar() {
   document.getElementById("demo-bar").hidden = !demo;
   if (demo && brewery.demoEnds) document.getElementById("demo-ends").textContent = `on ${formatDate(brewery.demoEnds)}`;
 }
+document.getElementById("take-tour").addEventListener("click", () => DemoTour.start());
 // A real brewery starts with an email: leaving the demo signs out of it (for good: it has no email to come back with)
 document.getElementById("leave-demo").addEventListener("click", async () => {
   if (!(await ask("To set up your own brewery, sign in with your email. Leaving signs you out of the demo, and you won't be able to come back to it. Leave the demo?",

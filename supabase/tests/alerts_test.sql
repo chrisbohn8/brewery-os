@@ -71,7 +71,7 @@ select is(pg_temp.open('low_stock'), 0, '150 lb is above the reorder level');
 insert into batch_additions (brewery_id, batch_id, added_on, kind, name, amount, unit, brew_day)
 select b, 'ac000000-0000-0000-0000-0000000000a1', current_date, 'malt', 'PILS MALT', 36.287, 'kg', true from ids;  -- 80 lb
 select pg_temp.check();
-select ok((select detail from alerts where kind = 'low_stock' and resolved_at is null) like '70.00 lb left%', 'using 80 lb (typed as 36.287 kg) leaves 70 lb: low');
+select ok((select detail from alerts where kind = 'low_stock' and resolved_at is null) like '70 lb left%', 'using 80 lb (typed as 36.287 kg) leaves 70 lb: low');
 
 -- 6. Turning a rule off clears its alerts; acknowledging
 insert into alert_rules (brewery_id, kind, enabled) select b, 'stage_too_long', false from ids;
